@@ -141,6 +141,18 @@
     }
   }
 
+  // Network state listeners for instantaneous reconnection detection
+  window.addEventListener('offline', () => {
+    isOffline = true;
+    if (offlineBadge) offlineBadge.classList.remove('hidden');
+  });
+
+  window.addEventListener('online', () => {
+    isOffline = false;
+    if (offlineBadge) offlineBadge.classList.add('hidden');
+    fetchNotices();
+  });
+
   // ==========================================================================
   // Apply Notices & Manage Urgent Takeover
   // ==========================================================================
