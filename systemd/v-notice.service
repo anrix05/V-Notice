@@ -1,0 +1,16 @@
+[Unit]
+Description=V Notice Smart Digital Board - Dual Server
+After=network.target
+
+[Service]
+Type=simple
+User=pi
+WorkingDirectory=/home/pi/v-notice
+ExecStart=/usr/bin/python3 /home/pi/v-notice/app.py
+Restart=always
+RestartSec=5
+Environment=PYTHONUNBUFFERED=1
+Environment=ADMIN_PASSWORD=vnotice2026
+
+[Install]
+WantedBy=multi-user.target

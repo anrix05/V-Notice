@@ -1,0 +1,35 @@
+[
+  {
+    "id": "vnot0002",
+    "title": "Campus Placement Drive – TCS & Infosys",
+    "body": "Eligible branches: MCA & B.Tech (All). Complete profile verification on VERP portal before 5:00 PM.",
+    "priority": "normal",
+    "type": "text",
+    "media": "",
+    "duration": 10,
+    "start": 1700000000000,
+    "end": 1900000000000
+  },
+  {
+    "id": "vnot0003",
+    "title": "CyberX 2026 National Tech Symposium",
+    "body": "36-Hour National Code Sprint, AI Expo & Hackathon. Exciting awards and industry networking.",
+    "priority": "info",
+    "type": "image",
+    "media": "vnot0003_cyberx.jpg",
+    "duration": 12,
+    "start": 1700000000000,
+    "end": 1900000000000
+  },
+  {
+    "id": "vnot0004",
+    "title": "Campus Life & Innovation Teaser",
+    "body": "Discover cutting-edge research facilities, maker spaces, and student tech clubs at V Notice Innovation Hub.",
+    "priority": "normal",
+    "type": "video",
+    "media": "sample_teaser.mp4",
+    "duration": 5,
+    "start": 1700000000000,
+    "end": 1900000000000
+  }
+]

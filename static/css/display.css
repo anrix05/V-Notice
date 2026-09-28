@@ -1,0 +1,602 @@
+/* ==========================================================================
+   V NOTICE — Minimal Digital Signage Stylesheet (Port 5000)
+   Designed for 800×480 Raspberry Pi 7-inch Display
+   Strict Palette: #0F172A, #162238, #2F6BFF, #E5484D, #F8FAFC
+   ========================================================================== */
+
+:root {
+  --bg: #0F172A;
+  --panel: #162238;
+  --panel-raised: #1C2B45;
+  --blue: #2F6BFF;
+  --red: #E5484D;
+  --text: #F8FAFC;
+  --muted: #A3B1C6;
+  --line: #24344F;
+  --line-light: #3A4C6B;
+  --radius-sm: 8px;
+  --radius-panel: 12px;
+  --radius-pill: 999px;
+  --font-stack: system-ui, -apple-system, "Segoe UI", Roboto, "DejaVu Sans", Arial, sans-serif;
+}
+
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+  -webkit-font-smoothing: antialiased;
+}
+
+html, body {
+  width: 100vw;
+  height: 100vh;
+  overflow: hidden;
+  background-color: var(--bg);
+  color: var(--text);
+  font-family: var(--font-stack);
+  user-select: none;
+  cursor: none;
+}
+
+body.show-cursor {
+  cursor: default;
+}
+
+.hidden {
+  display: none !important;
+}
+
+/* ==========================================================================
+   Main Layout Frame (800x480)
+   ========================================================================== */
+
+.display-frame {
+  width: 100vw;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background-color: var(--bg);
+  padding: 0 16px;
+}
+
+/* ==========================================================================
+   Header (56px)
+   ========================================================================== */
+
+.display-header {
+  height: 56px;
+  min-height: 56px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid var(--line);
+}
+
+.header-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.logo-mark {
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+
+.logo-mark svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.logo-text {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.offline-badge {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: 8px;
+}
+
+.offline-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: var(--radius-pill);
+  background-color: var(--muted);
+}
+
+.offline-text {
+  font-size: 14px;
+  color: var(--muted);
+}
+
+.header-right {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  justify-content: center;
+}
+
+.clock-time {
+  font-size: 28px;
+  font-weight: 600;
+  line-height: 1.1;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+}
+
+.clock-period {
+  font-size: 15px;
+  font-weight: 500;
+  color: var(--muted);
+}
+
+.clock-date {
+  font-size: 14px;
+  font-weight: 400;
+  color: var(--muted);
+  line-height: 1.2;
+}
+
+/* ==========================================================================
+   Main Content Layout (Split Screen: ~64% Stage / Rail)
+   ========================================================================== */
+
+.display-main {
+  flex: 1;
+  display: flex;
+  gap: 12px;
+  padding: 12px 0;
+  overflow: hidden;
+  min-height: 0;
+}
+
+/* Stage Panel (~64%) */
+.stage-panel {
+  flex: 1 1 64%;
+  background-color: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-panel);
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  overflow: hidden;
+  transition: border-color 0.2s ease;
+}
+
+/* Urgent takeover stage outline */
+.stage-panel.urgent-state {
+  border: 2px solid var(--red);
+}
+
+/* Meta Row (20px padding) */
+.stage-meta {
+  padding: 16px 20px 0 20px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.meta-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.pill-urgent {
+  background-color: var(--red);
+  color: #FFFFFF;
+  font-size: 14px;
+  font-weight: 600;
+  padding: 2px 10px;
+  border-radius: var(--radius-pill);
+  line-height: 1.4;
+}
+
+.label-info {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--blue);
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.dot-info {
+  width: 6px;
+  height: 6px;
+  border-radius: var(--radius-pill);
+  background-color: var(--blue);
+}
+
+.stage-type {
+  font-size: 14px;
+  color: var(--muted);
+  font-weight: 400;
+}
+
+.stage-counter {
+  font-size: 14px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  font-weight: 500;
+}
+
+/* Stage Viewport (Vertically centered) */
+.stage-viewport {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  position: relative;
+  overflow: hidden;
+  padding: 10px 20px;
+  min-height: 0;
+}
+
+.notice-view {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  opacity: 1;
+  transition: opacity 0.2s ease;
+}
+
+.notice-view.hidden {
+  display: none !important;
+}
+
+/* Text Notice Card */
+.notice-text {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 14px;
+}
+
+.notice-headline {
+  font-size: 40px; /* Scalable up to 60px on wide canvas */
+  font-weight: 600;
+  line-height: 1.15;
+  color: var(--text);
+  word-break: break-word;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.notice-headline.headline-sm {
+  font-size: 32px;
+}
+
+.notice-headline.headline-xs {
+  font-size: 26px;
+}
+
+.notice-body {
+  font-size: 20px;
+  font-weight: 400;
+  line-height: 1.45;
+  color: var(--muted);
+  display: -webkit-box;
+  -webkit-line-clamp: 4;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* Media Cards (Image / Video) */
+.notice-media {
+  padding: 0;
+  justify-content: flex-start;
+  position: relative;
+  background-color: var(--bg);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+
+.media-container {
+  flex: 1;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background-color: var(--bg);
+  overflow: hidden;
+  min-height: 0;
+}
+
+.media-img, .media-video {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+}
+
+.media-caption {
+  height: 48px;
+  min-height: 48px;
+  background-color: var(--bg);
+  border-top: 1px solid var(--line);
+  padding: 4px 14px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.caption-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  line-height: 1.2;
+}
+
+.caption-desc {
+  font-size: 14px;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  line-height: 1.2;
+}
+
+/* Empty State Card */
+.notice-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  gap: 12px;
+}
+
+.empty-icon {
+  color: var(--blue);
+  stroke-width: 1.5;
+}
+
+.empty-title {
+  font-size: 28px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.empty-subtitle {
+  font-size: 16px;
+  color: var(--muted);
+  max-width: 440px;
+}
+
+/* Stage Bottom Dots */
+.stage-dots {
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding-bottom: 8px;
+}
+
+.dot {
+  width: 6px;
+  height: 6px;
+  border-radius: var(--radius-pill);
+  background-color: var(--line-light);
+  transition: width 0.2s ease, background-color 0.2s ease;
+}
+
+.dot.active {
+  width: 24px;
+  background-color: var(--blue);
+}
+
+.stage-panel.urgent-state .dot.active {
+  background-color: var(--red);
+}
+
+/* ==========================================================================
+   Up Next Rail (min(26rem, 36%))
+   ========================================================================== */
+
+.rail-panel {
+  flex: 0 0 min(26rem, 36%);
+  background-color: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-panel);
+  display: flex;
+  flex-direction: column;
+  padding: 16px;
+  overflow: hidden;
+}
+
+.rail-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--line);
+}
+
+.rail-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.stage-panel.urgent-state ~ .rail-panel .rail-title {
+  color: var(--red);
+}
+
+.rail-count {
+  font-size: 14px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  font-weight: 500;
+}
+
+.rail-list {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.rail-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.rail-item:last-child {
+  border-bottom: none;
+}
+
+.rail-item-pos {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  min-width: 14px;
+  line-height: 1.3;
+}
+
+.rail-item-info {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.rail-item-title {
+  font-size: 16px;
+  font-weight: 500;
+  color: var(--text);
+  line-height: 1.25;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.rail-item-meta {
+  font-size: 14px;
+  color: var(--muted);
+  line-height: 1.3;
+}
+
+.rail-item-meta .meta-urgent {
+  color: var(--red);
+  font-weight: 600;
+}
+
+.rail-empty {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  color: var(--muted);
+  text-align: center;
+}
+
+/* ==========================================================================
+   Bottom Scrolling Ticker (40px)
+   ========================================================================== */
+
+.display-ticker {
+  height: 40px;
+  min-height: 40px;
+  background-color: var(--bg);
+  border-top: 1px solid var(--line);
+  display: flex;
+  align-items: center;
+  overflow: hidden;
+}
+
+.ticker-label {
+  height: 100%;
+  display: flex;
+  align-items: center;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--blue);
+  padding: 0 16px 0 0;
+  border-right: 1px solid var(--line);
+  white-space: nowrap;
+}
+
+.stage-panel.urgent-state ~ .display-ticker .ticker-label,
+.ticker-label.ticker-urgent {
+  color: var(--red);
+}
+
+.ticker-viewport {
+  flex: 1;
+  overflow: hidden;
+  position: relative;
+  white-space: nowrap;
+  padding-left: 16px;
+}
+
+.ticker-track {
+  display: inline-block;
+  white-space: nowrap;
+  animation: tickerMarquee 30s linear infinite;
+}
+
+.ticker-content {
+  font-size: 16px;
+  font-weight: 500;
+  color: var(--text);
+}
+
+.ticker-bullet {
+  display: inline-block;
+  margin: 0 16px;
+  color: var(--muted);
+  font-size: 12px;
+  vertical-align: middle;
+}
+
+@keyframes tickerMarquee {
+  0% { transform: translateX(0); }
+  100% { transform: translateX(-50%); }
+}
+
+/* ==========================================================================
+   Reduced Motion
+   ========================================================================== */
+
+@media (prefers-reduced-motion: reduce) {
+  .ticker-track {
+    animation: none;
+    transform: none;
+  }
+  .notice-view {
+    transition: none;
+  }
+  .dot {
+    transition: none;
+  }
+}

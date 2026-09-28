@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="100%" height="100%">
+  <!-- Background -->
+  <rect width="512" height="512" fill="#0F172A"/>
+
+  <!-- Icon Tile: Urgent Red #E5484D, 25% corner radius -->
+  <rect x="106" y="106" width="300" height="300" rx="75" ry="75" fill="#E5484D"/>
+
+  <!-- Symbol: Bold rounded V stroke in #F8FAFC -->
+  <path d="M 198 206 L 256 318 L 314 206" fill="none" stroke="#F8FAFC" stroke-width="36" stroke-linecap="round" stroke-linejoin="round"/>
+
+  <!-- Broadcast / Notification Dot -->
+  <circle cx="344" cy="188" r="14" fill="#F8FAFC"/>
+</svg>

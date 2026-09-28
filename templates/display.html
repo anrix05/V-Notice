@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>V Notice — Campus Digital Display</title>
+  <link rel="icon" type="image/svg+xml" href="/static/images/logo.svg">
+  <link rel="icon" type="image/png" href="/static/favicon.png">
+  <link rel="stylesheet" href="/static/css/display.css?v=4">
+</head>
+<body class="display-screen">
+
+  <div class="display-frame" id="display-frame">
+    
+    <!-- Top Header (56px) -->
+    <header class="display-header">
+      <div class="header-left">
+        <div class="logo-mark" aria-hidden="true">
+          <svg viewBox="0 0 100 100" width="32" height="32" aria-hidden="true">
+            <rect width="100" height="100" rx="25" ry="25" fill="#2F6BFF"/>
+            <path d="M 31 33 L 50 71 L 69 33" fill="none" stroke="#F8FAFC" stroke-width="12" stroke-linecap="round" stroke-linejoin="round"/>
+            <circle cx="79" cy="27" r="4.5" fill="#F8FAFC"/>
+          </svg>
+        </div>
+        <span class="logo-text">V Notice</span>
+        <div class="offline-badge hidden" id="offline-badge">
+          <span class="offline-dot"></span>
+          <span class="offline-text">Reconnecting…</span>
+        </div>
+      </div>
+
+      <div class="header-right">
+        <div class="clock-time" id="clock-time">
+          <span id="time-digits">10:42</span>
+          <span class="clock-period" id="time-period">AM</span>
+        </div>
+        <div class="clock-date" id="clock-date">Tuesday, 29 September 2026</div>
+      </div>
+    </header>
+
+    <!-- Main Content Area: Split 64% / 36% for 800x480 -->
+    <main class="display-main">
+      
+      <!-- Stage Panel (~64%) -->
+      <section class="stage-panel" id="stage-panel">
+        
+        <!-- Meta Row (20px padding) -->
+        <div class="stage-meta">
+          <div class="meta-left">
+            <span class="stage-priority hidden" id="stage-priority"></span>
+            <span class="stage-type" id="stage-type">Text</span>
+          </div>
+          <div class="meta-right">
+            <span class="stage-counter" id="stage-counter">1 / 1</span>
+          </div>
+        </div>
+
+        <!-- Stage Viewport -->
+        <div class="stage-viewport" id="stage-viewport">
+          
+          <!-- Text Notice Card -->
+          <div class="notice-view notice-text" id="card-text">
+            <h1 class="notice-headline" id="text-headline">Notice Headline</h1>
+            <p class="notice-body" id="text-body">Notice body content details</p>
+          </div>
+
+          <!-- Image Notice Card -->
+          <div class="notice-view notice-media hidden" id="card-image">
+            <div class="media-container">
+              <img id="image-element" class="media-img" src="" alt="Notice poster">
+            </div>
+            <div class="media-caption">
+              <div class="caption-title" id="image-headline"></div>
+              <div class="caption-desc" id="image-body"></div>
+            </div>
+          </div>
+
+          <!-- Video Notice Card -->
+          <div class="notice-view notice-media hidden" id="card-video">
+            <div class="media-container">
+              <video id="video-element" class="media-video" muted playsinline preload="auto">
+                <source src="" type="video/mp4">
+              </video>
+            </div>
+            <div class="media-caption">
+              <div class="caption-title" id="video-headline"></div>
+              <div class="caption-desc" id="video-body"></div>
+            </div>
+          </div>
+
+          <!-- Empty State -->
+          <div class="notice-view notice-empty hidden" id="card-empty">
+            <svg class="empty-icon" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+              <rect x="3" y="3" width="18" height="18" rx="2"></rect>
+              <path d="M8 7h8M8 11h8M8 15h5"></path>
+            </svg>
+            <h2 class="empty-title" id="empty-title">No notices right now</h2>
+            <p class="empty-subtitle" id="empty-subtitle">New notices appear here as soon as they are published.</p>
+          </div>
+
+        </div>
+
+        <!-- Progress Dots (Single indicator, bottom centered) -->
+        <div class="stage-dots" id="stage-dots">
+          <!-- Populated dynamically -->
+        </div>
+
+      </section>
+
+      <!-- Up Next Rail (min(26rem, 36%)) -->
+      <aside class="rail-panel" id="rail-panel">
+        <div class="rail-header">
+          <span class="rail-title" id="rail-title">Up next</span>
+          <span class="rail-count" id="up-next-count">0</span>
+        </div>
+        <div class="rail-list" id="up-next-list">
+          <!-- Populated dynamically -->
+        </div>
+      </aside>
+
+    </main>
+
+    <!-- Bottom Ticker (40px) -->
+    <footer class="display-ticker">
+      <div class="ticker-label" id="ticker-label">Latest</div>
+      <div class="ticker-viewport">
+        <div class="ticker-track" id="ticker-track">
+          <span class="ticker-content" id="ticker-content">Loading campus notices…</span>
+        </div>
+      </div>
+    </footer>
+
+  </div>
+
+  <script src="/static/js/display.js?v=4"></script>
+</body>
+</html>
