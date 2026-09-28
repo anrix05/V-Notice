@@ -1,6 +1,6 @@
 # V Notice — Smart Digital Notice Board
 
-> **MCA Final-Year Project**  
+> **MCA Project**  
 > *Platform: Raspberry Pi + 7-inch LCD Display (800×480)*  
 > *Tagline: "Your Campus. Your Notices. One Display."*
 
