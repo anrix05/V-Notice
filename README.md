@@ -134,7 +134,7 @@ python app.py
 This automatically starts:
 - **Display Interface**: `http://localhost:5000`
 - **Admin Management Portal**: `http://localhost:5001`
-- **Default Admin Password**: `vnotice2026`
+- **Admin Password**: Set via `ADMIN_PASSWORD` in `.env` (or environment variable)
 
 To run with a custom password:
 ```bash
