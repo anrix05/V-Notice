@@ -6,7 +6,7 @@
   <title>V Notice — Campus Digital Display</title>
   <link rel="icon" type="image/svg+xml" href="/static/images/logo.svg">
   <link rel="icon" type="image/png" href="/static/favicon.png">
-  <link rel="stylesheet" href="/static/css/display.css?v=6">
+  <link rel="stylesheet" href="/static/css/display.css?v=7">
 </head>
 <body class="display-screen">
 
@@ -108,16 +108,6 @@
             <p class="empty-subtitle" id="empty-subtitle">New notices appear here as soon as they are published.</p>
           </div>
 
-          <!-- "Scan to Phone / Download" QR Code Badge on Stage -->
-          <div class="stage-qr-badge hidden" id="stage-qr-badge" title="Point your phone camera to download this notice">
-            <div class="qr-canvas-box" id="stage-qr-canvas"></div>
-            <div class="qr-label-box">
-              <span class="qr-label-head">Scan to Save</span>
-              <span class="qr-label-sub">Download to phone</span>
-              <span class="qr-pill-hint">⚡ Camera / Scanner</span>
-            </div>
-          </div>
-
         </div>
 
         <!-- Progress Dots (Single indicator, bottom centered) -->
@@ -136,6 +126,16 @@
         <div class="rail-list" id="up-next-list">
           <!-- Populated dynamically -->
         </div>
+
+        <!-- Dedicated QR Card at bottom of rail (Decent, Minimal, No stage overlap) -->
+        <div class="rail-qr-card hidden" id="stage-qr-badge" title="Point your phone camera to download this notice">
+          <div class="qr-canvas-box" id="stage-qr-canvas"></div>
+          <div class="qr-label-box">
+            <span class="qr-label-head">Scan to Save</span>
+            <span class="qr-label-sub">Download notice to phone</span>
+            <span class="qr-pill-hint">⚡ Camera / Scanner</span>
+          </div>
+        </div>
       </aside>
 
     </main>
@@ -153,6 +153,6 @@
   </div>
 
   <script src="/static/js/qrcode.min.js"></script>
-  <script src="/static/js/display.js?v=6"></script>
+  <script src="/static/js/display.js?v=7"></script>
 </body>
 </html>

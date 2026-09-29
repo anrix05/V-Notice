@@ -385,42 +385,39 @@ body.show-cursor {
   display: block;
 }
 
-/* "Scan to Phone / Download" QR Code Badge on Stage */
-.stage-qr-badge {
-  position: absolute;
-  bottom: 18px;
-  right: 20px;
+/* ==========================================================================
+   Rail QR Card (Decent, Minimal, No stage overlap)
+   ========================================================================== */
+.rail-qr-card {
+  margin-top: auto;
   display: flex;
   align-items: center;
-  gap: 14px;
-  background: rgba(15, 23, 42, 0.94);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
-  border: 1px solid rgba(47, 107, 255, 0.4);
-  border-radius: var(--radius-md);
-  padding: 10px 14px;
-  z-index: 10;
-  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.55), 0 0 0 1px rgba(255, 255, 255, 0.05);
-  pointer-events: auto;
-  transition: opacity 0.2s ease, transform 0.2s ease;
+  gap: 12px;
+  background-color: var(--panel-raised);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  padding: 10px 12px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+  transition: opacity 0.2s ease;
+  flex-shrink: 0;
 }
 
-.stage-qr-badge.hidden {
+.rail-qr-card.hidden {
   display: none !important;
 }
 
 .qr-canvas-box {
-  width: 78px;
-  height: 78px;
+  width: 72px;
+  height: 72px;
   background: #FFFFFF;
-  border-radius: 8px;
-  padding: 4px;
+  border-radius: 6px;
+  padding: 3px;
   display: flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
   overflow: hidden;
-  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.25);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
 }
 
 .qr-canvas-box canvas,
@@ -433,30 +430,34 @@ body.show-cursor {
 .qr-label-box {
   display: flex;
   flex-direction: column;
-  gap: 3px;
+  gap: 2px;
+  min-width: 0;
 }
 
 .qr-label-head {
-  font-size: 15px;
+  font-size: 14px;
   font-weight: 600;
   color: var(--text);
   line-height: 1.2;
 }
 
 .qr-label-sub {
-  font-size: 12px;
+  font-size: 11.5px;
   color: var(--muted);
-  line-height: 1.2;
+  line-height: 1.25;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .qr-pill-hint {
-  font-size: 10.5px;
+  font-size: 10px;
   font-weight: 500;
   color: #8bb2ff;
-  background: rgba(47, 107, 255, 0.18);
-  border: 1px solid rgba(47, 107, 255, 0.35);
+  background: rgba(47, 107, 255, 0.16);
+  border: 1px solid rgba(47, 107, 255, 0.3);
   border-radius: var(--radius-pill);
-  padding: 2px 8px;
+  padding: 1px 7px;
   width: fit-content;
   margin-top: 2px;
   line-height: 1.2;
@@ -854,12 +855,9 @@ body.show-cursor {
     font-size: 12px;
   }
 
-  .stage-qr-badge {
-    bottom: 20px;
-    right: 24px;
-    padding: 12px 16px;
+  .rail-qr-card {
+    padding: 12px 14px;
     gap: 14px;
-    border-radius: var(--radius-md);
   }
 
   .qr-canvas-box {
@@ -1042,10 +1040,8 @@ body.show-cursor {
     font-size: 14px;
   }
 
-  .stage-qr-badge {
-    bottom: 28px;
-    right: 36px;
-    padding: 14px 20px;
+  .rail-qr-card {
+    padding: 14px 18px;
     gap: 16px;
     border-radius: var(--radius-md);
   }
