@@ -22,6 +22,82 @@ from config import (
 )
 from storage import storage
 
+import socket
+import urllib.request
+import json
+import time
+
+_weather_cache = {"data": None, "timestamp": 0}
+
+def get_lan_ip():
+    env_ip = os.environ.get("SERVER_IP")
+    if env_ip:
+        return env_ip
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        s.connect(('10.255.255.255', 1))
+        ip = s.getsockname()[0]
+    except Exception:
+        ip = '127.0.0.1'
+    finally:
+        s.close()
+    return ip
+
+def get_system_weather():
+    now = time.time()
+    if _weather_cache["data"] and (now - _weather_cache["timestamp"] < 600):
+        return _weather_cache["data"]
+
+    city = os.environ.get("CAMPUS_CITY", "")
+    lat = float(os.environ.get("CAMPUS_LAT", 0) or 0)
+    lon = float(os.environ.get("CAMPUS_LON", 0) or 0)
+
+    # Auto-detect location if not configured
+    if not city or not lat:
+        try:
+            req = urllib.request.Request("http://ip-api.com/json/", headers={"User-Agent": "Mozilla/5.0"})
+            with urllib.request.urlopen(req, timeout=3) as r:
+                geo = json.loads(r.read().decode())
+                if geo.get("status") == "success":
+                    city = geo.get("city", "Mumbai")
+                    lat = geo.get("lat", 19.0748)
+                    lon = geo.get("lon", 72.8856)
+        except Exception:
+            city = "Mumbai"
+            lat = 19.0748
+            lon = 72.8856
+
+    temp = "28°C"
+    icon = "🌤"
+    try:
+        url = f"https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}&current=temperature_2m,apparent_temperature,weather_code"
+        with urllib.request.urlopen(url, timeout=3) as r:
+            w_data = json.loads(r.read().decode())
+            if "current" in w_data:
+                raw_temp = round(w_data["current"]["temperature_2m"])
+                temp = f"{raw_temp}°C"
+                code = w_data["current"]["weather_code"]
+                icons = {
+                    0: "☀️", 1: "🌤", 2: "⛅", 3: "☁️",
+                    45: "🌫", 48: "🌫", 51: "🌦", 53: "🌦",
+                    55: "🌧", 61: "🌧", 63: "🌧", 65: "🌧",
+                    71: "🌨", 80: "🌦", 81: "🌧", 82: "⛈", 95: "⛈"
+                }
+                icon = icons.get(code, "🌤")
+    except Exception:
+        pass
+
+    result = {
+        "city": city or "Mumbai",
+        "temp": temp,
+        "icon": icon,
+        "lan_ip": get_lan_ip(),
+        "display_port": DISPLAY_PORT
+    }
+    _weather_cache["data"] = result
+    _weather_cache["timestamp"] = now
+    return result
+
 def create_display_app():
     app = Flask(__name__, template_folder="templates", static_folder="static")
     app.config["SECRET_KEY"] = os.urandom(24)
@@ -45,12 +121,54 @@ def create_display_app():
         active_notices = storage.get_active()
         return jsonify(active_notices)
 
+    @app.route("/api/system-info", methods=["GET"])
+    def system_info():
+        return jsonify(get_system_weather())
+
     @app.route("/notice/<notice_id>")
     def notice_detail(notice_id):
         notice = storage.get_by_id(notice_id)
         if not notice:
             return render_template("notice_detail.html", notice=None), 404
         return render_template("notice_detail.html", notice=notice)
+
+    @app.route("/notice/<notice_id>/download")
+    def notice_download(notice_id):
+        notice = storage.get_by_id(notice_id)
+        if not notice:
+            return jsonify({"error": "Notice not found"}), 404
+        
+        # If notice has media (image/video), download actual media
+        if notice.get("media"):
+            media_path = MEDIA_FOLDER / notice["media"]
+            if media_path.exists():
+                return send_from_directory(
+                    MEDIA_FOLDER,
+                    notice["media"],
+                    as_attachment=True,
+                    download_name=notice["media"]
+                )
+
+        # For text notices, generate a clean text file
+        title = notice.get("title", "Notice")
+        clean_title = "".join(c for c in title if c.isalnum() or c in (" ", "_", "-")).rstrip()
+        filename = f"{clean_title or 'notice'}.txt"
+        content = (
+            f"====================================================\n"
+            f"  V NOTICE — OFFICIAL CAMPUS ANNOUNCEMENT\n"
+            f"====================================================\n\n"
+            f"TITLE:    {notice.get('title', '')}\n"
+            f"PRIORITY: {notice.get('priority', 'Normal').upper()}\n\n"
+            f"DETAILS:\n{notice.get('body', 'No additional details provided.')}\n\n"
+            f"====================================================\n"
+            f"Saved from V Notice Smart Display\n"
+        )
+        from flask import Response
+        return Response(
+            content,
+            mimetype="text/plain; charset=utf-8",
+            headers={"Content-Disposition": f"attachment; filename=\"{filename}\""}
+        )
 
     @app.route("/media/<path:filename>")
     def serve_media(filename):

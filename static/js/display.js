@@ -213,48 +213,45 @@
   }
 
   // ==========================================================================
-  // Live Campus Weather Engine (Open-Meteo with offline resilience)
+  // Live Campus Weather & System Info Engine (Auto-detect city, temp & LAN IP)
   // ==========================================================================
-  const WMO_ICONS = {
-    0: '☀️', 1: '🌤', 2: '⛅', 3: '☁️',
-    45: '🌫', 48: '🌫',
-    51: '🌦', 53: '🌦', 55: '🌧',
-    61: '🌧', 63: '🌧', 65: '🌧',
-    71: '🌨', 73: '🌨', 75: '❄️',
-    80: '🌦', 81: '🌧', 82: '⛈',
-    95: '⛈', 96: '⛈', 99: '⛈'
+  let systemInfo = {
+    lan_ip: window.location.hostname,
+    display_port: window.location.port || '5000',
+    city: 'Campus',
+    temp: '28°C',
+    icon: '🌤'
   };
 
   async function fetchCampusWeather() {
     if (!headerWeather) return;
     try {
-      // Free Open-Meteo API for campus weather
-      const res = await fetch('https://api.open-meteo.com/v1/forecast?latitude=18.5204&longitude=73.8567&current=temperature_2m,weather_code', {
-        cache: 'no-store'
-      });
-      if (!res.ok) throw new Error(`Weather HTTP error: ${res.status}`);
-      const data = await res.json();
-      if (data && data.current) {
-        const tempC = Math.round(data.current.temperature_2m);
-        const code = data.current.weather_code;
-        const icon = WMO_ICONS[code] || '🌤';
-        const weatherObj = { temp: `${tempC}°C`, icon, city: 'Campus' };
-        applyWeather(weatherObj);
-        try {
-          localStorage.setItem('vnotice_weather', JSON.stringify(weatherObj));
-        } catch (e) {}
-      }
-    } catch (err) {
-      // Offline fallback: load from cached weather or default campus reading
-      try {
-        const cached = localStorage.getItem('vnotice_weather');
-        if (cached) {
-          applyWeather(JSON.parse(cached));
+      // 1. Fetch system-info from backend (provides LAN IP and accurate localized weather)
+      const res = await fetch('/api/system-info', { cache: 'no-store' });
+      if (res.ok) {
+        const info = await res.json();
+        if (info) {
+          systemInfo = { ...systemInfo, ...info };
+          applyWeather({ temp: info.temp || '28°C', icon: info.icon || '🌤', city: info.city || 'Campus' });
+          try {
+            localStorage.setItem('vnotice_weather', JSON.stringify({ temp: info.temp, icon: info.icon, city: info.city }));
+          } catch (e) {}
           return;
         }
-      } catch (e) {}
-      applyWeather({ temp: '28°C', icon: '🌤', city: 'Campus' });
+      }
+    } catch (err) {
+      console.warn('Backend weather fetch failed, attempting client fallback:', err);
     }
+
+    // Fallback: cached weather or default
+    try {
+      const cached = localStorage.getItem('vnotice_weather');
+      if (cached) {
+        applyWeather(JSON.parse(cached));
+        return;
+      }
+    } catch (e) {}
+    applyWeather({ temp: '28°C', icon: '🌤', city: 'Campus' });
   }
 
   function applyWeather(w) {
@@ -264,7 +261,7 @@
   }
 
   // ==========================================================================
-  // "Scan to Phone" QR Code Generator
+  // "Scan to Phone / Download" QR Code Generator (Uses real LAN IP)
   // ==========================================================================
   function updateStageQr(notice) {
     if (!stageQrBadge || !stageQrCanvas) return;
@@ -279,7 +276,12 @@
     currentQrNoticeId = notice.id;
 
     stageQrCanvas.innerHTML = '';
-    const targetUrl = `${window.location.origin}/notice/${notice.id}`;
+
+    // Use actual LAN Wi-Fi IP so phones on the same network connect directly (not localhost)
+    const host = (systemInfo.lan_ip && systemInfo.lan_ip !== '127.0.0.1') ? systemInfo.lan_ip : window.location.hostname;
+    const port = systemInfo.display_port ? `:${systemInfo.display_port}` : (window.location.port ? `:${window.location.port}` : ':5000');
+    const targetUrl = `http://${host}${port}/notice/${notice.id}?download=1`;
+
     if (window.QRCode) {
       try {
         new QRCode(stageQrCanvas, {
