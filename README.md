@@ -1,7 +1,7 @@
 # V Notice — Smart Digital Notice Board
 
 > **MCA Project**  
-> *Platform: Raspberry Pi + 7-inch LCD Display (800×480)*  
+> *Platform: Raspberry Pi + 18-inch to 22-inch Monitor (Full HD 1080p / 900p / 720p & 7-inch LCD)*  
 > *Tagline: "Your Campus. Your Notices. One Display."*
 
 ---
@@ -11,7 +11,7 @@
 **V Notice** is a centralized smart digital notice board system developed for college campuses. It seamlessly connects faculty, administration, and students:
 
 - **Faculty and Staff** publish, schedule, categorize, and broadcast announcements instantly from any smartphone, tablet, or laptop from anywhere.
-- **The Raspberry Pi** wall-mounted 7-inch LCD display (800×480) dynamically rotates active notices, prioritizes urgent campus alerts, plays campus video broadcasts, and provides a continuous headline ticker with a live digital clock.
+- **The Raspberry Pi** wall-mounted 18-inch to 22-inch monitor dynamically rotates active notices, prioritizes urgent campus alerts, plays campus video broadcasts, and provides a continuous headline ticker with a live digital clock readable from across corridors and lobbies.
 - **Zero manual refreshes**: The display automatically polls and updates within seconds. Real-time deletion and additions reflect seamlessly.
 - **Offline resilience**: In the event of Wi-Fi or network dropouts, the display continues cycling cached notices from `localStorage` without interruptions or blank screens.
 
@@ -168,7 +168,7 @@ Cloudflare generates a secure, free public HTTPS link (e.g. `https://vnotice-adm
 
 ### Hardware
 - **Raspberry Pi 4 / 3B+**
-- **7-inch LCD Display** (800×480 resolution via DSI or HDMI)
+- **18-inch to 22-inch Standard Monitor** (Full HD 1080p / 900p / 720p via HDMI, or 7-inch LCD)
 - **5V / 3A USB-C Power Supply**
 
 ### Auto-Start Services Configuration

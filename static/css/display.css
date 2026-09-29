@@ -585,6 +585,301 @@ body.show-cursor {
 }
 
 /* ==========================================================================
+   Responsive Scaling for 18-inch to 22-inch Standard Monitors (720p, 900p, 1080p)
+   Optimized for wall-mounted long distance campus readability (3-10 meters)
+   ========================================================================== */
+
+/* 18-inch / 19-inch Monitors (1200px - 1599px, e.g., 1366x768, 1440x900) */
+@media (min-width: 1200px) {
+  .display-frame {
+    padding: 0 28px;
+  }
+
+  .display-header {
+    height: 72px;
+    min-height: 72px;
+  }
+
+  .logo-mark {
+    width: 42px;
+    height: 42px;
+  }
+
+  .logo-text {
+    font-size: 22px;
+  }
+
+  .clock-time {
+    font-size: 38px;
+  }
+
+  .clock-period {
+    font-size: 18px;
+  }
+
+  .clock-date {
+    font-size: 16px;
+  }
+
+  .offline-badge {
+    font-size: 15px;
+  }
+
+  .display-main {
+    gap: 16px;
+    padding: 16px 0;
+  }
+
+  .stage-meta {
+    padding: 22px 28px 0 28px;
+  }
+
+  .pill-urgent {
+    font-size: 16px;
+    padding: 4px 14px;
+  }
+
+  .label-info,
+  .stage-type,
+  .stage-counter {
+    font-size: 16px;
+  }
+
+  .stage-viewport {
+    padding: 16px 28px;
+  }
+
+  .notice-headline {
+    font-size: 54px;
+    line-height: 1.18;
+  }
+
+  .notice-headline.headline-sm {
+    font-size: 42px;
+  }
+
+  .notice-headline.headline-xs {
+    font-size: 34px;
+  }
+
+  .notice-body {
+    font-size: 24px;
+    line-height: 1.5;
+  }
+
+  .media-caption {
+    height: 58px;
+    min-height: 58px;
+    padding: 6px 18px;
+  }
+
+  .caption-title {
+    font-size: 18px;
+  }
+
+  .caption-desc {
+    font-size: 15px;
+  }
+
+  .rail-panel {
+    padding: 20px;
+    flex: 0 0 min(28rem, 34%);
+  }
+
+  .rail-title {
+    font-size: 18px;
+  }
+
+  .rail-count {
+    font-size: 16px;
+  }
+
+  .rail-item-title {
+    font-size: 18px;
+  }
+
+  .rail-item-meta {
+    font-size: 15px;
+  }
+
+  .rail-item-pos {
+    font-size: 16px;
+  }
+
+  .display-ticker {
+    height: 52px;
+    min-height: 52px;
+  }
+
+  .ticker-label {
+    font-size: 16px;
+  }
+
+  .ticker-content {
+    font-size: 18px;
+  }
+
+  .stage-dots {
+    height: 36px;
+  }
+
+  .dot {
+    width: 8px;
+    height: 8px;
+  }
+
+  .dot.active {
+    width: 28px;
+  }
+}
+
+/* 21.5-inch / 22-inch Full HD 1080p Monitors (1600px and up, 1920x1080) */
+@media (min-width: 1600px) {
+  .display-frame {
+    padding: 0 36px;
+  }
+
+  .display-header {
+    height: 84px;
+    min-height: 84px;
+  }
+
+  .logo-mark {
+    width: 48px;
+    height: 48px;
+  }
+
+  .logo-text {
+    font-size: 26px;
+  }
+
+  .clock-time {
+    font-size: 46px;
+  }
+
+  .clock-period {
+    font-size: 20px;
+  }
+
+  .clock-date {
+    font-size: 18px;
+  }
+
+  .offline-badge {
+    font-size: 16px;
+  }
+
+  .display-main {
+    gap: 20px;
+    padding: 20px 0;
+  }
+
+  .stage-meta {
+    padding: 26px 36px 0 36px;
+  }
+
+  .pill-urgent {
+    font-size: 17px;
+    padding: 5px 16px;
+  }
+
+  .label-info,
+  .stage-type,
+  .stage-counter {
+    font-size: 18px;
+  }
+
+  .stage-viewport {
+    padding: 20px 36px;
+  }
+
+  .notice-headline {
+    font-size: 64px; /* 60px target headline size for long distance corridor viewing */
+    line-height: 1.15;
+  }
+
+  .notice-headline.headline-sm {
+    font-size: 50px;
+  }
+
+  .notice-headline.headline-xs {
+    font-size: 40px;
+  }
+
+  .notice-body {
+    font-size: 28px;
+    line-height: 1.55;
+  }
+
+  .media-caption {
+    height: 64px;
+    min-height: 64px;
+    padding: 8px 22px;
+  }
+
+  .caption-title {
+    font-size: 20px;
+  }
+
+  .caption-desc {
+    font-size: 16px;
+  }
+
+  .rail-panel {
+    padding: 24px;
+    flex: 0 0 min(32rem, 32%);
+  }
+
+  .rail-title {
+    font-size: 22px;
+  }
+
+  .rail-count {
+    font-size: 18px;
+  }
+
+  .rail-item-title {
+    font-size: 20px;
+  }
+
+  .rail-item-meta {
+    font-size: 16px;
+  }
+
+  .rail-item-pos {
+    font-size: 18px;
+    min-width: 20px;
+  }
+
+  .display-ticker {
+    height: 60px;
+    min-height: 60px;
+  }
+
+  .ticker-label {
+    font-size: 18px;
+    padding: 0 24px 0 0;
+  }
+
+  .ticker-content {
+    font-size: 21px;
+  }
+
+  .stage-dots {
+    height: 42px;
+  }
+
+  .dot {
+    width: 10px;
+    height: 10px;
+  }
+
+  .dot.active {
+    width: 36px;
+  }
+}
+
+/* ==========================================================================
    Reduced Motion
    ========================================================================== */
 
