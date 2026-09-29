@@ -46,8 +46,15 @@
   const inputTitle = document.getElementById('notice-title');
   const titleCounter = document.getElementById('title-counter');
   const inputBody = document.getElementById('notice-body');
-  const inputStart = document.getElementById('notice-start');
-  const inputEnd = document.getElementById('notice-end');
+  const inputStartDate = document.getElementById('notice-start-date');
+  const inputStartTime = document.getElementById('notice-start-time');
+  const inputEndDate = document.getElementById('notice-end-date');
+  const inputEndTime = document.getElementById('notice-end-time');
+  const btnSetStartNow = document.getElementById('btn-set-start-now');
+  const scheduleDiffBadge = document.getElementById('schedule-diff-badge');
+  const scheduleSummaryBar = document.getElementById('schedule-summary-bar');
+  const scheduleSummaryDot = document.getElementById('schedule-summary-dot');
+  const scheduleSummaryText = document.getElementById('schedule-summary-text');
   const inputDuration = document.getElementById('notice-duration');
   const durationGroup = document.getElementById('duration-group');
   const typeRadios = document.querySelectorAll('input[name="type"]');
@@ -65,6 +72,8 @@
   const previewMediaWrapper = document.getElementById('preview-media-wrapper');
   const previewRatioPill = document.getElementById('preview-ratio-pill');
   const previewDimsLabel = document.getElementById('preview-dims-label');
+  const aspectRecommendLabel = document.getElementById('aspect-recommend-label');
+  const dropAspectHint = document.getElementById('drop-aspect-hint');
   let editingNoticeId = null;
 
   const errTitle = document.getElementById('err-title');
@@ -405,11 +414,99 @@
   });
 
   // ==========================================================================
-  // Create Notice Dialog
+  // Schedule & Date/Time Management (Separate Date + Time for total clarity)
   // ==========================================================================
-  function toLocalDatetimeString(date) {
-    const pad = (n) => String(n).padStart(2, '0');
-    return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+  function pad2(n) {
+    return String(n).padStart(2, '0');
+  }
+
+  function toDateInputString(date) {
+    return `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())}`;
+  }
+
+  function toTimeInputString(date) {
+    return `${pad2(date.getHours())}:${pad2(date.getMinutes())}`;
+  }
+
+  function formatTime12(date) {
+    let hours = date.getHours();
+    const minutes = pad2(date.getMinutes());
+    const ampm = hours >= 12 ? 'PM' : 'AM';
+    hours = hours % 12;
+    hours = hours ? hours : 12;
+    return `${hours}:${minutes} ${ampm}`;
+  }
+
+  function formatDateShort(date) {
+    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+    return `${days[date.getDay()]}, ${date.getDate()} ${months[date.getMonth()]}`;
+  }
+
+  function getStartTimestamp() {
+    if (!inputStartDate || !inputStartDate.value) return Date.now();
+    const timeVal = (inputStartTime && inputStartTime.value) ? inputStartTime.value : '00:00';
+    const d = new Date(`${inputStartDate.value}T${timeVal}`);
+    return isNaN(d.getTime()) ? Date.now() : d.getTime();
+  }
+
+  function getEndTimestamp() {
+    if (!inputEndDate || !inputEndDate.value) return Date.now() + 7 * 86400000;
+    const timeVal = (inputEndTime && inputEndTime.value) ? inputEndTime.value : '23:59';
+    const d = new Date(`${inputEndDate.value}T${timeVal}`);
+    return isNaN(d.getTime()) ? (Date.now() + 7 * 86400000) : d.getTime();
+  }
+
+  function setStartDateTime(date) {
+    if (inputStartDate) inputStartDate.value = toDateInputString(date);
+    if (inputStartTime) inputStartTime.value = toTimeInputString(date);
+    updateScheduleSummary();
+  }
+
+  function setEndDateTime(date) {
+    if (inputEndDate) inputEndDate.value = toDateInputString(date);
+    if (inputEndTime) inputEndTime.value = toTimeInputString(date);
+    updateScheduleSummary();
+  }
+
+  function updateScheduleSummary() {
+    if (!scheduleSummaryText || !inputStartDate || !inputEndDate) return;
+    const startMs = getStartTimestamp();
+    const endMs = getEndTimestamp();
+    const nowMs = Date.now();
+
+    if (endMs <= startMs) {
+      if (scheduleSummaryDot) {
+        scheduleSummaryDot.className = 'summary-dot is-warning';
+      }
+      scheduleSummaryText.textContent = 'End date & time must be after start date & time.';
+      if (scheduleDiffBadge) scheduleDiffBadge.textContent = 'Invalid';
+      return;
+    }
+
+    const diffMs = endMs - startMs;
+    const diffHours = Math.round(diffMs / 3600000);
+    const diffDays = Math.round(diffMs / 86400000);
+
+    let durationLabel = '';
+    if (diffDays >= 1) {
+      durationLabel = diffDays === 1 ? '1 day' : `${diffDays} days`;
+    } else {
+      durationLabel = `${diffHours} hours`;
+    }
+    if (scheduleDiffBadge) scheduleDiffBadge.textContent = durationLabel;
+
+    const startDate = new Date(startMs);
+    const endDate = new Date(endMs);
+
+    const isFuture = (startMs - nowMs) > 2 * 60 * 1000;
+    if (scheduleSummaryDot) {
+      scheduleSummaryDot.className = `summary-dot ${isFuture ? 'is-scheduled' : ''}`;
+    }
+
+    const startText = isFuture ? `Starts ${formatDateShort(startDate)} at ${formatTime12(startDate)}` : 'Active immediately';
+    const endText = `Ends ${formatDateShort(endDate)} at ${formatTime12(endDate)}`;
+    scheduleSummaryText.textContent = `${startText} · ${endText} (${durationLabel})`;
   }
 
   function openCreateModal() {
@@ -451,8 +548,18 @@
     updateTypeState(type);
 
     // Dates
-    if (notice.start) inputStart.value = toLocalDatetimeString(new Date(notice.start));
-    if (notice.end) inputEnd.value = toLocalDatetimeString(new Date(notice.end));
+    if (notice.start) {
+      setStartDateTime(new Date(notice.start));
+    } else {
+      setStartDateTime(new Date());
+    }
+    if (notice.end) {
+      setEndDateTime(new Date(notice.end));
+    } else {
+      const nextWeek = new Date(Date.now() + 7 * 86400000);
+      nextWeek.setHours(23, 59, 0, 0);
+      setEndDateTime(nextWeek);
+    }
 
     // Duration
     inputDuration.value = notice.duration || 10;
@@ -481,11 +588,15 @@
     clearValidationErrors();
     clearSelectedFile();
 
+    const scrollBody = createNoticeForm.querySelector('.modal-body-scroll');
+    if (scrollBody) scrollBody.scrollTop = 0;
+
     const now = new Date();
     const nextWeek = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+    nextWeek.setHours(23, 59, 0, 0);
 
-    inputStart.value = toLocalDatetimeString(now);
-    inputEnd.value = toLocalDatetimeString(nextWeek);
+    setStartDateTime(now);
+    setEndDateTime(nextWeek);
     inputDuration.value = '10';
 
     updateTypeState('text');
@@ -515,6 +626,24 @@
     if (type === 'image' || type === 'video') {
       mediaUploadGroup.classList.remove('hidden');
       mediaFileInput.accept = type === 'image' ? 'image/*' : 'video/*';
+
+      if (type === 'image') {
+        if (aspectRecommendLabel) aspectRecommendLabel.textContent = 'Best: 16:9 or 3:4 / 4:3';
+        if (dropAspectHint) {
+          dropAspectHint.innerHTML = `
+            <span class="badge-icon">🎯</span>
+            <span class="badge-text">Recommended: <strong>16:9 Landscape</strong> (full-bleed) or <strong>3:4 / 4:3 Poster</strong> (ambient blur auto-fills sides)</span>
+          `;
+        }
+      } else {
+        if (aspectRecommendLabel) aspectRecommendLabel.textContent = 'Best: 16:9 Widescreen';
+        if (dropAspectHint) {
+          dropAspectHint.innerHTML = `
+            <span class="badge-icon">🎯</span>
+            <span class="badge-text">Recommended: <strong>16:9 Landscape</strong> (1920×1080 / 1280×720 MP4 or WEBM) for seamless full-screen playback</span>
+          `;
+        }
+      }
     } else {
       mediaUploadGroup.classList.add('hidden');
       clearSelectedFile();
@@ -532,19 +661,45 @@
     });
   });
 
-  // Quick-set buttons
+  // Quick presets for expiration
   document.querySelectorAll('.btn-quick-set').forEach(btn => {
     btn.addEventListener('click', () => {
-      const hours = parseInt(btn.getAttribute('data-hours'), 10);
-      const days = parseInt(btn.getAttribute('data-days'), 10);
-      const startDate = inputStart.value ? new Date(inputStart.value) : new Date();
+      const preset = btn.getAttribute('data-preset');
+      const startMs = getStartTimestamp();
+      const baseDate = new Date(startMs);
+      let targetDate = new Date(baseDate.getTime());
 
-      let targetTime = startDate.getTime();
-      if (hours) targetTime += hours * 3600 * 1000;
-      else if (days) targetTime += days * 86400 * 1000;
+      if (preset === 'today') {
+        targetDate.setHours(23, 59, 0, 0);
+      } else if (preset === '3days') {
+        targetDate.setDate(targetDate.getDate() + 3);
+        targetDate.setHours(23, 59, 0, 0);
+      } else if (preset === '7days') {
+        targetDate.setDate(targetDate.getDate() + 7);
+        targetDate.setHours(23, 59, 0, 0);
+      } else if (preset === '14days') {
+        targetDate.setDate(targetDate.getDate() + 14);
+        targetDate.setHours(23, 59, 0, 0);
+      } else if (preset === '30days') {
+        targetDate.setDate(targetDate.getDate() + 30);
+        targetDate.setHours(23, 59, 0, 0);
+      }
 
-      inputEnd.value = toLocalDatetimeString(new Date(targetTime));
+      setEndDateTime(targetDate);
     });
+  });
+
+  if (btnSetStartNow) {
+    btnSetStartNow.addEventListener('click', () => {
+      setStartDateTime(new Date());
+    });
+  }
+
+  [inputStartDate, inputStartTime, inputEndDate, inputEndTime].forEach(input => {
+    if (input) {
+      input.addEventListener('change', updateScheduleSummary);
+      input.addEventListener('input', updateScheduleSummary);
+    }
   });
 
   // Drop area drag & drop
@@ -641,13 +796,25 @@
 
     const ratio = w / h;
     let ratioText = 'Custom';
-    if (ratio >= 1.65) ratioText = '16:9 Landscape';
-    else if (ratio >= 1.25 && ratio < 1.65) ratioText = '4:3 Standard';
-    else if (ratio >= 0.9 && ratio < 1.25) ratioText = '1:1 Square';
-    else if (ratio >= 0.5 && ratio < 0.9) ratioText = '9:16 Portrait';
-    else ratioText = `${ratio.toFixed(2)}:1`;
+    let fitText = '';
+    if (ratio >= 1.65) {
+      ratioText = '16:9 Landscape';
+      fitText = '✓ Fits full screen';
+    } else if (ratio >= 1.25 && ratio < 1.65) {
+      ratioText = '4:3 Standard';
+      fitText = '✓ Ambient backdrop enabled';
+    } else if (ratio >= 0.9 && ratio < 1.25) {
+      ratioText = '1:1 Square';
+      fitText = '✓ Ambient backdrop enabled';
+    } else if (ratio >= 0.5 && ratio < 0.9) {
+      ratioText = '3:4 / Poster';
+      fitText = '✓ Centered with ambient backdrop';
+    } else {
+      ratioText = `${ratio.toFixed(2)}:1`;
+      fitText = '✓ Auto-scaled';
+    }
 
-    if (previewRatioPill) previewRatioPill.textContent = ratioText;
+    if (previewRatioPill) previewRatioPill.textContent = `${ratioText} · ${fitText}`;
   }
 
   btnRemoveFile.addEventListener('click', (e) => {
@@ -689,8 +856,8 @@
       return;
     }
 
-    const startMs = inputStart.value ? new Date(inputStart.value).getTime() : Date.now();
-    const endMs = inputEnd.value ? new Date(inputEnd.value).getTime() : Date.now() + 7 * 86400000;
+    const startMs = getStartTimestamp();
+    const endMs = getEndTimestamp();
 
     if (endMs <= startMs) {
       errEnd.textContent = 'Show until must be after show from.';

@@ -523,8 +523,12 @@
 
     upNextCount.textContent = `${upcomingNotices.length}`;
 
-    // Show up to 3 upcoming notices so none is cut off vertically at 480px height
-    upcomingNotices.slice(0, 3).forEach(({ notice, position }) => {
+    // Dynamically scale visible upcoming notices based on viewport height:
+    // 3 on small 480p displays, 5 on 720p/900p, 6 on 1080p monitors
+    const maxVisible = window.innerHeight >= 850 ? 6 : (window.innerHeight >= 650 ? 5 : 3);
+    const visibleNotices = upcomingNotices.slice(0, maxVisible);
+
+    visibleNotices.forEach(({ notice, position }) => {
       const item = document.createElement('div');
       item.className = 'rail-item';
 
@@ -561,6 +565,13 @@
 
       upNextList.appendChild(item);
     });
+
+    if (upcomingNotices.length > maxVisible) {
+      const more = document.createElement('div');
+      more.className = 'rail-more-count';
+      more.textContent = `+ ${upcomingNotices.length - maxVisible} more in rotation`;
+      upNextList.appendChild(more);
+    }
   }
 
   // ==========================================================================

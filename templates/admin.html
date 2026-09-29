@@ -64,14 +64,6 @@
         </div>
 
         <div class="nav-actions">
-          <a href="http://localhost:5000" target="_blank" class="nav-link-display" title="Open display board">
-            <span>Display</span>
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
-              <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path>
-              <polyline points="15 3 21 3 21 9"></polyline>
-              <line x1="10" y1="14" x2="21" y2="3"></line>
-            </svg>
-          </a>
           <button id="btn-logout" class="btn-icon btn-logout" aria-label="Log out" title="Log out">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75">
               <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path>
@@ -147,130 +139,174 @@
         <button id="btn-close-modal" class="btn-icon" aria-label="Close dialog">&times;</button>
       </div>
 
-      <form id="create-notice-form" class="modal-body" enctype="multipart/form-data">
+      <form id="create-notice-form" class="modal-form-wrapper" enctype="multipart/form-data">
         
-        <!-- 1. Headline (Counter appears after 80 chars) -->
-        <div class="form-group">
-          <div class="label-row">
-            <label for="notice-title" class="form-label">Headline</label>
-            <span class="char-counter hidden" id="title-counter">0 / 120</span>
-          </div>
-          <input type="text" id="notice-title" name="title" class="form-control" placeholder="Brief announcement headline" required maxlength="120">
-          <div class="inline-error hidden" id="err-title"></div>
-        </div>
-
-        <!-- 2. Details (Optional textarea, 3 rows) -->
-        <div class="form-group">
-          <label for="notice-body" class="form-label">Details <span class="label-opt">(optional)</span></label>
-          <textarea id="notice-body" name="body" class="form-control" rows="3" placeholder="Additional details, room number, or instructions"></textarea>
-        </div>
-
-        <!-- 3. Priority Segmented Control -->
-        <div class="form-group">
-          <label class="form-label">Priority</label>
-          <div class="priority-segmented" id="priority-segmented">
-            <label class="prio-opt">
-              <input type="radio" name="priority" value="normal" checked>
-              <span class="prio-btn">Normal</span>
-            </label>
-            <label class="prio-opt">
-              <input type="radio" name="priority" value="info">
-              <span class="prio-btn">Info</span>
-            </label>
-            <label class="prio-opt prio-urgent-opt">
-              <input type="radio" name="priority" value="urgent">
-              <span class="prio-btn">Urgent</span>
-            </label>
-          </div>
-        </div>
-
-        <!-- 4. Content Type Segmented Control -->
-        <div class="form-group">
-          <label class="form-label">Content</label>
-          <div class="type-segmented" id="type-segmented">
-            <label class="type-opt">
-              <input type="radio" name="type" value="text" checked>
-              <span class="type-btn">Text</span>
-            </label>
-            <label class="type-opt">
-              <input type="radio" name="type" value="image">
-              <span class="type-btn">Image</span>
-            </label>
-            <label class="type-opt">
-              <input type="radio" name="type" value="video">
-              <span class="type-btn">Video</span>
-            </label>
-          </div>
-        </div>
-
-        <!-- 5. File Upload (Only when Image or Video) -->
-        <div class="form-group hidden" id="media-upload-group">
-          <label class="form-label">File</label>
-          <div class="file-drop-area" id="file-drop-area">
-            <input type="file" id="media-file-input" name="media_file" class="file-input-hidden" accept="image/*,video/*">
-            <div class="drop-prompt" id="drop-prompt">
-              <span class="drop-action-text">Choose a file</span>
-              <span class="drop-hint-text">JPG, PNG, WEBP, GIF, MP4, WEBM · up to 200 MB</span>
+        <div class="modal-body-scroll">
+          <!-- 1. Headline (Counter appears after 80 chars) -->
+          <div class="form-group">
+            <div class="label-row">
+              <label for="notice-title" class="form-label">Headline</label>
+              <span class="char-counter hidden" id="title-counter">0 / 120</span>
             </div>
-            <div class="drop-selected hidden" id="drop-selected">
-              <div class="file-info-text">
-                <span class="file-name" id="file-name">filename.jpg</span>
-                <span class="file-size" id="file-size">1.2 MB</span>
+            <input type="text" id="notice-title" name="title" class="form-control" placeholder="Brief announcement headline" required maxlength="120">
+            <div class="inline-error hidden" id="err-title"></div>
+          </div>
+
+          <!-- 2. Details (Optional textarea, 3 rows) -->
+          <div class="form-group">
+            <label for="notice-body" class="form-label">Details <span class="label-opt">(optional)</span></label>
+            <textarea id="notice-body" name="body" class="form-control" rows="3" placeholder="Additional details, room number, or instructions"></textarea>
+          </div>
+
+          <!-- 3. Priority Segmented Control -->
+          <div class="form-group">
+            <label class="form-label">Priority</label>
+            <div class="priority-segmented" id="priority-segmented">
+              <label class="prio-opt">
+                <input type="radio" name="priority" value="normal" checked>
+                <span class="prio-btn">Normal</span>
+              </label>
+              <label class="prio-opt">
+                <input type="radio" name="priority" value="info">
+                <span class="prio-btn">Info</span>
+              </label>
+              <label class="prio-opt prio-urgent-opt">
+                <input type="radio" name="priority" value="urgent">
+                <span class="prio-btn">Urgent</span>
+              </label>
+            </div>
+          </div>
+
+          <!-- 4. Content Type Segmented Control -->
+          <div class="form-group">
+            <label class="form-label">Content</label>
+            <div class="type-segmented" id="type-segmented">
+              <label class="type-opt">
+                <input type="radio" name="type" value="text" checked>
+                <span class="type-btn">Text</span>
+              </label>
+              <label class="type-opt">
+                <input type="radio" name="type" value="image">
+                <span class="type-btn">Image</span>
+              </label>
+              <label class="type-opt">
+                <input type="radio" name="type" value="video">
+                <span class="type-btn">Video</span>
+              </label>
+            </div>
+          </div>
+
+          <!-- 5. File Upload (Only when Image or Video) -->
+          <div class="form-group hidden" id="media-upload-group">
+            <div class="label-row">
+              <label class="form-label">File</label>
+              <span class="aspect-recommend-label" id="aspect-recommend-label">Best: 16:9 or 3:4 / 4:3</span>
+            </div>
+            <div class="file-drop-area" id="file-drop-area">
+              <input type="file" id="media-file-input" name="media_file" class="file-input-hidden" accept="image/*,video/*">
+              <div class="drop-prompt" id="drop-prompt">
+                <span class="drop-action-text">Choose a file</span>
+                <span class="drop-hint-text">JPG, PNG, WEBP, GIF, MP4, WEBM · up to 200 MB</span>
+                <div class="drop-aspect-badge" id="drop-aspect-hint">
+                  <span class="badge-icon">🎯</span>
+                  <span class="badge-text">Recommended: 16:9 Landscape or 3:4 / 4:3 Poster</span>
+                </div>
               </div>
-              <button type="button" id="btn-remove-file" class="btn-text-action">Remove</button>
+              <div class="drop-selected hidden" id="drop-selected">
+                <div class="file-info-text">
+                  <span class="file-name" id="file-name">filename.jpg</span>
+                  <span class="file-size" id="file-size">1.2 MB</span>
+                </div>
+                <button type="button" id="btn-remove-file" class="btn-text-action">Remove</button>
+              </div>
             </div>
+
+            <!-- Live Media Preview with Aspect Ratio Info -->
+            <div class="media-live-preview hidden" id="media-live-preview">
+              <div class="preview-media-wrapper" id="preview-media-wrapper">
+                <!-- Dynamically populated img or video preview -->
+              </div>
+              <div class="preview-meta-bar">
+                <span class="ratio-pill" id="preview-ratio-pill">16:9 Landscape</span>
+                <span class="preview-dims-label" id="preview-dims-label">1920 × 1080</span>
+              </div>
+            </div>
+
+            <div class="inline-error hidden" id="err-media"></div>
           </div>
 
-          <!-- Live Media Preview with Aspect Ratio Info -->
-          <div class="media-live-preview hidden" id="media-live-preview">
-            <div class="preview-media-wrapper" id="preview-media-wrapper">
-              <!-- Dynamically populated img or video preview -->
-            </div>
-            <div class="preview-meta-bar">
-              <span class="ratio-pill" id="preview-ratio-pill">16:9 Landscape</span>
-              <span class="preview-dims-label" id="preview-dims-label">1920 × 1080</span>
-            </div>
-          </div>
-
-          <div class="inline-error hidden" id="err-media"></div>
-        </div>
-
-        <!-- 6. Show From & Show Until -->
-        <div class="form-row-dates">
-          <div class="form-group">
-            <label for="notice-start" class="form-label">Show from</label>
-            <input type="datetime-local" id="notice-start" class="form-control" required>
-            <div class="inline-error hidden" id="err-start"></div>
-          </div>
-
-          <div class="form-group">
-            <label for="notice-end" class="form-label">Show until</label>
-            <input type="datetime-local" id="notice-end" class="form-control" required>
-            <div class="inline-error hidden" id="err-end"></div>
+          <!-- 6. Schedule (Show From & Show Until) -->
+          <div class="schedule-block">
             
-            <!-- Quick-set buttons -->
+            <!-- Show From -->
+            <div class="schedule-col">
+              <div class="label-row">
+                <label class="form-label">Show from</label>
+                <button type="button" id="btn-set-start-now" class="btn-text-pill" title="Set start to current date & time">Now</button>
+              </div>
+              <div class="picker-dual-row">
+                <div class="picker-input-wrap">
+                  <span class="picker-badge-icon" aria-hidden="true">📅</span>
+                  <input type="date" id="notice-start-date" class="form-control picker-control" required>
+                </div>
+                <div class="picker-input-wrap">
+                  <span class="picker-badge-icon" aria-hidden="true">🕒</span>
+                  <input type="time" id="notice-start-time" class="form-control picker-control" required>
+                </div>
+              </div>
+              <div class="inline-error hidden" id="err-start"></div>
+            </div>
+
+            <!-- Show Until -->
+            <div class="schedule-col">
+              <div class="label-row">
+                <label class="form-label">Show until</label>
+                <span class="schedule-hint-badge" id="schedule-diff-badge">7 days</span>
+              </div>
+              <div class="picker-dual-row">
+                <div class="picker-input-wrap">
+                  <span class="picker-badge-icon" aria-hidden="true">📅</span>
+                  <input type="date" id="notice-end-date" class="form-control picker-control" required>
+                </div>
+                <div class="picker-input-wrap">
+                  <span class="picker-badge-icon" aria-hidden="true">🕒</span>
+                  <input type="time" id="notice-end-time" class="form-control picker-control" required>
+                </div>
+              </div>
+              <div class="inline-error hidden" id="err-end"></div>
+            </div>
+
+            <!-- Quick Presets -->
             <div class="quick-set-row">
-              <span class="quick-set-label">Set:</span>
-              <button type="button" class="btn-quick-set" data-hours="12">Today</button>
-              <button type="button" class="btn-quick-set" data-days="3">3 days</button>
-              <button type="button" class="btn-quick-set" data-days="7">1 week</button>
-              <button type="button" class="btn-quick-set" data-days="30">1 month</button>
+              <span class="quick-set-label">Presets:</span>
+              <button type="button" class="btn-quick-set" data-preset="today">End of Today</button>
+              <button type="button" class="btn-quick-set" data-preset="3days">3 Days</button>
+              <button type="button" class="btn-quick-set" data-preset="7days">1 Week</button>
+              <button type="button" class="btn-quick-set" data-preset="14days">2 Weeks</button>
+              <button type="button" class="btn-quick-set" data-preset="30days">1 Month</button>
+            </div>
+
+            <!-- Live Summary -->
+            <div class="schedule-summary-bar" id="schedule-summary-bar">
+              <span class="summary-dot" id="schedule-summary-dot"></span>
+              <span class="summary-text" id="schedule-summary-text">Active immediately · Ends in 7 days</span>
+            </div>
+
+          </div>
+
+          <!-- 7. Duration (Hidden when Video) -->
+          <div class="form-group" id="duration-group">
+            <label for="notice-duration" class="form-label">Slide duration</label>
+            <div class="input-suffix-wrap">
+              <input type="number" id="notice-duration" name="duration" class="form-control" value="10" min="3" max="120">
+              <span class="input-suffix">seconds</span>
             </div>
           </div>
+
+          <div class="inline-error hidden" id="create-notice-error"></div>
         </div>
 
-        <!-- 7. Duration (Hidden when Video) -->
-        <div class="form-group" id="duration-group">
-          <label for="notice-duration" class="form-label">Duration</label>
-          <div class="input-suffix-wrap">
-            <input type="number" id="notice-duration" name="duration" class="form-control" value="10" min="3" max="120">
-            <span class="input-suffix">seconds</span>
-          </div>
-        </div>
-
-        <div class="inline-error hidden" id="create-notice-error"></div>
-
-        <!-- Sticky Footer -->
+        <!-- Fixed Modal Footer (Never overlaps content, always visible at bottom) -->
         <div class="modal-footer">
           <button type="button" id="btn-cancel-create" class="btn btn-text">Cancel</button>
           <button type="submit" id="btn-submit-create" class="btn btn-primary">

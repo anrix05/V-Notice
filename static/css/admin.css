@@ -196,30 +196,6 @@ button, input, textarea, select {
   gap: 12px;
 }
 
-.nav-link-display {
-  color: var(--text);
-  background-color: var(--panel);
-  border: 1px solid var(--line);
-  font-size: 14px;
-  font-weight: 500;
-  text-decoration: none;
-  padding: 6px 12px;
-  border-radius: var(--radius-sm);
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  transition: all 0.15s ease;
-}
-
-.nav-link-display:hover {
-  background-color: var(--panel-raised);
-  border-color: var(--line-light);
-}
-
-.nav-link-display:active {
-  transform: scale(0.96);
-}
-
 /* ==========================================================================
    Main Layout Container (720px Max-Width Single Column)
    ========================================================================== */
@@ -597,21 +573,22 @@ button, input, textarea, select {
 
 .modal-dialog {
   width: 100%;
-  max-height: 92vh;
+  max-height: 90vh;
   background-color: var(--panel);
   border: 1px solid var(--line);
-  border-radius: 12px 12px 0 0;
+  border-radius: 16px 16px 0 0;
   display: flex;
   flex-direction: column;
   overflow: hidden;
   position: relative;
+  box-shadow: 0 25px 60px -15px rgba(0, 0, 0, 0.75), 0 0 0 1px rgba(255, 255, 255, 0.08);
 }
 
-@media (min-width: 768px) {
+@media (min-width: 640px) {
   .modal-dialog {
-    max-width: 560px;
+    max-width: 590px;
     border-radius: var(--radius-panel);
-    max-height: 85vh;
+    max-height: 88vh;
   }
 }
 
@@ -637,28 +614,67 @@ button, input, textarea, select {
 }
 
 .modal-header {
-  padding: 16px 20px;
+  padding: 18px 24px;
   display: flex;
   align-items: center;
   justify-content: space-between;
   border-bottom: 1px solid var(--line);
+  background-color: var(--panel);
+  flex-shrink: 0;
 }
 
 .modal-heading {
-  font-size: 18px;
+  font-size: 19px;
   font-weight: 600;
+  letter-spacing: -0.01em;
 }
 
+/* Modal Form Wrapper fills the dialog flex container */
+.modal-form-wrapper {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* Scrollable Content Body - never overlaps footer, smooth dark scrollbar */
+.modal-body-scroll,
 .modal-body {
-  padding: 20px;
+  flex: 1;
+  min-height: 0;
+  padding: 22px 24px;
   overflow-y: auto;
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 18px;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.2) transparent;
+}
+
+.modal-body-scroll::-webkit-scrollbar,
+.modal-body::-webkit-scrollbar {
+  width: 6px;
+}
+
+.modal-body-scroll::-webkit-scrollbar-track,
+.modal-body::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.modal-body-scroll::-webkit-scrollbar-thumb,
+.modal-body::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 9999px;
+}
+
+.modal-body-scroll::-webkit-scrollbar-thumb:hover,
+.modal-body::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.35);
 }
 
 .delete-confirm-text {
-  padding: 20px;
+  padding: 24px;
   font-size: 15px;
   color: var(--muted);
   line-height: 1.5;
@@ -668,16 +684,16 @@ button, input, textarea, select {
   color: var(--text);
 }
 
+/* Pinned Modal Footer - always cleanly visible at bottom of modal */
 .modal-footer {
-  padding: 16px 20px;
+  flex-shrink: 0;
+  padding: 16px 24px;
   border-top: 1px solid var(--line);
   display: flex;
   align-items: center;
   justify-content: flex-end;
   gap: 12px;
   background-color: var(--panel);
-  position: sticky;
-  bottom: 0;
 }
 
 /* ==========================================================================
@@ -790,10 +806,10 @@ textarea.form-control {
 
 /* File Drop Area */
 .file-drop-area {
-  border: 1px dashed var(--line);
+  border: 1.5px dashed var(--line-light);
   border-radius: var(--radius-sm);
-  background-color: var(--bg);
-  padding: 20px 16px;
+  background-color: rgba(15, 23, 42, 0.5);
+  padding: 16px 14px;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -801,11 +817,12 @@ textarea.form-control {
   text-align: center;
   cursor: pointer;
   position: relative;
-  transition: border-color 0.15s ease;
+  transition: all 0.15s ease;
 }
 
 .file-drop-area:hover, .file-drop-area.dragover {
   border-color: var(--blue);
+  background-color: rgba(47, 107, 255, 0.06);
 }
 
 .file-input-hidden {
@@ -831,6 +848,41 @@ textarea.form-control {
 .drop-hint-text {
   font-size: 13px;
   color: var(--muted);
+}
+
+.aspect-recommend-label {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--blue);
+  background: rgba(47, 107, 255, 0.12);
+  border: 1px solid rgba(47, 107, 255, 0.25);
+  border-radius: var(--radius-pill);
+  padding: 2px 10px;
+  line-height: 1.2;
+}
+
+.drop-aspect-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  background: rgba(22, 34, 56, 0.8);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 6px;
+  padding: 6px 12px;
+  margin-top: 8px;
+  font-size: 12px;
+  color: #cbd5e1;
+  line-height: 1.35;
+}
+
+.drop-aspect-badge .badge-icon {
+  font-size: 13px;
+}
+
+.drop-aspect-badge strong {
+  color: #60a5fa;
+  font-weight: 600;
 }
 
 .drop-selected {
@@ -927,19 +979,98 @@ textarea.form-control {
   font-size: 12.5px;
 }
 
-/* Dates Row & Quick-Set */
-.form-row-2,
-.form-row-dates {
-  display: grid;
-  grid-template-columns: 1fr;
-  gap: 14px;
+/* Schedule Block & Dual Date/Time Pickers */
+input[type="date"],
+input[type="time"],
+input[type="datetime-local"] {
+  color-scheme: dark;
 }
 
-@media (min-width: 520px) {
-  .form-row-2,
-  .form-row-dates {
-    grid-template-columns: 1fr 1fr;
+.schedule-block {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  background: rgba(15, 23, 42, 0.45);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  padding: 16px;
+}
+
+.schedule-col {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.picker-dual-row {
+  display: grid;
+  grid-template-columns: 1.35fr 1fr;
+  gap: 8px;
+}
+
+@media (max-width: 480px) {
+  .picker-dual-row {
+    grid-template-columns: 1fr;
   }
+}
+
+.picker-input-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.picker-badge-icon {
+  position: absolute;
+  left: 12px;
+  font-size: 14px;
+  pointer-events: none;
+  opacity: 0.75;
+}
+
+.picker-control {
+  padding-left: 36px !important;
+  font-size: 14px !important;
+  min-height: 44px;
+  font-family: inherit;
+}
+
+.picker-control::-webkit-calendar-picker-indicator {
+  cursor: pointer;
+  filter: invert(0.85);
+  opacity: 0.8;
+  padding: 4px;
+  transition: opacity 0.15s ease;
+}
+
+.picker-control::-webkit-calendar-picker-indicator:hover {
+  opacity: 1;
+}
+
+.btn-text-pill {
+  background: rgba(47, 107, 255, 0.12);
+  border: 1px solid rgba(47, 107, 255, 0.25);
+  color: #60a5fa;
+  font-size: 12px;
+  font-weight: 500;
+  padding: 2px 8px;
+  border-radius: var(--radius-pill);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.btn-text-pill:hover {
+  background: rgba(47, 107, 255, 0.25);
+  color: #fff;
+}
+
+.schedule-hint-badge {
+  font-size: 12px;
+  color: var(--muted);
+  background: rgba(255, 255, 255, 0.05);
+  padding: 2px 8px;
+  border-radius: var(--radius-pill);
+  font-variant-numeric: tabular-nums;
 }
 
 .quick-set-row {
@@ -947,29 +1078,75 @@ textarea.form-control {
   align-items: center;
   flex-wrap: wrap;
   gap: 6px;
-  margin-top: 4px;
+  margin-top: 2px;
+  padding: 8px 10px;
+  background: rgba(15, 23, 42, 0.6);
+  border: 1px solid var(--line);
+  border-radius: 6px;
 }
 
 .quick-set-label {
   font-size: 12px;
   color: var(--muted);
+  font-weight: 500;
+  margin-right: 2px;
 }
 
 .btn-quick-set {
-  background: transparent;
+  background: var(--panel);
   border: 1px solid var(--line);
-  color: var(--muted);
+  color: #cbd5e1;
   font-size: 12px;
   font-weight: 500;
-  padding: 2px 8px;
-  border-radius: 4px;
+  padding: 4px 9px;
+  border-radius: 6px;
   cursor: pointer;
   transition: all 0.15s ease;
 }
 
 .btn-quick-set:hover {
   color: var(--text);
-  border-color: var(--line-light);
+  border-color: var(--blue);
+  background-color: rgba(47, 107, 255, 0.15);
+}
+
+.btn-quick-set:active {
+  transform: scale(0.96);
+}
+
+.schedule-summary-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: rgba(22, 34, 56, 0.7);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 6px;
+  font-size: 13px;
+  color: #cbd5e1;
+}
+
+.summary-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background-color: #10b981;
+  flex-shrink: 0;
+  transition: background-color 0.2s ease;
+}
+
+.summary-dot.is-scheduled {
+  background-color: #3b82f6;
+}
+
+.summary-dot.is-warning {
+  background-color: #ef4444;
+}
+
+.summary-text {
+  flex: 1;
+  font-weight: 450;
+  line-height: 1.35;
 }
 
 .input-suffix-wrap {
