@@ -23,11 +23,22 @@
   const timePeriod = document.getElementById('time-period');
   const clockDate = document.getElementById('clock-date');
 
+  // Weather Elements
+  const headerWeather = document.getElementById('header-weather');
+  const weatherIcon = document.getElementById('weather-icon');
+  const weatherTemp = document.getElementById('weather-temp');
+  const weatherCity = document.getElementById('weather-city');
+
   // Stage Elements
   const stagePriority = document.getElementById('stage-priority');
   const stageType = document.getElementById('stage-type');
   const stageCounter = document.getElementById('stage-counter');
   const stageDots = document.getElementById('stage-dots');
+
+  // Stage QR Badge
+  const stageQrBadge = document.getElementById('stage-qr-badge');
+  const stageQrCanvas = document.getElementById('stage-qr-canvas');
+  let currentQrNoticeId = null;
 
   // Cards
   const cardText = document.getElementById('card-text');
@@ -38,11 +49,13 @@
   const imageElement = document.getElementById('image-element');
   const imageHeadline = document.getElementById('image-headline');
   const imageBody = document.getElementById('image-body');
+  const imageAmbient = document.getElementById('image-ambient');
 
   const cardVideo = document.getElementById('card-video');
   const videoElement = document.getElementById('video-element');
   const videoHeadline = document.getElementById('video-headline');
   const videoBody = document.getElementById('video-body');
+  const videoAmbient = document.getElementById('video-ambient');
 
   const cardEmpty = document.getElementById('card-empty');
   const emptyTitle = document.getElementById('empty-title');
@@ -200,6 +213,90 @@
   }
 
   // ==========================================================================
+  // Live Campus Weather Engine (Open-Meteo with offline resilience)
+  // ==========================================================================
+  const WMO_ICONS = {
+    0: '☀️', 1: '🌤', 2: '⛅', 3: '☁️',
+    45: '🌫', 48: '🌫',
+    51: '🌦', 53: '🌦', 55: '🌧',
+    61: '🌧', 63: '🌧', 65: '🌧',
+    71: '🌨', 73: '🌨', 75: '❄️',
+    80: '🌦', 81: '🌧', 82: '⛈',
+    95: '⛈', 96: '⛈', 99: '⛈'
+  };
+
+  async function fetchCampusWeather() {
+    if (!headerWeather) return;
+    try {
+      // Free Open-Meteo API for campus weather
+      const res = await fetch('https://api.open-meteo.com/v1/forecast?latitude=18.5204&longitude=73.8567&current=temperature_2m,weather_code', {
+        cache: 'no-store'
+      });
+      if (!res.ok) throw new Error(`Weather HTTP error: ${res.status}`);
+      const data = await res.json();
+      if (data && data.current) {
+        const tempC = Math.round(data.current.temperature_2m);
+        const code = data.current.weather_code;
+        const icon = WMO_ICONS[code] || '🌤';
+        const weatherObj = { temp: `${tempC}°C`, icon, city: 'Campus' };
+        applyWeather(weatherObj);
+        try {
+          localStorage.setItem('vnotice_weather', JSON.stringify(weatherObj));
+        } catch (e) {}
+      }
+    } catch (err) {
+      // Offline fallback: load from cached weather or default campus reading
+      try {
+        const cached = localStorage.getItem('vnotice_weather');
+        if (cached) {
+          applyWeather(JSON.parse(cached));
+          return;
+        }
+      } catch (e) {}
+      applyWeather({ temp: '28°C', icon: '🌤', city: 'Campus' });
+    }
+  }
+
+  function applyWeather(w) {
+    if (weatherTemp) weatherTemp.textContent = w.temp || '28°C';
+    if (weatherIcon) weatherIcon.textContent = w.icon || '🌤';
+    if (weatherCity) weatherCity.textContent = w.city || 'Campus';
+  }
+
+  // ==========================================================================
+  // "Scan to Phone" QR Code Generator
+  // ==========================================================================
+  function updateStageQr(notice) {
+    if (!stageQrBadge || !stageQrCanvas) return;
+    if (!notice || !notice.id) {
+      stageQrBadge.classList.add('hidden');
+      currentQrNoticeId = null;
+      return;
+    }
+
+    stageQrBadge.classList.remove('hidden');
+    if (currentQrNoticeId === notice.id) return;
+    currentQrNoticeId = notice.id;
+
+    stageQrCanvas.innerHTML = '';
+    const targetUrl = `${window.location.origin}/notice/${notice.id}`;
+    if (window.QRCode) {
+      try {
+        new QRCode(stageQrCanvas, {
+          text: targetUrl,
+          width: 88,
+          height: 88,
+          colorDark: '#0F172A',
+          colorLight: '#FFFFFF',
+          correctLevel: QRCode.CorrectLevel.M
+        });
+      } catch (e) {
+        console.warn('QR generation error:', e);
+      }
+    }
+  }
+
+  // ==========================================================================
   // Render Main Stage
   // ==========================================================================
   function renderStage() {
@@ -212,6 +309,7 @@
       if (stagePriority) stagePriority.classList.add('hidden');
       if (stageType) stageType.textContent = 'Notice board';
       if (stageDots) stageDots.innerHTML = '';
+      if (stageQrBadge) stageQrBadge.classList.add('hidden');
       if (upNextList) upNextList.innerHTML = '<div class="rail-empty">Nothing else queued</div>';
       if (upNextCount) upNextCount.textContent = '0';
 
@@ -269,6 +367,9 @@
       renderTextNotice(notice);
     }
 
+    // Update QR Code pointing to this notice
+    updateStageQr(notice);
+
     // Advance timer if not waiting for video to end
     if (!isVideoPlaying) {
       if (displayQueue.length > 1) {
@@ -314,9 +415,16 @@
 
   function renderImageNotice(notice) {
     isVideoPlaying = false;
-    imageElement.src = `/media/${encodeURIComponent(notice.media)}`;
+    const mediaUrl = `/media/${encodeURIComponent(notice.media)}`;
+    imageElement.src = mediaUrl;
     imageHeadline.textContent = notice.title || '';
     imageBody.textContent = notice.body || '';
+
+    // Ambient frosted backdrop for vertical/square posters on landscape monitors
+    if (imageAmbient) {
+      imageAmbient.style.backgroundImage = `url("${mediaUrl}")`;
+    }
+
     showCard('image');
   }
 
@@ -325,6 +433,11 @@
     showCard('video');
     videoHeadline.textContent = notice.title || '';
     videoBody.textContent = notice.body || '';
+
+    // Ambient frosted backdrop for video
+    if (videoAmbient) {
+      videoAmbient.style.background = 'radial-gradient(circle at center, rgba(47, 107, 255, 0.28) 0%, rgba(22, 34, 56, 0.95) 75%)';
+    }
 
     const mediaSrc = `/media/${encodeURIComponent(notice.media)}`;
     if (videoElement.src !== window.location.origin + mediaSrc) {
@@ -474,8 +587,10 @@
   // Initialization & Polling Interval (Every 10 seconds per PRD Section 4)
   // ==========================================================================
   fetchNotices();
+  fetchCampusWeather();
   setInterval(fetchNotices, 3000); // Responsive fast live sync for instant deletion/addition
   setInterval(fetchNotices, 10000); // 10-second contract per PRD Section 4
+  setInterval(fetchCampusWeather, 1800000); // Campus weather update every 30 minutes
 
 })();
 

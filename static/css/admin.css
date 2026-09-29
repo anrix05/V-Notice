@@ -514,18 +514,35 @@ button, input, textarea, select {
   word-break: break-word;
 }
 
-.btn-delete-row {
-  width: 44px;
-  height: 44px;
-  min-width: 44px;
+.notice-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
   margin-left: auto;
   align-self: flex-start;
+}
+
+.btn-row-action,
+.btn-delete-row,
+.btn-edit-row {
+  width: 40px;
+  height: 40px;
+  min-width: 40px;
   border-radius: var(--radius-sm);
   display: flex;
   align-items: center;
   justify-content: center;
   color: var(--muted);
   transition: all 0.15s ease;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+}
+
+.btn-edit-row:hover,
+.btn-edit-row:active {
+  color: var(--blue);
+  background-color: var(--panel-raised);
 }
 
 .btn-delete-row:hover,
@@ -534,7 +551,8 @@ button, input, textarea, select {
   background-color: var(--panel-raised);
 }
 
-.btn-delete-row:active {
+.btn-delete-row:active,
+.btn-edit-row:active {
   transform: scale(0.92);
 }
 
@@ -854,6 +872,59 @@ textarea.form-control {
   font-weight: 500;
   cursor: pointer;
   padding: 4px 8px;
+}
+
+/* Live Media Preview with Aspect Ratio & Dimensions Info */
+.media-live-preview {
+  margin-top: 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background-color: var(--bg);
+  overflow: hidden;
+}
+
+.preview-media-wrapper {
+  width: 100%;
+  max-height: 220px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background-color: #0b1120;
+  overflow: hidden;
+}
+
+.preview-media-wrapper img,
+.preview-media-wrapper video {
+  max-width: 100%;
+  max-height: 220px;
+  object-fit: contain;
+  display: block;
+}
+
+.preview-meta-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  background-color: var(--panel);
+  border-top: 1px solid var(--line);
+  font-size: 13px;
+}
+
+.ratio-pill {
+  padding: 2px 8px;
+  background-color: rgba(47, 107, 255, 0.15);
+  border: 1px solid rgba(47, 107, 255, 0.3);
+  color: #8bb2ff;
+  border-radius: var(--radius-pill);
+  font-weight: 500;
+  font-size: 12px;
+}
+
+.preview-dims-label {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  font-size: 12.5px;
 }
 
 /* Dates Row & Quick-Set */

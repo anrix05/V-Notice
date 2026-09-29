@@ -122,6 +122,46 @@ body.show-cursor {
 
 .header-right {
   display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 16px;
+}
+
+.header-weather {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  background-color: rgba(22, 34, 56, 0.6);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  color: var(--text);
+  line-height: 1.2;
+}
+
+.weather-icon {
+  font-size: 15px;
+  line-height: 1;
+}
+
+.weather-temp {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+}
+
+.weather-city {
+  font-size: 11px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding-left: 2px;
+}
+
+.clock-group {
+  display: flex;
   flex-direction: column;
   align-items: flex-end;
   justify-content: center;
@@ -313,6 +353,7 @@ body.show-cursor {
 .media-container {
   flex: 1;
   width: 100%;
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -321,11 +362,90 @@ body.show-cursor {
   min-height: 0;
 }
 
+/* Ambient Frosted Backdrop (Apple TV / YouTube style) */
+.media-ambient-bg {
+  position: absolute;
+  inset: -25%;
+  background-size: cover;
+  background-position: center;
+  filter: blur(40px) brightness(0.38) saturate(1.4);
+  transform: scale(1.18);
+  z-index: 1;
+  opacity: 0.95;
+  pointer-events: none;
+  transition: opacity 0.4s ease, background-image 0.4s ease;
+}
+
 .media-img, .media-video {
+  position: relative;
+  z-index: 2;
   width: 100%;
   height: 100%;
   object-fit: contain;
   display: block;
+}
+
+/* "Scan to Phone" QR Code Badge on Stage */
+.stage-qr-badge {
+  position: absolute;
+  bottom: 14px;
+  right: 18px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: rgba(22, 34, 56, 0.92);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  padding: 6px 10px;
+  z-index: 10;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
+  pointer-events: auto;
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+
+.stage-qr-badge.hidden {
+  display: none !important;
+}
+
+.qr-canvas-box {
+  width: 44px;
+  height: 44px;
+  background: #FFFFFF;
+  border-radius: 4px;
+  padding: 2px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  overflow: hidden;
+}
+
+.qr-canvas-box canvas,
+.qr-canvas-box img {
+  width: 100% !important;
+  height: 100% !important;
+  display: block;
+}
+
+.qr-label-box {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.qr-label-head {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+  line-height: 1.2;
+}
+
+.qr-label-sub {
+  font-size: 10px;
+  color: var(--muted);
+  line-height: 1.2;
 }
 
 .media-caption {
@@ -706,6 +826,41 @@ body.show-cursor {
     font-size: 16px;
   }
 
+  .header-weather {
+    padding: 6px 14px;
+    font-size: 15px;
+    gap: 8px;
+  }
+
+  .weather-icon {
+    font-size: 18px;
+  }
+
+  .weather-city {
+    font-size: 12px;
+  }
+
+  .stage-qr-badge {
+    bottom: 20px;
+    right: 24px;
+    padding: 8px 14px;
+    gap: 12px;
+  }
+
+  .qr-canvas-box {
+    width: 54px;
+    height: 54px;
+    padding: 3px;
+  }
+
+  .qr-label-head {
+    font-size: 14px;
+  }
+
+  .qr-label-sub {
+    font-size: 12px;
+  }
+
   .display-ticker {
     height: 52px;
     min-height: 52px;
@@ -849,6 +1004,44 @@ body.show-cursor {
   .rail-item-pos {
     font-size: 18px;
     min-width: 20px;
+  }
+
+  .header-weather {
+    padding: 8px 18px;
+    font-size: 18px;
+    gap: 10px;
+    border-radius: var(--radius-md);
+  }
+
+  .weather-icon {
+    font-size: 22px;
+  }
+
+  .weather-city {
+    font-size: 14px;
+  }
+
+  .stage-qr-badge {
+    bottom: 28px;
+    right: 36px;
+    padding: 10px 18px;
+    gap: 14px;
+    border-radius: var(--radius-md);
+  }
+
+  .qr-canvas-box {
+    width: 68px;
+    height: 68px;
+    padding: 4px;
+    border-radius: 6px;
+  }
+
+  .qr-label-head {
+    font-size: 16px;
+  }
+
+  .qr-label-sub {
+    font-size: 13px;
   }
 
   .display-ticker {

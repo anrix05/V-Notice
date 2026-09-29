@@ -33,6 +33,7 @@
 
   // DOM Elements - Create Modal
   const noticeModal = document.getElementById('notice-modal');
+  const modalHeading = document.getElementById('modal-heading');
   const btnCloseModal = document.getElementById('btn-close-modal');
   const btnCancelCreate = document.getElementById('btn-cancel-create');
   const createNoticeForm = document.getElementById('create-notice-form');
@@ -58,6 +59,13 @@
   const fileName = document.getElementById('file-name');
   const fileSize = document.getElementById('file-size');
   const btnRemoveFile = document.getElementById('btn-remove-file');
+
+  // Live Media Preview Elements
+  const mediaLivePreview = document.getElementById('media-live-preview');
+  const previewMediaWrapper = document.getElementById('preview-media-wrapper');
+  const previewRatioPill = document.getElementById('preview-ratio-pill');
+  const previewDimsLabel = document.getElementById('preview-dims-label');
+  let editingNoticeId = null;
 
   const errTitle = document.getElementById('err-title');
   const errMedia = document.getElementById('err-media');
@@ -338,13 +346,27 @@
           </div>
           <div class="notice-schedule-line">${scheduleRange}</div>
         </div>
-        <button type="button" class="btn-icon btn-delete-row" data-id="${notice.id}" aria-label="Delete notice" title="Delete notice">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-            <polyline points="3 6 5 6 21 6"></polyline>
-            <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
-          </svg>
-        </button>
+        <div class="notice-actions">
+          <button type="button" class="btn-icon btn-edit-row" data-id="${notice.id}" aria-label="Edit notice" title="Edit notice">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
+              <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
+              <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
+            </svg>
+          </button>
+          <button type="button" class="btn-icon btn-delete-row" data-id="${notice.id}" aria-label="Delete notice" title="Delete notice">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
+              <polyline points="3 6 5 6 21 6"></polyline>
+              <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+            </svg>
+          </button>
+        </div>
       `;
+
+      const editBtn = card.querySelector('.btn-edit-row');
+      editBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        openEditModal(notice);
+      });
 
       const deleteBtn = card.querySelector('.btn-delete-row');
       deleteBtn.addEventListener('click', (e) => {
@@ -391,7 +413,59 @@
   }
 
   function openCreateModal() {
+    editingNoticeId = null;
+    if (modalHeading) modalHeading.textContent = 'New notice';
+    if (btnSubmitText) btnSubmitText.textContent = 'Publish';
     resetCreateForm();
+    noticeModal.classList.remove('hidden');
+    inputTitle.focus();
+  }
+
+  function openEditModal(notice) {
+    resetCreateForm();
+    editingNoticeId = notice.id;
+
+    if (modalHeading) modalHeading.textContent = 'Edit notice';
+    if (btnSubmitText) btnSubmitText.textContent = 'Save changes';
+
+    inputTitle.value = notice.title || '';
+    const len = inputTitle.value.length;
+    if (len > 80) {
+      titleCounter.textContent = `${len} / 120`;
+      titleCounter.classList.remove('hidden');
+    } else {
+      titleCounter.classList.add('hidden');
+    }
+
+    inputBody.value = notice.body || '';
+
+    // Priority
+    const prio = (notice.priority || 'normal').toLowerCase();
+    const prioRadio = document.querySelector(`input[name="priority"][value="${prio}"]`);
+    if (prioRadio) prioRadio.checked = true;
+
+    // Type
+    const type = (notice.type || 'text').toLowerCase();
+    const typeRadio = document.querySelector(`input[name="type"][value="${type}"]`);
+    if (typeRadio) typeRadio.checked = true;
+    updateTypeState(type);
+
+    // Dates
+    if (notice.start) inputStart.value = toLocalDatetimeString(new Date(notice.start));
+    if (notice.end) inputEnd.value = toLocalDatetimeString(new Date(notice.end));
+
+    // Duration
+    inputDuration.value = notice.duration || 10;
+
+    // Existing media
+    if (notice.media) {
+      fileName.textContent = notice.media;
+      fileSize.textContent = 'Current media';
+      dropPrompt.classList.add('hidden');
+      dropSelected.classList.remove('hidden');
+      renderMediaPreviewFromUrl(`/media/${encodeURIComponent(notice.media)}`, type);
+    }
+
     noticeModal.classList.remove('hidden');
     inputTitle.focus();
   }
@@ -399,6 +473,7 @@
   function closeCreateModal() {
     noticeModal.classList.add('hidden');
     clearValidationErrors();
+    editingNoticeId = null;
   }
 
   function resetCreateForm() {
@@ -501,7 +576,78 @@
       fileSize.textContent = `${sizeMb} MB`;
       dropPrompt.classList.add('hidden');
       dropSelected.classList.remove('hidden');
+
+      // Live Media Preview with Aspect Ratio
+      renderMediaPreviewFromFile(file);
     }
+  }
+
+  function renderMediaPreviewFromFile(file) {
+    if (!file || !previewMediaWrapper) return;
+    previewMediaWrapper.innerHTML = '';
+    const isImage = file.type.startsWith('image/');
+    const isVideo = file.type.startsWith('video/');
+    const objectUrl = URL.createObjectURL(file);
+
+    if (isImage) {
+      const img = document.createElement('img');
+      img.src = objectUrl;
+      img.alt = 'Media preview';
+      img.onload = () => {
+        displayRatioAndDims(img.naturalWidth, img.naturalHeight);
+      };
+      previewMediaWrapper.appendChild(img);
+    } else if (isVideo) {
+      const video = document.createElement('video');
+      video.src = objectUrl;
+      video.muted = true;
+      video.playsInline = true;
+      video.preload = 'metadata';
+      video.onloadedmetadata = () => {
+        displayRatioAndDims(video.videoWidth, video.videoHeight);
+      };
+      previewMediaWrapper.appendChild(video);
+    }
+    if (mediaLivePreview) mediaLivePreview.classList.remove('hidden');
+  }
+
+  function renderMediaPreviewFromUrl(url, type) {
+    if (!url || !previewMediaWrapper) return;
+    previewMediaWrapper.innerHTML = '';
+    if (type === 'image') {
+      const img = document.createElement('img');
+      img.src = url;
+      img.alt = 'Media preview';
+      img.onload = () => {
+        displayRatioAndDims(img.naturalWidth, img.naturalHeight);
+      };
+      previewMediaWrapper.appendChild(img);
+    } else if (type === 'video') {
+      const video = document.createElement('video');
+      video.src = url;
+      video.muted = true;
+      video.preload = 'metadata';
+      video.onloadedmetadata = () => {
+        displayRatioAndDims(video.videoWidth, video.videoHeight);
+      };
+      previewMediaWrapper.appendChild(video);
+    }
+    if (mediaLivePreview) mediaLivePreview.classList.remove('hidden');
+  }
+
+  function displayRatioAndDims(w, h) {
+    if (!w || !h) return;
+    if (previewDimsLabel) previewDimsLabel.textContent = `${w} × ${h} px`;
+
+    const ratio = w / h;
+    let ratioText = 'Custom';
+    if (ratio >= 1.65) ratioText = '16:9 Landscape';
+    else if (ratio >= 1.25 && ratio < 1.65) ratioText = '4:3 Standard';
+    else if (ratio >= 0.9 && ratio < 1.25) ratioText = '1:1 Square';
+    else if (ratio >= 0.5 && ratio < 0.9) ratioText = '9:16 Portrait';
+    else ratioText = `${ratio.toFixed(2)}:1`;
+
+    if (previewRatioPill) previewRatioPill.textContent = ratioText;
   }
 
   btnRemoveFile.addEventListener('click', (e) => {
@@ -513,13 +659,15 @@
     mediaFileInput.value = '';
     dropPrompt.classList.remove('hidden');
     dropSelected.classList.add('hidden');
+    if (previewMediaWrapper) previewMediaWrapper.innerHTML = '';
+    if (mediaLivePreview) mediaLivePreview.classList.add('hidden');
   }
 
   btnOpenCreate.addEventListener('click', openCreateModal);
   btnCloseModal.addEventListener('click', closeCreateModal);
   btnCancelCreate.addEventListener('click', closeCreateModal);
 
-  // Form submission with progress tracking
+  // Form submission with progress tracking (Create or Edit)
   createNoticeForm.addEventListener('submit', async (e) => {
     e.preventDefault();
     clearValidationErrors();
@@ -532,7 +680,10 @@
     }
 
     const type = document.querySelector('input[name="type"]:checked')?.value || 'text';
-    if ((type === 'image' || type === 'video') && (!mediaFileInput.files || !mediaFileInput.files[0])) {
+    const isNewNotice = !editingNoticeId;
+
+    // For new image/video notices, media file is required
+    if (isNewNotice && (type === 'image' || type === 'video') && (!mediaFileInput.files || !mediaFileInput.files[0])) {
       errMedia.textContent = `Choose a ${type} file to upload.`;
       errMedia.classList.remove('hidden');
       return;
@@ -567,7 +718,10 @@
     setSubmitting(true);
 
     const xhr = new XMLHttpRequest();
-    xhr.open('POST', '/api/notices', true);
+    const method = editingNoticeId ? 'PUT' : 'POST';
+    const endpoint = editingNoticeId ? `/api/notices/${editingNoticeId}` : '/api/notices';
+
+    xhr.open(method, endpoint, true);
     xhr.setRequestHeader('X-Password', getAdminPassword());
 
     if (uploadProgressTrack && uploadProgressFill) {
@@ -586,10 +740,10 @@
       setSubmitting(false);
       if (xhr.status >= 200 && xhr.status < 300) {
         closeCreateModal();
-        showToast('Published');
+        showToast(editingNoticeId ? 'Notice updated' : 'Published');
         await fetchNotices();
       } else {
-        let msg = 'Failed to publish notice.';
+        let msg = editingNoticeId ? 'Failed to update notice.' : 'Failed to publish notice.';
         try {
           const res = JSON.parse(xhr.responseText);
           if (res.error) msg = res.error;
@@ -601,7 +755,7 @@
 
     xhr.onerror = () => {
       setSubmitting(false);
-      createNoticeError.textContent = 'Network error while publishing.';
+      createNoticeError.textContent = 'Network error while saving.';
       createNoticeError.classList.remove('hidden');
     };
 

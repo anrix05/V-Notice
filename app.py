@@ -45,6 +45,13 @@ def create_display_app():
         active_notices = storage.get_active()
         return jsonify(active_notices)
 
+    @app.route("/notice/<notice_id>")
+    def notice_detail(notice_id):
+        notice = storage.get_by_id(notice_id)
+        if not notice:
+            return render_template("notice_detail.html", notice=None), 404
+        return render_template("notice_detail.html", notice=notice)
+
     @app.route("/media/<path:filename>")
     def serve_media(filename):
         return send_from_directory(MEDIA_FOLDER, filename)
@@ -140,6 +147,28 @@ def create_admin_app():
             return jsonify({"error": str(ve)}), 400
         except Exception as e:
             return jsonify({"error": f"Failed to publish notice: {str(e)}"}), 500
+
+    @app.route("/api/notices/<notice_id>", methods=["PUT", "POST"])
+    @admin_required
+    def update_notice(notice_id):
+        form_data = request.form.to_dict()
+        file_obj = request.files.get("media_file")
+        if not form_data and request.is_json:
+            form_data = request.get_json()
+
+        title = form_data.get("title", "").strip()
+        if not title:
+            return jsonify({"error": "Notice title/headline is required"}), 400
+
+        try:
+            updated = storage.update(notice_id, form_data, file_obj=file_obj)
+            if not updated:
+                return jsonify({"error": "Notice not found"}), 404
+            return jsonify(updated), 200
+        except ValueError as ve:
+            return jsonify({"error": str(ve)}), 400
+        except Exception as e:
+            return jsonify({"error": f"Failed to update notice: {str(e)}"}), 500
 
     @app.route("/api/notices/<notice_id>", methods=["DELETE"])
     @admin_required

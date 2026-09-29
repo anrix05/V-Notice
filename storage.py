@@ -84,6 +84,13 @@ class NoticeStorage:
         # Rule 5: A notice is active only when start <= current_time <= end
         return [n for n in all_notices if n.get("status") == "live"]
 
+    def get_by_id(self, notice_id):
+        notices = self.get_all()
+        for n in notices:
+            if n.get("id") == notice_id:
+                return n
+        return None
+
     def add(self, data, file_obj=None):
         notices = self._read_data()
         notice_id = uuid.uuid4().hex[:8]
@@ -152,6 +159,96 @@ class NoticeStorage:
         self._write_data(notices)
         new_notice["status"] = compute_status(new_notice)
         return new_notice
+
+    def update(self, notice_id, data, file_obj=None):
+        notices = self._read_data()
+        target_idx = None
+        target_notice = None
+        for idx, n in enumerate(notices):
+            if n.get("id") == notice_id:
+                target_idx = idx
+                target_notice = n
+                break
+        
+        if target_notice is None:
+            return None
+
+        media_filename = target_notice.get("media", "")
+        media_type = data.get("type", target_notice.get("type", "text"))
+
+        if file_obj and file_obj.filename:
+            raw_filename = secure_filename(file_obj.filename)
+            if not raw_filename or not allowed_file(raw_filename, file_obj.mimetype):
+                raise ValueError("Invalid file extension or unsupported media type.")
+
+            ext = raw_filename.rsplit(".", 1)[1].lower()
+            new_media_filename = f"{notice_id}_{uuid.uuid4().hex[:8]}.{ext}"
+            dest_path = self.media_folder / new_media_filename
+            
+            try:
+                file_obj.save(dest_path)
+            except Exception as e:
+                if dest_path.exists():
+                    os.remove(dest_path)
+                raise IOError(f"Failed to save upload: {e}")
+
+            # Delete old media file if existed
+            if media_filename:
+                old_path = self.media_folder / media_filename
+                if old_path.exists():
+                    try:
+                        os.remove(old_path)
+                    except Exception:
+                        pass
+
+            media_filename = new_media_filename
+            if ext in ALLOWED_VIDEO_EXTENSIONS:
+                media_type = "video"
+            elif ext in ALLOWED_IMAGE_EXTENSIONS:
+                media_type = "image"
+        elif media_type == "text" and media_filename:
+            old_path = self.media_folder / media_filename
+            if old_path.exists():
+                try:
+                    os.remove(old_path)
+                except Exception:
+                    pass
+            media_filename = ""
+
+        try:
+            duration = int(data.get("duration", target_notice.get("duration", 10)))
+            if duration <= 0:
+                duration = 10
+        except (ValueError, TypeError):
+            duration = 10
+
+        try:
+            start_ms = int(data.get("start", target_notice.get("start", get_current_time_ms())))
+        except (ValueError, TypeError):
+            start_ms = target_notice.get("start", get_current_time_ms())
+
+        try:
+            end_ms = int(data.get("end", target_notice.get("end", start_ms + (7 * 24 * 60 * 60 * 1000))))
+        except (ValueError, TypeError):
+            end_ms = target_notice.get("end", start_ms + (7 * 24 * 60 * 60 * 1000))
+
+        priority = str(data.get("priority", target_notice.get("priority", "normal"))).lower()
+        if priority not in ("urgent", "normal", "info"):
+            priority = "normal"
+
+        target_notice["title"] = str(data.get("title", target_notice.get("title", ""))).strip()
+        target_notice["body"] = str(data.get("body", target_notice.get("body", ""))).strip()
+        target_notice["priority"] = priority
+        target_notice["type"] = media_type
+        target_notice["media"] = media_filename
+        target_notice["duration"] = duration
+        target_notice["start"] = start_ms
+        target_notice["end"] = end_ms
+
+        notices[target_idx] = target_notice
+        self._write_data(notices)
+        target_notice["status"] = compute_status(target_notice)
+        return target_notice
 
     def delete(self, notice_id):
         notices = self._read_data()
