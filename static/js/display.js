@@ -286,8 +286,8 @@
       try {
         new QRCode(stageQrCanvas, {
           text: targetUrl,
-          width: 88,
-          height: 88,
+          width: 180,
+          height: 180,
           colorDark: '#0F172A',
           colorLight: '#FFFFFF',
           correctLevel: QRCode.CorrectLevel.M
