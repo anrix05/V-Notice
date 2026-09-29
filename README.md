@@ -10,9 +10,10 @@
 
 **V Notice** is a centralized smart digital notice board system developed for college campuses. It seamlessly connects faculty, administration, and students:
 
-- **Faculty and Staff** publish, schedule, categorize, and broadcast announcements instantly from any smartphone, tablet, or laptop from anywhere.
-- **The Raspberry Pi** wall-mounted 18-inch to 22-inch monitor dynamically rotates active notices, prioritizes urgent campus alerts, plays campus video broadcasts, and provides a continuous headline ticker with a live digital clock readable from across corridors and lobbies.
-- **Zero manual refreshes**: The display automatically polls and updates within seconds. Real-time deletion and additions reflect seamlessly.
+- **Faculty and Staff** publish, schedule, categorize, edit, and broadcast announcements instantly from any smartphone, tablet, or laptop from anywhere.
+- **The Raspberry Pi** wall-mounted 18-inch to 22-inch monitor dynamically rotates active notices, prioritizes urgent campus alerts, plays campus video broadcasts, displays an Apple TV-style ambient frosted backdrop, and provides a continuous headline ticker with a live digital clock and campus weather readable from across corridors and lobbies.
+- **Scan-to-Phone QR Code**: A dedicated high-DPI QR card on the sidebar rail lets passing students scan from 10 feet away to download notices and posters directly to their phones over campus Wi-Fi.
+- **Zero manual refreshes**: The display automatically synchronizes within seconds via Server-Sent Events (SSE). Real-time additions, edits, and deletions reflect immediately.
 - **Offline resilience**: In the event of Wi-Fi or network dropouts, the display continues cycling cached notices from `localStorage` without interruptions or blank screens.
 
 ---
@@ -29,17 +30,17 @@ V Notice runs a unified Flask backend serving two distinct interfaces on dedicat
 ```
    [ Faculty Phone / Laptop (Anywhere) ]
                      │
-                     ▼ (Cloudflare Tunnel / LAN)
-       ┌─────────────────────────────────────┐
-       │            Raspberry Pi             │
-       │                                     │
-       │  Port 5001: Admin Backend           │ ◄── Receives new notices
-       │  Port 5000: Display Backend         │
-       │  Storage: notices.json + media/     │
-       │                                     │
-       │  Chromium Fullscreen Kiosk Mode     │ ──► Displays on 7-inch
-       │  (http://localhost:5000)            │     800x480 LCD Screen
-       └─────────────────────────────────────┘
+                     ▼ (Cloudflare Tunnel / Campus Wi-Fi)
+       ┌─────────────────────────────────────────┐
+       │              Raspberry Pi               │
+       │                                         │
+       │  Port 5001: Admin Backend               │ ◄── Receives new & edited notices
+       │  Port 5000: Display Backend             │
+       │  Storage: notices.json + media/         │
+       │                                         │
+       │  Chromium Fullscreen Kiosk Mode         │ ──► Displays on 18"-22" Monitor
+       │  (http://localhost:5000)                │     1080p / 900p / 720p HDMI
+       └─────────────────────────────────────────┘
 ```
 
 ### Storage Layer
@@ -48,7 +49,27 @@ V Notice runs a unified Flask backend serving two distinct interfaces on dedicat
 
 ---
 
-## 3. Notice Data Model
+## 3. Key Upgrades & Features
+
+### 🌟 1. Ambient Frosted Backdrop
+For portrait posters and widescreen videos, instead of empty black dead bars on 18"–22" monitors, V Notice renders a soft, ambient frosted blur of the active media behind the centered artwork (like Apple TV and YouTube), creating a rich, premium television aesthetic.
+
+### 📱 2. "Scan to Phone" QR Integration
+- **High-DPI Medium QR Card**: Positioned cleanly at the bottom of the "Up next" sidebar rail without obstructing the main stage.
+- **LAN IP Auto-Detection**: Generates the exact local Wi-Fi IP (e.g. `http://10.168.209.114:5000/notice/vnot0001?download=1`) so phones connect immediately.
+- **1-Tap Direct Download**: Automatically downloads the flyer/PDF straight into student phone storage.
+
+### 🌦️ 3. Real-Time Campus Weather & Clock
+- Displays live temperature and condition icons (e.g. `29°C · Mumbai 🌤`) via Open-Meteo API.
+- Auto-detects campus geographic coordinates via IP fallback with 10-minute caching to eliminate unnecessary external calls.
+
+### ⚡ 4. Live Admin Preview & In-Place Editing
+- Instant visual file preview with aspect ratio detection (16:9, 4:3, 9:16 portrait) before uploading.
+- Edit existing notices directly (`PUT /api/notices/<id>`) without needing to delete and recreate.
+
+---
+
+## 4. Notice Data Model
 
 Each notice adheres to the following JSON schema:
 
@@ -72,14 +93,17 @@ Each notice adheres to the following JSON schema:
 
 ---
 
-## 4. REST API Specification
+## 5. REST API Specification
 
 | Method | Endpoint | Site | Auth Required | Description |
 | :--- | :--- | :---: | :---: | :--- |
 | `GET` | `/api/notices` | Display (5000) | No | Returns currently active notices (`start <= now <= end`) |
 | `GET` | `/api/notices` | Admin (5001) | Yes (`X-Password`) | Returns all notices with computed status (`live`, `scheduled`, `expired`) |
 | `POST` | `/api/notices` | Admin (5001) | Yes (`X-Password`) | Creates new notice (supports multipart form for file uploads) |
+| `PUT` | `/api/notices/<id>` | Admin (5001) | Yes (`X-Password`) | Updates existing notice title, body, priority, or schedule |
 | `DELETE` | `/api/notices/<id>` | Admin (5001) | Yes (`X-Password`) | Deletes notice and associated media file from storage |
+| `GET` | `/notice/<id>/download` | Display (5000) | No | Triggers 1-tap download of the notice media/text to phone |
+| `GET` | `/api/system-info` | Display (5000) | No | Returns auto-detected campus weather, LAN IP, and ports |
 | `POST` | `/api/login` | Admin (5001) | No | Authenticates admin password |
 | `POST` | `/api/logout` | Admin (5001) | No | Terminates session |
 | `GET` | `/media/<file>` | Both | No | Serves uploaded images and video files |
@@ -87,32 +111,11 @@ Each notice adheres to the following JSON schema:
 
 ---
 
-## 5. UI & Design Direction
-
-Built with a calm, minimal, type-led interface where notice content is the primary focus:
-
-- **Strict Palette**:
-  - Background: `#0F172A`
-  - Panel: `#162238`
-  - Electric Blue: `#2F6BFF`
-  - Urgent Red: `#E5484D`
-  - Text: `#F8FAFC`
-  - Neutrals: Muted text `#A3B1C6`, Border `#24344F`, Raised panel `#1C2B45`
-- **Flat Surfaces**: No gradients, glows, text-shadows, or vignettes. Separation achieved via 1px crisp borders.
-- **Display Composition (800×480)**:
-  - Header (56px): 32px vector "V" brand mark, "V Notice" title, tabular `10:42 AM` clock and date.
-  - Stage (~64%): Big responsive headline (scales 40px $\rightarrow$ 32px $\rightarrow$ 26px for long titles), body copy ($\ge 20\text{px}$), meta row, and centered bottom progress dots.
-  - Up Next Rail (`min(26rem, 36%)`): Numbered queue positions, 2-line max headline, and type tags.
-  - Ticker (40px): Seamless headline marquee with "Latest" label.
-- **Admin Portal**: Mobile-first single 720px centered column, $\ge 48\text{px}$ touch targets, merged summary/filter segmented control, and bottom sheet / modal form.
-
----
-
 ## 6. Quick Start & Local Execution
 
 ### Prerequisites
 - Python 3.10+ (Tested on Python 3.12 & 3.13)
-- Modern web browser (Chrome, Edge, Chromium, Firefox, Safari)
+- Modern web browser (Chrome, Edge, Chromium, Firefox)
 
 ### Installation
 ```bash
@@ -127,40 +130,33 @@ pip install -r requirements.txt
 cp .env.example .env
 ```
 
-### Running the Dual Server
+### Running the Server
 ```bash
 python app.py
 ```
+*(On Windows, you can simply double-click `start.bat`)*
+
 This automatically starts:
 - **Display Interface**: `http://localhost:5000`
 - **Admin Management Portal**: `http://localhost:5001`
-- **Admin Password**: Set via `ADMIN_PASSWORD` in `.env` (or environment variable)
-
-To run with a custom password:
-```bash
-# Linux / Raspberry Pi:
-ADMIN_PASSWORD="MyCollegeSecurePassword" python3 app.py
-
-# Windows PowerShell:
-$env:ADMIN_PASSWORD="MyCollegeSecurePassword"; python app.py
-```
+- **Default Admin Password**: `vnotice2026` (configurable in `.env`)
 
 ---
 
 ## 7. Remote Management from Anywhere (Cloudflare Tunnel)
 
-To allow faculty or administrators to manage notices from home or mobile data outside campus Wi-Fi, run Cloudflare Tunnel on the Raspberry Pi:
+To allow faculty or administrators to manage notices from home or mobile data outside campus Wi-Fi, run the 1-click Cloudflare Tunnel:
 
+### Windows:
+- Double-click **`start_tunnel.bat`** to start remote access.
+- Cloudflare will print your secure HTTPS URL (e.g. `https://random.trycloudflare.com`).
+- Double-click **`stop_tunnel.bat`** to close public access.
+
+### Raspberry Pi (Linux):
 ```bash
-# 1. Install cloudflared on Raspberry Pi
-curl -L --output cloudflared.deb https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-arm64.deb
-sudo dpkg -i cloudflared.deb
-
-# 2. Expose the Admin port (5001)
+# Expose the Admin port (5001)
 cloudflared tunnel --url http://localhost:5001
 ```
-
-Cloudflare generates a secure, free public HTTPS link (e.g. `https://vnotice-admin.trycloudflare.com`) that can be opened on any phone or laptop worldwide.
 
 ---
 
@@ -168,7 +164,7 @@ Cloudflare generates a secure, free public HTTPS link (e.g. `https://vnotice-adm
 
 ### Hardware
 - **Raspberry Pi 4 / 3B+**
-- **18-inch to 22-inch Standard Monitor** (Full HD 1080p / 900p / 720p via HDMI, or 7-inch LCD)
+- **18-inch to 22-inch Monitor** (Full HD 1080p / 900p / 720p via HDMI)
 - **5V / 3A USB-C Power Supply**
 
 ### Auto-Start Services Configuration
@@ -195,26 +191,3 @@ Name=V Notice Kiosk
 Exec=/home/pi/v-notice/systemd/kiosk.sh
 X-GNOME-Autostart-enabled=true
 ```
-
----
-
-## 9. Automated Test Matrix
-
-A comprehensive 21-point test script verifies all PRD and architectural rules:
-
-```bash
-python test_vnotice_complete.py
-```
-
-- [x] Create text, image, and video notices with multipart file uploads
-- [x] Schedule future notices and auto-expire past notices
-- [x] Immediate notice deletion and disk media cleanup
-- [x] Urgent notice priority takeover and state styling
-- [x] Admin password authentication enforcement (HTTP 401)
-- [x] Secure file upload validation and 200 MB maximum limit enforcement
-- [x] Missing media graceful fallback (HTTP 404)
-- [x] Offline resilience with `localStorage` caching
-- [x] Sub-second display polling and instant updates
-- [x] Video autoplay, end-detection, loop, and memory cleanup
-- [x] 800×480 resolution constraints and mobile admin fluid responsiveness
-- [x] Systemd auto-start and Chromium kiosk script configuration

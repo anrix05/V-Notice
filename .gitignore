@@ -39,3 +39,13 @@ Desktop.ini
 # Logs & temp test outputs
 *.log
 screenshots/
+test_*.png
+
+# Local AI agents, skills & brag plugins (NEVER push to git)
+.agents/
+.claude/
+.claude-plugin/
+brag-output*/
+tunnel.*
+tunnel_url.txt
+

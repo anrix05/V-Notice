@@ -1,5 +1,38 @@
 [
   {
+    "id": "81b5a6a9",
+    "title": "New Notice Phone Check",
+    "body": "",
+    "priority": "info",
+    "type": "text",
+    "media": "",
+    "duration": 10,
+    "start": 1790705700000,
+    "end": 1791310500000
+  },
+  {
+    "id": "323d9a4d",
+    "title": "What is V Notice Video",
+    "body": "Intro Video of V Notice",
+    "priority": "normal",
+    "type": "video",
+    "media": "323d9a4d_20f90b08.mp4",
+    "duration": 10,
+    "start": 1790704800000,
+    "end": 1793296800000
+  },
+  {
+    "id": "25deca29",
+    "title": "What is V Notice",
+    "body": "A smart digital notice board for college campuses built with Python Flask and Raspberry Pi. Features real-time announcements, urgent alert takeover, media playback, and an offline-resilient.",
+    "priority": "normal",
+    "type": "image",
+    "media": "vnotice_clean_promo_poster.jpg",
+    "duration": 15,
+    "start": 1699999980000,
+    "end": 1899999960000
+  },
+  {
     "id": "vnot0002",
     "title": "Campus Placement Drive – TCS & Infosys",
     "body": "Eligible branches: MCA & B.Tech (All). Complete profile verification on VERP portal before 5:00 PM.",
@@ -7,28 +40,6 @@
     "type": "text",
     "media": "",
     "duration": 10,
-    "start": 1700000000000,
-    "end": 1900000000000
-  },
-  {
-    "id": "vnot0003",
-    "title": "CyberX 2026 National Tech Symposium",
-    "body": "36-Hour National Code Sprint, AI Expo & Hackathon. Exciting awards and industry networking.",
-    "priority": "info",
-    "type": "image",
-    "media": "vnot0003_cyberx.jpg",
-    "duration": 12,
-    "start": 1700000000000,
-    "end": 1900000000000
-  },
-  {
-    "id": "vnot0004",
-    "title": "Campus Life & Innovation Teaser",
-    "body": "Discover cutting-edge research facilities, maker spaces, and student tech clubs at V Notice Innovation Hub.",
-    "priority": "normal",
-    "type": "video",
-    "media": "sample_teaser.mp4",
-    "duration": 5,
     "start": 1700000000000,
     "end": 1900000000000
   }
