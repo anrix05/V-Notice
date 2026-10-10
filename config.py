@@ -105,3 +105,8 @@ URGENT_CHIME = os.environ.get('URGENT_CHIME', 'false').lower() in ('true', '1', 
 # Sync & Polling Efficiency (Phase 4)
 POLL_INTERVAL_SECONDS = int(os.environ.get('POLL_INTERVAL_SECONDS', 5))
 SSE_ENABLED = os.environ.get('SSE_ENABLED', 'false').lower() in ('true', '1', 'yes')
+
+
+# Observability & Version (Phase 7)
+VERSION = '2.0.0'
+LOG_LEVEL = os.environ.get('LOG_LEVEL', 'INFO').upper()

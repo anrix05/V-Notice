@@ -1,3 +1,4 @@
+import config
 import hashlib
 import queue
 import threading
@@ -316,6 +317,104 @@ def apply_security_headers(app):
                     pass
         return response
 
+import logging
+import shutil
+import sys
+
+SERVER_START_TIME = time.time()
+
+# Configure structured logging
+LOG_LEVEL = os.environ.get("LOG_LEVEL", "INFO").upper()
+logging.basicConfig(
+    level=getattr(logging, LOG_LEVEL, logging.INFO),
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    datefmt="%Y-%m-%dT%H:%M:%S"
+)
+logger = logging.getLogger("vnotice")
+
+def get_process_memory_mb():
+    """Cross-platform process RSS memory measurement without external dependencies."""
+    # 1. Linux procfs (Raspberry Pi & Render containers)
+    if os.path.exists('/proc/self/status'):
+        try:
+            with open('/proc/self/status', 'r') as f:
+                for line in f:
+                    if line.startswith('VmRSS:'):
+                        return round(int(line.split()[1]) / 1024, 2)
+        except Exception:
+            pass
+    # 2. Windows ctypes
+    if sys.platform == 'win32':
+        try:
+            import ctypes
+            from ctypes import wintypes
+            class PROCESS_MEMORY_COUNTERS(ctypes.Structure):
+                _fields_ = [
+                    ('cb', wintypes.DWORD),
+                    ('PageFaultCount', wintypes.DWORD),
+                    ('PeakWorkingSetSize', ctypes.c_size_t),
+                    ('WorkingSetSize', ctypes.c_size_t),
+                    ('QuotaPeakPagedPoolUsage', ctypes.c_size_t),
+                    ('QuotaPagedPoolUsage', ctypes.c_size_t),
+                    ('QuotaPeakNonPagedPoolUsage', ctypes.c_size_t),
+                    ('QuotaNonPagedPoolUsage', ctypes.c_size_t),
+                    ('PagefileUsage', ctypes.c_size_t),
+                    ('PeakPagefileUsage', ctypes.c_size_t),
+                ]
+            counters = PROCESS_MEMORY_COUNTERS()
+            counters.cb = ctypes.sizeof(PROCESS_MEMORY_COUNTERS)
+            fn = ctypes.windll.psapi.GetProcessMemoryInfo
+            fn.argtypes = [wintypes.HANDLE, ctypes.POINTER(PROCESS_MEMORY_COUNTERS), wintypes.DWORD]
+            fn.restype = wintypes.BOOL
+            h = ctypes.windll.kernel32.GetCurrentProcess()
+            if fn(h, ctypes.byref(counters), counters.cb):
+                return round(counters.WorkingSetSize / (1024 * 1024), 2)
+        except Exception:
+            pass
+    # 3. Unix resource fallback
+    try:
+        import resource
+        return round(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024, 2)
+    except Exception:
+        pass
+    return None
+
+def get_health_payload(app_name):
+    """Produce comprehensive health status payload."""
+    db_health = storage.check_health()
+    free_mb = 0
+    try:
+        total, used, free = shutil.disk_usage(MEDIA_FOLDER)
+        free_mb = round(free / (1024 * 1024), 1)
+    except Exception:
+        pass
+    writable = os.access(MEDIA_FOLDER, os.W_OK)
+    mem_mb = get_process_memory_mb()
+    uptime = round(time.time() - SERVER_START_TIME, 1)
+
+    is_healthy = db_health.get("connected", False) and writable
+    status_str = "healthy" if is_healthy else "unhealthy"
+
+    data = {
+        "status": status_str,
+        "app": app_name,
+        "version": getattr(config, "VERSION", "2.0.0"),
+        "uptime_seconds": uptime,
+        "memory_rss_mb": mem_mb,
+        "database": db_health,
+        "storage": {
+            "media_dir": str(MEDIA_FOLDER),
+            "writable": writable,
+            "free_space_mb": free_mb,
+        },
+        "ports": {
+            "display_port": DISPLAY_PORT,
+            "admin_port": ADMIN_PORT,
+        }
+    }
+    status_code = 200 if is_healthy else 503
+    return data, status_code
+
 def configure_app_security(app):
     app.config["SECRET_KEY"] = SECRET_KEY
     app.config["MAX_CONTENT_LENGTH"] = MAX_CONTENT_LENGTH
@@ -449,7 +548,8 @@ def create_display_app():
 
     @app.route("/api/health")
     def health():
-        return jsonify({"status": "ok", "app": "vnotice-display", "port": DISPLAY_PORT})
+        data, code = get_health_payload("vnotice-display")
+        return jsonify(data), code
 
     return app
 
@@ -608,7 +708,8 @@ def create_admin_app():
 
     @app.route("/api/health")
     def health():
-        return jsonify({"status": "ok", "app": "vnotice-admin", "port": ADMIN_PORT})
+        data, code = get_health_payload("vnotice-admin")
+        return jsonify(data), code
 
     return app
 
@@ -850,7 +951,8 @@ def create_unified_app():
 
     @app.route("/api/health")
     def health():
-        return jsonify({"status": "ok", "app": "vnotice-unified", "notices_count": len(storage.get_all())})
+        data, code = get_health_payload("vnotice-unified")
+        return jsonify(data), code
 
     return app
 

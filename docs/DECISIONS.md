@@ -131,3 +131,13 @@
   1. Provide a responsive in-portal Audit Logs Viewer modal (`#audit-modal`) directly accessible via header button (`#btn-view-audit`), querying `/api/audit-logs` and rendering styled action badges.
   2. Implement client-side dropzone validation checking file size (`<= 200MB`) and format (`jpg, png, webp, gif, mp4, webm`) before initiating chunked or multipart uploads.
   3. When encountering rate-limit HTTP 429 responses on login, extract `Retry-After` and render a live countdown timer disabling inputs until lockout expiration.
+
+
+## Decision 20: Comprehensive Health Endpoint & Zero-Dependency Memory Profiling
+- **Date:** 2026-10-11
+- **Status:** Accepted (Phase 7)
+- **Context:** Automated monitoring tools, Kubernetes probes, Docker healthchecks, and Raspberry Pi systemd watchers need a reliable endpoint to verify database integrity, filesystem writability, and memory consumption without installing heavy monitoring agents (like psutil or Prometheus daemons) that exceed the 60MB memory budget.
+- **Decision:**
+  1. Upgrade `/api/health` to perform active read checks on SQLite (`SELECT 1`, `PRAGMA journal_mode`), verify `MEDIA_DIR` write permissions, and calculate free disk space via `shutil.disk_usage`.
+  2. Implement a zero-dependency process RSS memory reader utilizing `/proc/self/status` on Linux (Raspberry Pi/Render containers) and native Win32 `GetProcessMemoryInfo` on Windows.
+  3. Emit structured request logs (`METHOD /path STATUS - DURATIONms (IP)`) and return HTTP 503 if any core subsystem fails.

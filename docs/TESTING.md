@@ -175,3 +175,21 @@ pytest -v
 - [ ] **Login Rate Limit Countdown:**
   1. Intentionally enter wrong passwords 5 times consecutively.
   2. Verify HTTP 429 is received and the login modal displays a real-time countdown disabling the submit button until the lockout duration expires.
+
+
+- **Phase 7 (Quality, Observability & Healthchecks):** `tests/test_quality_observability_phase7.py`
+  - Tests `/api/health` payload schema, database connectivity, and media storage writability.
+  - Tests HTTP 503 response when database connectivity fails.
+  - Tests process RSS memory budget (<60MB target on Raspberry Pi 3B+).
+  - Tests dual-mode healthcheck coverage across Mode A (`unified_app`) and Mode B (`display_app`, `admin_app`).
+
+---
+
+### Phase 7: Observability & Production Verification
+- [ ] **Healthcheck Endpoint (`/api/health`):**
+  1. Query `curl http://localhost:5000/api/health` (or `http://localhost:5001/api/health`).
+  2. Verify response code is `200 OK` and payload includes `"status": "healthy"`, `"database": {"connected": true, "journal_mode": "wal"}`, `"storage": {"writable": true}`, and `"memory_rss_mb"`.
+- [ ] **Memory Footprint Verification:**
+  1. Confirm that `memory_rss_mb` in `/api/health` remains below 60MB during active kiosk playback.
+- [ ] **Structured Request Logging:**
+  1. Check terminal stdout/stderr: verify requests log ISO timestamps, method, endpoint, status code, duration in milliseconds, and client IP.

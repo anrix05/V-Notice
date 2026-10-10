@@ -219,6 +219,28 @@ class NoticeStorage:
             if not self._is_in_flask():
                 conn.close()
 
+
+    def check_health(self) -> dict:
+        """Verify database connectivity, WAL mode, and return basic counts."""
+        conn = self.get_connection()
+        try:
+            conn.execute("SELECT 1;").fetchone()
+            wal_row = conn.execute("PRAGMA journal_mode;").fetchone()
+            journal_mode = wal_row[0] if wal_row else "unknown"
+            notices_count = conn.execute("SELECT COUNT(*) FROM notices;").fetchone()[0]
+            screens_count = conn.execute("SELECT COUNT(*) FROM screens;").fetchone()[0]
+            return {
+                "connected": True,
+                "journal_mode": journal_mode,
+                "notices_count": notices_count,
+                "screens_count": screens_count,
+            }
+        except Exception as e:
+            return {
+                "connected": False,
+                "error": str(e)
+            }
+
     def get_audit_logs(self, limit: int = 50):
         conn = self.get_connection()
         try:
