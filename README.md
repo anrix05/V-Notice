@@ -124,16 +124,21 @@ All settings use safe defaults and can be customized via `.env` or container env
 | Variable | Default | Description |
 | :--- | :--- | :--- |
 | `ADMIN_PASSWORD` | `vnotice2026` | Plaintext password or secret for Admin Portal authentication. |
+| `ADMIN_PASSWORD_HASH` | *empty* | Optional Werkzeug hash taking precedence over plaintext password. |
+| `SECRET_KEY` | *auto-generated* | Secret key for session cookies. **Mandatory in production**. |
 | `STORAGE_DIR` | `./` | Root directory for SQLite database and storage. |
 | `MEDIA_DIR` | `${STORAGE_DIR}/media` | Dedicated directory for uploaded posters and videos. |
 | `DB_FILE` | `${STORAGE_DIR}/notices.db` | Path to the SQLite WAL database file. |
 | `DISPLAY_PORT` | `5000` | Local port for Kiosk Display (Mode B). |
 | `ADMIN_PORT` | `5001` | Local port for Admin Portal (Mode B). |
 | `PORT` | `5000` | Dynamic single port for cloud deployments (Render / Railway). |
-| `CAMPUS_CITY` | `MUMBAI` | City label displayed in kiosk weather widget. |
-| `CAMPUS_LAT` | `19.0760` | Campus latitude for live weather forecast. |
-| `CAMPUS_LON` | `72.8777` | Campus longitude for live weather forecast. |
-| `MAX_CONTENT_LENGTH` | `209715200` | Maximum file upload size in bytes (200MB). |
+| `WEATHER_ENABLED` | `true` | Toggle live campus weather widget in display header. |
+| `WEATHER_LABEL` | `Mumbai` | City/Campus label displayed in kiosk weather widget. |
+| `WEATHER_LAT` | `19.0760` | Campus latitude for live weather forecast. |
+| `WEATHER_LON` | `72.8777` | Campus longitude for live weather forecast. |
+| `PUBLIC_BASE_URL` | *empty* | Public URL (e.g. `https://v-notice.onrender.com`) for scan-to-phone QR codes. |
+| `URGENT_CHIME` | `false` | Enable client-side synthetic two-tone audio chime when urgent notices activate. |
+| `MAX_UPLOAD_MB` | `200` | Maximum file upload size in Megabytes (default 200MB). |
 
 ---
 
@@ -217,3 +222,12 @@ Name=V Notice Kiosk
 Exec=/home/pi/v-notice/systemd/kiosk.sh
 X-GNOME-Autostart-enabled=true
 ```
+
+
+### ⚡ 6. Kiosk Resilience & Offline Architecture
+- **Offline-capable Service Worker (`static/sw.js`)**: Pre-caches the display shell, scripts, styles, and self-hosted fonts. Operates completely without Internet once loaded.
+- **Self-Hosted Typography**: Fully bundles `Inter` and `Outfit` WOFF2 fonts with `font-display: swap`. Zero requests made to Google Fonts.
+- **Bounded Media Cache & Orphan Cleanup**: Caches up to 50 active media posters/videos. Automatically evicts cached files that are no longer referenced by active notices upon syncing.
+- **Graceful Weather Degradation**: Weather queries time out after 3 seconds. Cached weather is shown for up to 60 minutes; if unavailable, the weather widget hides silently without ugly error boxes.
+- **Pure Client-Side QR Generation**: Uses vendored `qrcode.min.js` to render crisp high-DPI QR codes locally without external API dependencies.
+- **Audio Chime & Video Protection**: Gentle synthetic two-tone chime via Web Audio API (default disabled via `URGENT_CHIME=false`), wrapped in safe autoplay catch blocks. All `<video>` elements remain strictly muted (`muted=true, volume=0`).

@@ -87,3 +87,16 @@ ALLOWED_MIME_TYPES = {
     'video/mp4',
     'video/webm',
 }
+
+
+# Weather configuration (Phase 3: Resilient & Gracefully Degrading)
+WEATHER_ENABLED = os.environ.get('WEATHER_ENABLED', 'true').lower() in ('true', '1', 'yes')
+WEATHER_LAT = float(os.environ.get('WEATHER_LAT', os.environ.get('CAMPUS_LAT', 19.0760)))
+WEATHER_LON = float(os.environ.get('WEATHER_LON', os.environ.get('CAMPUS_LON', 72.8777)))
+WEATHER_LABEL = os.environ.get('WEATHER_LABEL', os.environ.get('CAMPUS_CITY', 'Mumbai'))
+
+# Public base URL (for QR code scan target, e.g. https://v-notice.onrender.com)
+PUBLIC_BASE_URL = os.environ.get('PUBLIC_BASE_URL', '').rstrip('/')
+
+# Urgent notice audio chime (default disabled; purely client-side synthetic audio when enabled)
+URGENT_CHIME = os.environ.get('URGENT_CHIME', 'false').lower() in ('true', '1', 'yes')

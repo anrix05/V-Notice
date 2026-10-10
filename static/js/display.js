@@ -230,32 +230,57 @@
   async function fetchCampusWeather() {
     if (!headerWeather) return;
     try {
-      // 1. Fetch system-info from backend (provides LAN IP and accurate localized weather)
-      const res = await fetch('/api/system-info', { cache: 'no-store' });
+      // 1. Fetch system-info from backend with 3s timeout (LAN IP, weather, public base URL, urgent chime)
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 3000);
+      const res = await fetch('/api/system-info', { cache: 'no-store', signal: controller.signal });
+      clearTimeout(timeoutId);
+
       if (res.ok) {
         const info = await res.json();
         if (info) {
           systemInfo = { ...systemInfo, ...info };
-          applyWeather({ temp: info.temp || '28°C', icon: info.icon || '🌤', city: info.city || 'Campus' });
-          try {
-            localStorage.setItem('vnotice_weather', JSON.stringify({ temp: info.temp, icon: info.icon, city: info.city }));
-          } catch (e) {}
-          return;
+
+          if (info.weather_enabled === false) {
+            headerWeather.classList.add('hidden');
+            return;
+          }
+
+          if (info.temp && info.icon) {
+            headerWeather.classList.remove('hidden');
+            applyWeather({ temp: info.temp, icon: info.icon, city: info.city || 'Campus' });
+            try {
+              localStorage.setItem('vnotice_weather', JSON.stringify({
+                temp: info.temp,
+                icon: info.icon,
+                city: info.city || 'Campus',
+                timestamp: Date.now()
+              }));
+            } catch (e) {}
+            return;
+          }
         }
       }
     } catch (err) {
       console.warn('Backend weather fetch failed, attempting client fallback:', err);
     }
 
-    // Fallback: cached weather or default
+    // Fallback: cached weather if younger than 60 minutes, else hide silently
     try {
-      const cached = localStorage.getItem('vnotice_weather');
-      if (cached) {
-        applyWeather(JSON.parse(cached));
-        return;
+      const cachedStr = localStorage.getItem('vnotice_weather');
+      if (cachedStr) {
+        const cached = JSON.parse(cachedStr);
+        const age = Date.now() - (cached.timestamp || 0);
+        if (age < 60 * 60 * 1000 && cached.temp) {
+          headerWeather.classList.remove('hidden');
+          applyWeather(cached);
+          return;
+        }
       }
     } catch (e) {}
-    applyWeather({ temp: '28°C', icon: '🌤', city: 'Campus' });
+
+    // Older than 60m or unavailable: hide silently (graceful degradation, zero error displayed)
+    headerWeather.classList.add('hidden');
   }
 
   function applyWeather(w) {
@@ -281,9 +306,11 @@
 
     stageQrCanvas.innerHTML = '';
 
-    // If running on HTTPS / public cloud (e.g. Railway), use origin directly; otherwise use campus LAN IP
+    // If PUBLIC_BASE_URL is configured, use it. Otherwise use current origin / LAN IP
     let targetUrl;
-    if (window.location.protocol === 'https:' || window.location.hostname.includes('railway.app') || window.location.hostname.includes('trycloudflare.com')) {
+    if (systemInfo.public_base_url) {
+      targetUrl = `${systemInfo.public_base_url}/notice/${notice.id}?download=1`;
+    } else if (window.location.protocol === 'https:' || window.location.hostname.includes('railway.app') || window.location.hostname.includes('trycloudflare.com') || window.location.hostname.includes('onrender.com')) {
       targetUrl = `${window.location.origin}/notice/${notice.id}?download=1`;
     } else {
       const host = (systemInfo.lan_ip && systemInfo.lan_ip !== '127.0.0.1') ? systemInfo.lan_ip : window.location.hostname;
@@ -330,6 +357,47 @@
     }
   }
 
+  
+  // Synthetic Urgent Chime via Web Audio API (Zero audio dependencies, safe autoplay catch)
+  let audioCtx = null;
+  function playUrgentChime() {
+    try {
+      const AudioCtx = window.AudioContext || window.webkitAudioContext;
+      if (!AudioCtx) return;
+      if (!audioCtx) {
+        audioCtx = new AudioCtx();
+      }
+      if (audioCtx.state === 'suspended') {
+        audioCtx.resume().catch(() => {});
+      }
+      const now = audioCtx.currentTime;
+      const osc1 = audioCtx.createOscillator();
+      const osc2 = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+
+      osc1.type = 'sine';
+      osc1.frequency.setValueAtTime(880, now); // A5
+
+      osc2.type = 'sine';
+      osc2.frequency.setValueAtTime(1046.5, now + 0.12); // C6
+
+      gain.gain.setValueAtTime(0.001, now);
+      gain.gain.exponentialRampToValueAtTime(0.15, now + 0.04);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.38);
+
+      osc1.connect(gain);
+      osc2.connect(gain);
+      gain.connect(audioCtx.destination);
+
+      osc1.start(now);
+      osc1.stop(now + 0.12);
+      osc2.start(now + 0.12);
+      osc2.stop(now + 0.38);
+    } catch (e) {
+      console.warn('Urgent chime playback skipped:', e);
+    }
+  }
+
   function renderStage() {
     clearTimeout(rotationTimer);
 
@@ -368,6 +436,9 @@
       stagePriority.className = 'pill-urgent';
       stagePriority.textContent = 'Urgent';
       stagePriority.classList.remove('hidden');
+      if (systemInfo.urgent_chime) {
+        playUrgentChime();
+      }
     } else if (prio === 'info') {
       stagePriority.className = 'label-info';
       stagePriority.innerHTML = '<span class="dot-info"></span>Info';
@@ -477,6 +548,7 @@
     }
 
     videoElement.muted = true;
+    videoElement.volume = 0;
     videoElement.playsInline = true;
 
     // Single active notice: loop video

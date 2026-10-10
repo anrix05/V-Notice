@@ -1,3 +1,36 @@
+/* Self-hosted WOFF2 Fonts (Zero External / Google Fonts Dependencies) */
+@font-face {
+  font-family: 'Inter';
+  src: url('/static/fonts/Inter-Regular.woff2') format('woff2');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Inter';
+  src: url('/static/fonts/Inter-Bold.woff2') format('woff2');
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Outfit';
+  src: url('/static/fonts/Outfit-Regular.woff2') format('woff2');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Outfit';
+  src: url('/static/fonts/Outfit-Bold.woff2') format('woff2');
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
 /* ==========================================================================
    V NOTICE — Minimal Admin Stylesheet (Port 5001)
    Mobile-First (360px+) to Desktop (Single Calm 720px Column)
@@ -19,7 +52,7 @@
   --radius-sm: 8px;
   --radius-panel: 12px;
   --radius-pill: 999px;
-  --font-stack: system-ui, -apple-system, "Segoe UI", Roboto, "DejaVu Sans", Arial, sans-serif;
+  --font-stack: 'Inter', system-ui, -apple-system, "Segoe UI", Roboto, "DejaVu Sans", Arial, sans-serif;
 }
 
 *, *::before, *::after {

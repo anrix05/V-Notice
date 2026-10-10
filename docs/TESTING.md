@@ -65,3 +65,31 @@ pytest -v
   1. Inspect response headers on any route (`curl -I http://localhost:5000/`).
   2. Verify `X-Content-Type-Options: nosniff`, `Referrer-Policy`, and `Content-Security-Policy` are present.
   3. Verify `X-Frame-Options: DENY` on admin routes.
+
+
+- **Phase 3 (Kiosk Resilience & Offline):** `tests/test_kiosk_resilience_phase3.py`
+  - Tests `/api/system-info` with `WEATHER_ENABLED=false` and custom `WEATHER_LABEL`.
+  - Tests `PUBLIC_BASE_URL` propagation for Scan-to-Download QR generation.
+  - Tests `URGENT_CHIME` toggle in `/api/system-info`.
+  - Tests `/sw.js` route MIME type, `Service-Worker-Allowed: /` header, and cache controls.
+  - Tests presence of self-hosted WOFF2 fonts and `@font-face` definitions with `font-display: swap`.
+  - Tests presence and integrity of vendored `static/js/qrcode.min.js`.
+  - Tests Chromium kiosk script flags (`--user-data-dir`, `--noerrdialogs`, `--kiosk`, no `--incognito`).
+
+---
+
+### Phase 3: Kiosk Resilience & Offline
+- [ ] **Service Worker Offline Playback:**
+  1. Open Chrome DevTools at `http://localhost:5000/display` (or `http://localhost:5000/`).
+  2. In the **Application** tab under **Service Workers**, confirm `/sw.js` is active and running.
+  3. Under **Cache Storage**, verify `vnotice-shell-v1` contains HTML, CSS, JS, and WOFF2 fonts.
+  4. In DevTools **Network** tab, toggle **Offline**.
+  5. Refresh the page; verify the display shell loads smoothly and continues rotating notices without errors.
+- [ ] **Weather Graceful Degradation:**
+  1. Run with `WEATHER_ENABLED=false` or disconnect network; verify `#header-weather` hides cleanly without displaying broken icons or error text.
+- [ ] **Scan-to-Save QR Code:**
+  1. Set `PUBLIC_BASE_URL=https://v-notice.onrender.com`.
+  2. Verify the QR card at the bottom of the Up Next rail points to `https://v-notice.onrender.com/notice/<id>?download=1`.
+- [ ] **Urgent Audio Chime & Video Muting:**
+  1. Publish an urgent notice. With `URGENT_CHIME=true`, verify a soft two-tone chime sounds when the notice appears on stage.
+  2. Publish a video notice. Verify the video plays seamlessly and is strictly muted.
