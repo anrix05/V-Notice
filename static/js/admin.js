@@ -98,17 +98,19 @@
   // ==========================================================================
   // Auth Management
   // ==========================================================================
+  let cachedCsrfToken = '';
+
   function getAdminPassword() {
     return sessionStorage.getItem('vnotice_admin_pass') || '';
   }
 
   function setAdminPassword(pass) {
     sessionStorage.setItem('vnotice_admin_pass', pass);
-        if (data && data.csrf_token) cachedCsrfToken = data.csrf_token;
   }
 
   function clearAdminPassword() {
     sessionStorage.removeItem('vnotice_admin_pass');
+    cachedCsrfToken = '';
   }
 
   async function checkAuthAndLoad() {
@@ -191,6 +193,11 @@
         loginError.classList.remove('hidden');
         passwordInput.select();
         return;
+      }
+
+      const loginResData = await res.json().catch(() => ({}));
+      if (loginResData && loginResData.csrf_token) {
+        cachedCsrfToken = loginResData.csrf_token;
       }
 
       clearInterval(window._loginCountdown);
@@ -282,7 +289,6 @@
   // ==========================================================================
   // CSRF Protection (Phase 2)
   // ==========================================================================
-  let cachedCsrfToken = '';
   async function getCsrfToken() {
     if (cachedCsrfToken) return cachedCsrfToken;
     try {
