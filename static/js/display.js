@@ -16,6 +16,13 @@
   let isUrgentTakeover = false;
   let isOffline = false;
 
+    const syncDot = document.getElementById('clock-sync-dot');
+    if (syncDot) {
+      syncDot.className = 'clock-sync-dot sync-healthy';
+      syncDot.title = 'Live sync active';
+    }
+
+
   // Screen Configuration (Phase 1)
   const urlParams = new URLSearchParams(window.location.search);
   const currentScreenId = urlParams.get('screen') || urlParams.get('screen_id') || 'default';
@@ -138,6 +145,13 @@
       if (response.status === 304) {
         // HTTP 304 Not Modified: notices unchanged, zero DOM rebuild, zero JSON re-parsing
         isOffline = false;
+
+    const syncDot = document.getElementById('clock-sync-dot');
+    if (syncDot) {
+      syncDot.className = 'clock-sync-dot sync-healthy';
+      syncDot.title = 'Live sync active';
+    }
+
         if (offlineBadge) offlineBadge.classList.add('hidden');
         backoffDelay = basePollInterval;
         return;
@@ -151,6 +165,13 @@
       const data = await response.json();
 
       isOffline = false;
+
+    const syncDot = document.getElementById('clock-sync-dot');
+    if (syncDot) {
+      syncDot.className = 'clock-sync-dot sync-healthy';
+      syncDot.title = 'Live sync active';
+    }
+
       if (offlineBadge) offlineBadge.classList.add('hidden');
       backoffDelay = basePollInterval;
 
@@ -165,6 +186,13 @@
     } catch (err) {
       console.warn('Network sync error:', err);
       isOffline = true;
+
+    const syncDot = document.getElementById('clock-sync-dot');
+    if (syncDot) {
+      syncDot.className = 'clock-sync-dot sync-stale';
+      syncDot.title = 'Network reconnecting...';
+    }
+
       if (offlineBadge) offlineBadge.classList.remove('hidden');
 
       // Exponential backoff with random reconnect jitter (0 - 500ms)
@@ -218,11 +246,25 @@
   // Network state listeners for instantaneous reconnection detection
   window.addEventListener('offline', () => {
     isOffline = true;
+
+    const syncDot = document.getElementById('clock-sync-dot');
+    if (syncDot) {
+      syncDot.className = 'clock-sync-dot sync-stale';
+      syncDot.title = 'Network reconnecting...';
+    }
+
     if (offlineBadge) offlineBadge.classList.remove('hidden');
   });
 
   window.addEventListener('online', () => {
     isOffline = false;
+
+    const syncDot = document.getElementById('clock-sync-dot');
+    if (syncDot) {
+      syncDot.className = 'clock-sync-dot sync-healthy';
+      syncDot.title = 'Live sync active';
+    }
+
     if (offlineBadge) offlineBadge.classList.add('hidden');
     backoffDelay = basePollInterval;
     fetchNotices(true);
@@ -267,7 +309,7 @@
     updateTicker(displayQueue);
 
     // If queue changed or newly empty
-    if (oldIds !== newIds) {
+    if (oldIds !== newIds || displayQueue.length === 0) {
       if (currentIndex >= displayQueue.length) {
         currentIndex = 0;
       }
@@ -469,7 +511,7 @@
     // Empty state
     if (displayQueue.length === 0) {
       showCard('empty');
-      if (stageCounter) stageCounter.textContent = '0 / 0';
+      if (stageCounter) stageCounter.textContent = 'Now showing 0 of 0';
       if (stagePriority) stagePriority.classList.add('hidden');
       if (stageType) stageType.textContent = 'Notice board';
       if (stageDots) stageDots.innerHTML = '';
@@ -521,8 +563,22 @@
     const typeLabel = ntype.charAt(0).toUpperCase() + ntype.slice(1).toLowerCase();
     if (stageType) stageType.textContent = typeLabel;
 
+    // Dynamic stage ambient glow (Step 2: Info = blue, Urgent = crimson)
+    const stageEl = document.getElementById('stage-panel');
+    if (stageEl) {
+      stageEl.classList.remove('glow-urgent', 'glow-info', 'glow-normal');
+      if (prio === 'urgent') {
+        stageEl.classList.add('glow-urgent');
+      } else if (prio === 'info') {
+        stageEl.classList.add('glow-info');
+      } else {
+        stageEl.classList.add('glow-normal');
+      }
+    }
+
+
     // Meta Row: Position (1 / 4)
-    if (stageCounter) stageCounter.textContent = `${currentIndex + 1} / ${displayQueue.length}`;
+    if (stageCounter) stageCounter.textContent = `Now showing ${currentIndex + 1} of ${displayQueue.length}`;
 
     // Update Dots & Up Next Rail
     updateDots();
@@ -591,11 +647,36 @@
     }
   }
 
+  
+  // Deterministic gradient themes for text slides (contrast >= 7:1)
+  const TEXT_GRADIENTS = [
+    'theme-deep-blue',
+    'theme-indigo',
+    'theme-teal',
+    'theme-slate'
+  ];
+
+  function getDeterministicTheme(id) {
+    if (!id) return TEXT_GRADIENTS[0];
+    let hash = 0;
+    const str = String(id);
+    for (let i = 0; i < str.length; i++) {
+      hash = ((hash << 5) - hash) + str.charCodeAt(i);
+      hash |= 0;
+    }
+    return TEXT_GRADIENTS[Math.abs(hash) % TEXT_GRADIENTS.length];
+  }
+
   function renderTextNotice(notice) {
     isVideoPlaying = false;
     const title = notice.title || 'Untitled Notice';
     textHeadline.textContent = title;
     textBody.textContent = notice.body || '';
+
+    // Set deterministic gradient theme
+    if (cardText) {
+      cardText.className = 'notice-view notice-text ' + getDeterministicTheme(notice.id);
+    }
 
     // Responsive font sizing based on length
     textHeadline.className = 'notice-headline';
@@ -692,9 +773,19 @@
       return;
     }
     stageDots.style.display = 'flex';
+    const notice = displayQueue[currentIndex] || {};
+    const durSec = notice.duration || 10;
     displayQueue.forEach((_, idx) => {
       const dot = document.createElement('span');
-      dot.className = `dot ${idx === currentIndex ? 'active' : ''}`;
+      if (idx === currentIndex) {
+        dot.className = 'dot active';
+        const fill = document.createElement('span');
+        fill.className = 'dot-progress-fill';
+        fill.style.animationDuration = `${durSec}s`;
+        dot.appendChild(fill);
+      } else {
+        dot.className = 'dot';
+      }
       stageDots.appendChild(dot);
     });
   }
@@ -716,7 +807,7 @@
     const upcomingNotices = [];
     for (let i = 1; i < total; i++) {
       const idx = (currentIndex + i) % total;
-      upcomingNotices.push({ notice: displayQueue[idx], position: i + 1 });
+      upcomingNotices.push({ notice: displayQueue[idx], position: idx + 1 });
     }
 
     upNextCount.textContent = `${upcomingNotices.length}`;
@@ -767,7 +858,15 @@
     if (upcomingNotices.length > maxVisible) {
       const more = document.createElement('div');
       more.className = 'rail-more-count';
-      more.textContent = `+ ${upcomingNotices.length - maxVisible} more in rotation`;
+      more.innerHTML = `
+        <svg class="rail-more-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect>
+          <line x1="16" y1="2" x2="16" y2="6"></line>
+          <line x1="8" y1="2" x2="8" y2="6"></line>
+          <line x1="3" y1="10" x2="21" y2="10"></line>
+        </svg>
+        <span>+ ${upcomingNotices.length - maxVisible} more in rotation</span>
+      `;
       upNextList.appendChild(more);
     }
   }

@@ -4,8 +4,9 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <title>V Notice — Campus Digital Display</title>
-  <link rel="icon" type="image/svg+xml" href="/static/images/logo.svg">
-  <link rel="icon" type="image/png" href="/static/favicon.png">
+  <link rel="icon" type="image/svg+xml" href="/static/brand/logo.svg">
+  <link rel="icon" type="image/png" sizes="32x32" href="/static/favicon.png">
+  <link rel="apple-touch-icon" sizes="180x180" href="/static/apple-touch-icon.png">
   <link rel="stylesheet" href="/static/css/display.css?v=7">
 </head>
 <body class="display-screen">
@@ -17,12 +18,15 @@
       <div class="header-left">
         <div class="logo-mark" aria-hidden="true">
           <svg viewBox="0 0 100 100" width="32" height="32" aria-hidden="true">
-            <rect width="100" height="100" rx="25" ry="25" fill="#2F6BFF"/>
-            <path d="M 31 33 L 50 71 L 69 33" fill="none" stroke="#F8FAFC" stroke-width="12" stroke-linecap="round" stroke-linejoin="round"/>
-            <circle cx="79" cy="27" r="4.5" fill="#F8FAFC"/>
+            <rect x="4" y="4" width="92" height="92" rx="24" fill="#2563EB"/>
+            <rect x="4" y="4" width="92" height="92" rx="24" fill="none" stroke="rgba(255, 255, 255, 0.25)" stroke-width="1.5"/>
+            <path d="M 26 27 L 50 73 L 74 27" fill="none" stroke="#FFFFFF" stroke-width="13" stroke-linecap="round" stroke-linejoin="round"/>
+            <line x1="22" y1="27" x2="30" y2="27" stroke="#FFFFFF" stroke-width="4" stroke-linecap="round"/>
+            <circle cx="77" cy="23" r="10" fill="#2563EB"/>
+            <circle cx="77" cy="23" r="7.5" fill="#F59E0B" class="vnotice-badge-dot"/>
           </svg>
         </div>
-        <span class="logo-text">V Notice</span>
+        <span class="logo-text"><span class="brand-v">V</span> <span class="brand-name">Notice</span></span>
         <div class="offline-badge hidden" id="offline-badge">
           <span class="offline-dot"></span>
           <span class="offline-text">Reconnecting…</span>
@@ -38,6 +42,7 @@
         </div>
         <div class="clock-group">
           <div class="clock-time" id="clock-time">
+            <span class="clock-sync-dot sync-healthy" id="clock-sync-dot" title="Live sync active"></span>
             <span id="time-digits">10:42</span>
             <span class="clock-period" id="time-period">AM</span>
           </div>
@@ -59,7 +64,7 @@
             <span class="stage-type" id="stage-type">Text</span>
           </div>
           <div class="meta-right">
-            <span class="stage-counter" id="stage-counter">1 / 1</span>
+            <span class="stage-counter" id="stage-counter">Now showing 1 of 1</span>
           </div>
         </div>
 
@@ -121,7 +126,7 @@
       <aside class="rail-panel" id="rail-panel">
         <div class="rail-header">
           <span class="rail-title" id="rail-title">Up next</span>
-          <span class="rail-count" id="up-next-count">0</span>
+          <span class="rail-count-pill" id="up-next-count">0</span>
         </div>
         <div class="rail-list" id="up-next-list">
           <!-- Populated dynamically -->
@@ -133,7 +138,7 @@
           <div class="qr-label-box">
             <span class="qr-label-head">Scan to Save</span>
             <span class="qr-label-sub">Download notice to phone</span>
-            <span class="qr-pill-hint">⚡ Camera / Scanner</span>
+            
           </div>
         </div>
       </aside>

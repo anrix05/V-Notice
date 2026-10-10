@@ -368,6 +368,117 @@
   // ==========================================================================
   // Render Notices List (Sorted: Live first, Scheduled by start, Expired by end)
   // ==========================================================================
+  
+  // Video poster cache and canvas generator
+  const videoPosterCache = {};
+  function requestVideoPoster(mediaUrl, callback) {
+    if (videoPosterCache[mediaUrl]) {
+      callback(videoPosterCache[mediaUrl]);
+      return;
+    }
+    const video = document.createElement('video');
+    video.src = mediaUrl;
+    video.crossOrigin = 'anonymous';
+    video.muted = true;
+    video.preload = 'metadata';
+    video.currentTime = 0.5;
+    video.addEventListener('loadeddata', () => {
+      try {
+        const canvas = document.createElement('canvas');
+        canvas.width = 160;
+        canvas.height = 90;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+        const url = canvas.toDataURL('image/jpeg', 0.7);
+        videoPosterCache[mediaUrl] = url;
+        callback(url);
+      } catch (e) {
+        callback(null);
+      }
+    });
+    video.addEventListener('error', () => callback(null));
+  }
+
+  // Format schedule dates with relative duration (ends in 3 days)
+  function formatScheduleLine(startMs, endMs) {
+    if (!startMs && !endMs) return 'Not scheduled';
+    const now = Date.now();
+    const currYear = new Date().getFullYear();
+
+    const fmt = (ms) => {
+      if (!ms) return '';
+      const d = new Date(ms);
+      const yr = d.getFullYear() !== currYear ? ` ${d.getFullYear()}` : '';
+      const dateStr = d.toLocaleDateString('en-US', { day: 'numeric', month: 'short' });
+      const timeStr = d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true }).toLowerCase();
+      return `${dateStr}${yr}, ${timeStr}`;
+    };
+
+    let relativeHtml = '';
+    if (endMs) {
+      const diffMs = endMs - now;
+      if (diffMs > 0) {
+        const days = Math.ceil(diffMs / (86400000));
+        const hours = Math.ceil(diffMs / (3600000));
+        if (days > 1) {
+          relativeHtml = `<span class="schedule-rel rel-active">ends in ${days} days</span>`;
+        } else if (hours > 1) {
+          relativeHtml = `<span class="schedule-rel rel-active">ends in ${hours} hours</span>`;
+        } else {
+          relativeHtml = `<span class="schedule-rel rel-ending">ends soon</span>`;
+        }
+      } else {
+        const agoDays = Math.floor(Math.abs(diffMs) / 86400000);
+        relativeHtml = `<span class="schedule-rel rel-expired">${agoDays > 0 ? `ended ${agoDays}d ago` : 'ended recently'}</span>`;
+      }
+    }
+
+    const rangeStr = `${fmt(startMs)} – ${fmt(endMs)}`;
+    return `${rangeStr} ${relativeHtml ? `· ${relativeHtml}` : ''}`;
+  }
+
+  // Gradient tile background for text notices
+  function getNoticeTileBg(id) {
+    const gradients = [
+      'linear-gradient(135deg, #1E3A8A 0%, #172554 100%)',
+      'linear-gradient(135deg, #312E81 0%, #1E1B4B 100%)',
+      'linear-gradient(135deg, #064E3B 0%, #022C22 100%)',
+      'linear-gradient(135deg, #334155 0%, #0F172A 100%)'
+    ];
+    if (!id) return gradients[0];
+    let hash = 0;
+    for (let i = 0; i < String(id).length; i++) hash = ((hash << 5) - hash) + String(id).charCodeAt(i);
+    return gradients[Math.abs(hash) % gradients.length];
+  }
+
+  // Per-tab illustrated empty states
+  const TAB_EMPTY_STATES = {
+    all: {
+      icon: `<svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="2"></rect><path d="M8 7h8M8 11h8M8 15h5"></path></svg>`,
+      title: 'No notices published yet',
+      helper: 'Create your first campus notice to get started on the kiosk board.',
+      action: true
+    },
+    live: {
+      icon: `<svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="9"></circle><polygon points="10 8 16 12 10 16 10 8"></polygon></svg>`,
+      title: 'No live notices right now',
+      helper: 'Notices currently within their publication window appear here.',
+      action: false
+    },
+    scheduled: {
+      icon: `<svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="9"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>`,
+      title: 'No scheduled notices queued',
+      helper: 'Notices with future publication start times appear here.',
+      action: false
+    },
+    expired: {
+      icon: `<svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="9"></circle><line x1="15" y1="9" x2="9" y2="15"></line><line x1="9" y1="9" x2="15" y2="15"></line></svg>`,
+      title: 'No expired notices in history',
+      helper: 'Notices that completed their publication run are archived here.',
+      action: false
+    }
+  };
+
   function renderNoticesList() {
     noticesContainer.innerHTML = '';
 
@@ -392,11 +503,14 @@
       return (n.status || 'live') === currentFilter;
     });
 
-    if (filtered.length === 0) {
+        if (filtered.length === 0) {
+      const emptyInfo = TAB_EMPTY_STATES[currentFilter] || TAB_EMPTY_STATES.all;
       noticesContainer.innerHTML = `
         <div class="notices-empty-view">
-          <p>No notices yet</p>
-          <button type="button" class="btn btn-primary" id="btn-empty-create">New notice</button>
+          <div class="empty-view-icon">${emptyInfo.icon}</div>
+          <h2 class="empty-view-title">${emptyInfo.title}</h2>
+          <p class="empty-view-helper">${emptyInfo.helper}</p>
+          ${emptyInfo.action ? `<button type="button" class="btn btn-primary btn-lg" id="btn-empty-create">Create notice</button>` : ''}
         </div>
       `;
       const btnEmptyCreate = document.getElementById('btn-empty-create');
@@ -408,94 +522,86 @@
 
     filtered.forEach(notice => {
       const card = document.createElement('article');
+      card.tabIndex = 0;
       const status = notice.status || 'live';
       const prio = (notice.priority || 'normal').toLowerCase();
       const ntype = notice.type || 'text';
 
-      card.className = `notice-item-card ${status === 'expired' ? 'is-expired' : ''}`;
+      card.className = `notice-item-card status-${status} prio-${prio} ${status === 'expired' ? 'is-expired' : ''}`;
 
-      // Left tile: image thumbnail or clean SVG icon
+      // 1. Left Thumbnail Anatomy: Image, Video Poster, or Gradient Initial Tile
       let tileHtml = '';
-      if (notice.media && (ntype === 'image' || ntype === 'video')) {
+      if (ntype === 'image' && notice.media) {
         const mediaUrl = `/media/${encodeURIComponent(notice.media)}`;
-        if (ntype === 'image') {
-          tileHtml = `<div class="notice-media-tile"><img src="${mediaUrl}" alt="" class="notice-thumb-img" loading="lazy"></div>`;
-        } else {
-          tileHtml = `
-            <div class="notice-media-tile">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-                <polygon points="5 3 19 12 5 21 5 3"></polygon>
-              </svg>
-            </div>`;
-        }
-      } else {
+        tileHtml = `<div class="notice-media-tile"><img src="${mediaUrl}" alt="" class="notice-thumb-img" loading="lazy"></div>`;
+      } else if (ntype === 'video' && notice.media) {
+        const mediaUrl = `/media/${encodeURIComponent(notice.media)}`;
         tileHtml = `
-          <div class="notice-media-tile">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-              <line x1="4" y1="7" x2="20" y2="7"></line>
-              <line x1="4" y1="12" x2="20" y2="12"></line>
-              <line x1="4" y1="17" x2="12" y2="17"></line>
-            </svg>
+          <div class="notice-media-tile video-tile" data-video-url="${mediaUrl}">
+            <img class="notice-thumb-img video-poster-img hidden" alt="">
+            <span class="poster-play-badge" aria-hidden="true">▶</span>
+          </div>`;
+      } else {
+        const initial = (notice.title || 'T').trim().charAt(0).toUpperCase() || 'T';
+        tileHtml = `
+          <div class="notice-media-tile text-tile" style="background: ${getNoticeTileBg(notice.id)}">
+            <span class="text-tile-initial">${escapeHtml(initial)}</span>
           </div>`;
       }
 
-      // Status indicator dot
-      let dotClass = 'dot-live';
-      if (status === 'scheduled') dotClass = 'dot-scheduled';
-      else if (status === 'expired') dotClass = 'dot-expired';
-
-      // Priority label
-      let prioHtml = prio.charAt(0).toUpperCase() + prio.slice(1);
-      if (prio === 'urgent') {
-        prioHtml = `<span class="meta-urgent-text">Urgent</span>`;
-      }
-
-      // Type in sentence case
+      // 2. Badges Row: Distinct Status Pill & Distinct Priority Pill (Color is never only signal)
+      const statusLabel = status.charAt(0).toUpperCase() + status.slice(1);
+      const prioLabel = prio.charAt(0).toUpperCase() + prio.slice(1);
       const typeLabel = ntype.charAt(0).toUpperCase() + ntype.slice(1);
+      const durationText = ntype !== 'video' ? ` · ${notice.duration || 10}s` : '';
 
-      // Duration: only relevant for text & image
-      const durationPart = ntype !== 'video' ? ` · ${notice.duration || 10} s` : '';
-
-      // Formatted schedule range: d MMM, h:mm am – d MMM, h:mm am
-      const formatDate = (ms) => {
-        if (!ms) return '';
-        const d = new Date(ms);
-        return d.toLocaleDateString('en-US', { day: 'numeric', month: 'short' }) + ', ' +
-               d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true }).toLowerCase();
-      };
-      const scheduleRange = `${formatDate(notice.start)} – ${formatDate(notice.end)}`;
+      // 3. Formatted Schedule Line with Year Disambiguation and Relative Duration
+      const scheduleLine = formatScheduleLine(notice.start, notice.end);
 
       card.innerHTML = `
         ${tileHtml}
         <div class="notice-content">
           <h3 class="notice-title">${escapeHtml(notice.title || 'Untitled notice')}</h3>
           ${notice.body ? `<p class="notice-body-snippet">${escapeHtml(notice.body)}</p>` : ''}
-          <div class="notice-meta-line">
-            <span class="status-dot ${dotClass}"></span>
-            <span>${status.charAt(0).toUpperCase() + status.slice(1)}</span>
-            <span>·</span>
-            <span>${prioHtml}</span>
-            <span>·</span>
-            <span>${typeLabel}</span>
-            ${durationPart}
+          <div class="notice-badges-row">
+            <span class="badge-status badge-status-${status}">
+              <span class="status-indicator-dot"></span>
+              <span>${statusLabel}</span>
+            </span>
+            <span class="badge-priority badge-prio-${prio}">
+              <span>${prioLabel}</span>
+            </span>
+            <span class="badge-type">
+              <span>${typeLabel}</span>${durationText}
+            </span>
           </div>
-          <div class="notice-schedule-line">${scheduleRange}</div>
+          <div class="notice-schedule-line">${scheduleLine}</div>
         </div>
         <div class="notice-actions">
-          <button type="button" class="btn-icon btn-edit-row" data-id="${notice.id}" aria-label="Edit notice" title="Edit notice">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
-              <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
-              <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
-            </svg>
+          <button type="button" class="btn btn-secondary btn-action-edit btn-edit-row" data-id="${notice.id}" aria-label="Edit notice">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
+            <span class="btn-label-text">Edit</span>
           </button>
-          <button type="button" class="btn-icon btn-delete-row" data-id="${notice.id}" aria-label="Delete notice" title="Delete notice">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
-              <polyline points="3 6 5 6 21 6"></polyline>
-              <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
-            </svg>
+          <button type="button" class="btn btn-secondary btn-action-delete btn-delete-row" data-id="${notice.id}" aria-label="Delete notice">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+            <span class="btn-label-text">Delete</span>
           </button>
         </div>
       `;
+
+      // Async video poster rendering
+      if (ntype === 'video' && notice.media) {
+        const vTile = card.querySelector('.video-tile');
+        const vImg = card.querySelector('.video-poster-img');
+        if (vTile && vImg) {
+          requestVideoPoster(`/media/${encodeURIComponent(notice.media)}`, (posterUrl) => {
+            if (posterUrl) {
+              vImg.src = posterUrl;
+              vImg.classList.remove('hidden');
+            }
+          });
+        }
+      }
 
       const editBtn = card.querySelector('.btn-edit-row');
       editBtn.addEventListener('click', (e) => {

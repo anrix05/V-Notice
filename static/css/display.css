@@ -41,10 +41,18 @@
   --bg: #0F172A;
   --panel: #162238;
   --panel-raised: #1C2B45;
+  --surface-stage: #141F36;
+  --surface-rail: #0E1626;
+  --border-interactive: rgba(59, 130, 246, 0.35);
+  --shadow-stage: 0 16px 48px -8px rgba(0, 0, 0, 0.65), 0 0 0 1px var(--border-interactive) inset;
+  --glow-info: rgba(59, 130, 246, 0.28);
+  --glow-urgent: rgba(229, 72, 77, 0.35);
+
   --blue: #2F6BFF;
   --red: #E5484D;
   --text: #F8FAFC;
   --muted: #A3B1C6;
+  --text-secondary-bright: #CBD5E1;
   --line: #24344F;
   --line-light: #3A4C6B;
   --radius-sm: 8px;
@@ -119,10 +127,11 @@ body.show-cursor {
   justify-content: center;
   flex-shrink: 0;
   border-radius: var(--radius-sm);
-  overflow: hidden;
+  overflow: visible;
 }
 
 .logo-mark svg {
+  overflow: visible;
   width: 100%;
   height: 100%;
   display: block;
@@ -1198,4 +1207,292 @@ body.show-cursor {
     opacity: 1;
     transform: scale(1.04);
   }
+}
+
+/* Brand Logo & Wordmark (Step 1) */
+.logo-mark {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.logo-text {
+  font-family: 'Outfit', var(--font-stack);
+  font-weight: 700;
+  font-size: 1.15rem;
+  letter-spacing: -0.01em;
+  display: inline-flex;
+  align-items: center;
+}
+
+.logo-text .brand-v {
+  color: #FFFFFF;
+  margin-right: 5px;
+}
+
+.logo-text .brand-name {
+  color: var(--text-secondary-bright);
+}
+
+/* Soft Badge Pulse on Display Kiosk */
+@keyframes vnoticeBadgePulse {
+  0%, 100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  50% {
+    transform: scale(1.22);
+    opacity: 0.85;
+  }
+}
+
+.display-header .vnotice-badge-dot {
+  transform-origin: 77px 23px;
+  animation: vnoticeBadgePulse 2.6s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .display-header .vnotice-badge-dot {
+    animation: none !important;
+  }
+}
+
+/* ==========================================================================
+   Step 2: Display Hierarchy Refinements
+   ========================================================================== */
+
+/* 1. Stage as Hero vs Receding Rail */
+.stage-panel {
+  background: radial-gradient(120% 120% at 20% 10%, rgba(30, 58, 138, 0.22) 0%, var(--surface-stage) 70%);
+  border: 1px solid var(--border-interactive);
+  box-shadow: var(--shadow-stage);
+  border-radius: var(--radius-panel);
+  position: relative;
+  transition: box-shadow 350ms cubic-bezier(0.16, 1, 0.3, 1), border-color 350ms ease;
+}
+
+.stage-panel.glow-info {
+  box-shadow: 0 16px 48px -8px rgba(0, 0, 0, 0.6), 0 0 60px -10px var(--glow-info), 0 0 0 1px rgba(59, 130, 246, 0.5) inset;
+}
+
+.stage-panel.glow-urgent {
+  box-shadow: 0 16px 48px -8px rgba(0, 0, 0, 0.6), 0 0 70px -5px var(--glow-urgent), 0 0 0 1px rgba(229, 72, 77, 0.6) inset;
+}
+
+.rail-panel {
+  background: var(--surface-rail);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 10px;
+  box-shadow: none;
+}
+
+/* 2. Text-Only Slides Fills Stage (Never looks empty) */
+.notice-text {
+  padding: clamp(24px, 4vw, 56px);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  border-radius: var(--radius-panel);
+  position: relative;
+  overflow: hidden;
+}
+
+.notice-text .notice-headline {
+  font-family: 'Outfit', var(--font-stack);
+  font-size: clamp(3rem, 6vw, 7rem);
+  font-weight: 700;
+  line-height: 1.08;
+  letter-spacing: -0.02em;
+  color: #FFFFFF;
+  border-left: 6px solid var(--blue);
+  padding-left: clamp(16px, 2.5vw, 36px);
+  margin-bottom: clamp(16px, 2.2vw, 32px);
+  word-break: break-word;
+}
+
+.notice-text .notice-body {
+  font-family: 'Inter', var(--font-stack);
+  font-size: clamp(1.5rem, 2.4vw, 2.5rem);
+  line-height: 1.38;
+  color: #CBD5E1;
+  padding-left: clamp(22px, 2.8vw, 42px);
+  max-width: 90%;
+}
+
+/* Tasteful Deterministic Text Background Themes (WCAG Contrast > 8:1) */
+.notice-text.theme-deep-blue {
+  background: radial-gradient(circle at 10% 20%, #172554 0%, #0F172A 100%);
+}
+.notice-text.theme-indigo {
+  background: radial-gradient(circle at 10% 20%, #1E1B4B 0%, #0F172A 100%);
+}
+.notice-text.theme-teal {
+  background: radial-gradient(circle at 10% 20%, #042F2E 0%, #0F172A 100%);
+}
+.notice-text.theme-slate {
+  background: radial-gradient(circle at 10% 20%, #1E293B 0%, #0A0F1D 100%);
+}
+
+/* 3. Counters & Rail Header Pill */
+.stage-counter {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--muted);
+  letter-spacing: 0.02em;
+}
+
+.rail-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.rail-count-pill {
+  font-size: 0.8rem;
+  font-weight: 700;
+  background: rgba(59, 130, 246, 0.2);
+  color: #60A5FA;
+  padding: 2px 10px;
+  border-radius: var(--radius-pill);
+}
+
+/* 4. Rotation Dots (Inactive 40% white, Active pill with progress fill) */
+.stage-dots .dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.4);
+  transition: all 250ms ease;
+  position: relative;
+  overflow: hidden;
+}
+
+.stage-dots .dot.active {
+  width: 34px;
+  height: 8px;
+  border-radius: var(--radius-pill);
+  background: rgba(255, 255, 255, 0.25);
+}
+
+.stage-dots .dot.active .dot-progress-fill {
+  position: absolute;
+  left: 0;
+  top: 0;
+  height: 100%;
+  width: 0%;
+  background: #FFFFFF;
+  border-radius: var(--radius-pill);
+  animation: dotProgressFill linear forwards;
+}
+
+@keyframes dotProgressFill {
+  0% { width: 0%; }
+  100% { width: 100%; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .stage-dots .dot.active {
+    background: #FFFFFF !important;
+  }
+  .stage-dots .dot.active .dot-progress-fill {
+    display: none !important;
+  }
+}
+
+/* 5. QR Card (Quieter than stage, reliable white QR canvas) */
+.rail-qr-card {
+  background: rgba(14, 22, 38, 0.85);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 10px;
+  padding: 12px 16px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-top: auto;
+}
+
+.qr-canvas-box {
+  background: #FFFFFF;
+  padding: 6px;
+  border-radius: 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.qr-label-head {
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: #FFFFFF;
+}
+
+.qr-label-sub {
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+/* 6. "+ N more in rotation" */
+.rail-more-count {
+  font-size: 1.25rem !important; /* 20px min */
+  font-weight: 600;
+  color: var(--muted) !important;
+  display: flex !important;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 16px;
+}
+
+.rail-more-icon {
+  color: var(--muted);
+  flex-shrink: 0;
+}
+
+/* 7. Ticker Edge Fade Masks & Motion Respect */
+.display-ticker .ticker-viewport {
+  overflow: hidden;
+  position: relative;
+  mask-image: linear-gradient(to right, transparent 0, black 48px, black calc(100% - 48px), transparent 100%);
+  -webkit-mask-image: linear-gradient(to right, transparent 0, black 48px, black calc(100% - 48px), transparent 100%);
+}
+
+.display-ticker .ticker-label {
+  border-right: 1px solid var(--line-light);
+  padding-right: 18px;
+  margin-right: 18px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .display-ticker .ticker-track {
+    animation-play-state: paused !important;
+  }
+}
+
+/* 8. Header Baseline Alignment & Live Sync Health Dot */
+.display-header .header-right {
+  display: flex;
+  align-items: baseline;
+  gap: 20px;
+}
+
+.clock-sync-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  margin-right: 8px;
+  vertical-align: middle;
+  position: relative;
+  top: -2px;
+}
+
+.clock-sync-dot.sync-healthy {
+  background-color: #F59E0B;
+  box-shadow: 0 0 6px rgba(245, 158, 11, 0.7);
+}
+
+.clock-sync-dot.sync-stale {
+  background-color: #64748B;
+  box-shadow: none;
 }
