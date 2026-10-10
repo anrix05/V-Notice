@@ -52,43 +52,46 @@ def get_system_weather():
     lat = float(os.environ.get("CAMPUS_LAT", 0) or 0)
     lon = float(os.environ.get("CAMPUS_LON", 0) or 0)
 
-    # Auto-detect location if not configured
-    if not city or not lat:
+    if not city or not lat or not lon:
         try:
-            req = urllib.request.Request("http://ip-api.com/json/", headers={"User-Agent": "Mozilla/5.0"})
-            with urllib.request.urlopen(req, timeout=3) as r:
-                geo = json.loads(r.read().decode())
+            req = urllib.request.Request("http://ip-api.com/json/", headers={"User-Agent": "VNotice/1.0"})
+            with urllib.request.urlopen(req, timeout=2) as r:
+                geo = json.loads(r.read().decode("utf-8", "ignore"))
                 if geo.get("status") == "success":
-                    city = geo.get("city", "Mumbai")
-                    lat = geo.get("lat", 19.0748)
-                    lon = geo.get("lon", 72.8856)
+                    city = geo.get("city", "Campus")
+                    lat = float(geo.get("lat", 19.0760))
+                    lon = float(geo.get("lon", 72.8777))
         except Exception:
-            city = "Mumbai"
-            lat = 19.0748
-            lon = 72.8856
+            pass
 
-    temp = "28Â°C"
-    icon = "ðŸŒ¤"
+    if not city:
+        city = "Campus"
+        lat = 19.0760
+        lon = 72.8777
+
+    temp = "28°C"
+    icon = "☀️"
     try:
-        url = f"https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}&current=temperature_2m,apparent_temperature,weather_code"
-        with urllib.request.urlopen(url, timeout=3) as r:
-            w_data = json.loads(r.read().decode())
+        url = f"https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}&current=temperature_2m,weather_code"
+        req = urllib.request.Request(url, headers={"User-Agent": "VNotice/1.0"})
+        with urllib.request.urlopen(req, timeout=3) as r:
+            w_data = json.loads(r.read().decode("utf-8", "ignore"))
             if "current" in w_data:
                 raw_temp = round(w_data["current"]["temperature_2m"])
-                temp = f"{raw_temp}Â°C"
+                temp = f"{raw_temp}°C"
                 code = w_data["current"]["weather_code"]
                 icons = {
-                    0: "â˜€ï¸", 1: "ðŸŒ¤", 2: "â›…", 3: "â˜ï¸",
-                    45: "ðŸŒ«", 48: "ðŸŒ«", 51: "ðŸŒ¦", 53: "ðŸŒ¦",
-                    55: "ðŸŒ§", 61: "ðŸŒ§", 63: "ðŸŒ§", 65: "ðŸŒ§",
-                    71: "ðŸŒ¨", 80: "ðŸŒ¦", 81: "ðŸŒ§", 82: "â›ˆ", 95: "â›ˆ"
+                    0: "☀️", 1: "🌤️", 2: "⛅", 3: "☁️",
+                    45: "🌫️", 48: "🌫️", 51: "🌦️", 53: "🌧️",
+                    55: "🌧️", 61: "🌧️", 63: "🌧️", 65: "⛈️",
+                    71: "🌨️", 80: "🌦️", 81: "🌧️", 82: "⛈️", 95: "⚡"
                 }
-                icon = icons.get(code, "ðŸŒ¤")
+                icon = icons.get(code, "🌤️")
     except Exception:
         pass
 
     result = {
-        "city": city or "Mumbai",
+        "city": city.upper(),
         "temp": temp,
         "icon": icon,
         "lan_ip": get_lan_ip(),
