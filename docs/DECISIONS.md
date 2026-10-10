@@ -114,3 +114,10 @@
 - **Status:** Accepted (Phase 4)
 - **Context:** Faculty admin dashboards left open in background browser tabs continuously consume network bandwidth and server CPU.
 - **Decision:** Check `document.hidden` during periodic admin sync. Pause background polling while tab is hidden, and trigger an immediate conditional refresh upon the `visibilitychange` event when the tab returns to foreground.
+
+
+## Decision 18: Card Transitions & Hardware-Accelerated Marquee
+- **Date:** 2026-10-11
+- **Status:** Accepted (Phase 5)
+- **Context:** Harsh, instantaneous cuts between notices created a flickering feel, and ticker marquee animations caused frame drops on low-power Raspberry Pi 3B+ GPU/CPU chips.
+- **Decision:** Apply CSS `will-change: opacity, transform` and a gentle cubic-bezier curve (`cubic-bezier(0.16, 1, 0.3, 1)`) for 280ms card entrances. Avoid re-animating when only 1 notice exists. Add `will-change: transform` to `.ticker-track` for smooth sub-pixel GPU scrolling and pause ticker on hover. Preserve poster aspect ratios using `object-fit: contain` with an Apple TV-style blurred frosted ambient backdrop.

@@ -120,3 +120,33 @@ pytest -v
 - [ ] **Admin Visibility Throttling:**
   1. Open Admin Portal, switch to another browser tab for 30 seconds.
   2. Switch back: verify an immediate sync occurs upon tab focus without UI lag.
+
+
+- **Phase 5 (Display UX & Transitions):** `tests/test_display_ux_phase5.py`
+  - Tests display HTML layout structure and required semantic IDs.
+  - Tests CSS transition properties, hardware acceleration (`will-change: transform`), and hover pause on ticker.
+  - Tests urgent state glow and pulse animations.
+  - Tests `object-fit: contain` and frosted backdrop filters (`.media-ambient-bg`).
+  - Tests responsive typography scaling (64px target for 1080p monitors).
+
+---
+
+### Phase 5: Display UX
+- [ ] **Smooth Card Transitions:**
+  1. Open `http://localhost:5000/display` with multiple notices active.
+  2. Observe the transition between slides: verify smooth 280ms entrance without harsh white or dark flashes.
+  3. Ensure that when only 1 notice is live, the card remains stable without re-triggering entrance transitions.
+- [ ] **Ambient Frosted Backdrop:**
+  1. Upload a portrait (vertical) or square poster image.
+  2. Verify the poster renders uncropped and undistorted with `object-fit: contain`, while the blurred ambient backdrop fills the negative margins with matching colors.
+- [ ] **Urgent Notice Takeover & Ticker:**
+  1. Publish an urgent notice.
+  2. Verify the stage panel displays an urgent red accent border/glow and the bottom ticker switches to `URGENT` in bold red.
+- [ ] **Empty State & Reconnecting Feedback:**
+  1. Delete all notices or filter by an empty screen.
+  2. Verify the clean empty state displays "No notices right now".
+  3. Stop the server; verify the empty state transitions to "Waiting for the server" with a subtle pulsing radar icon.
+- [ ] **Monitor Scaling (18"–22"):**
+  1. Test at 1920x1080 (1080p): Headline scales to 64px, readable from 10 meters away.
+  2. Test at 1366x768 (720p / 900p): Headline scales to 54px with balanced spacing.
+  3. Test at 800x480 (7-inch touch LCD): Headline scales to 40px without overflowing frame bounds.

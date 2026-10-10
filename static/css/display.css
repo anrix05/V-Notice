@@ -327,7 +327,14 @@ body.show-cursor {
   flex-direction: column;
   justify-content: center;
   opacity: 1;
-  transition: opacity 0.2s ease;
+  transform: translateY(0);
+  transition: opacity 0.28s cubic-bezier(0.16, 1, 0.3, 1), transform 0.28s cubic-bezier(0.16, 1, 0.3, 1);
+  will-change: opacity, transform;
+}
+
+.notice-view.card-entering {
+  opacity: 0;
+  transform: translateY(6px);
 }
 
 .notice-view.hidden {
@@ -746,7 +753,12 @@ body.show-cursor {
 .ticker-track {
   display: inline-block;
   white-space: nowrap;
+  will-change: transform;
   animation: tickerMarquee 30s linear infinite;
+}
+
+.ticker-viewport:hover .ticker-track {
+  animation-play-state: paused;
 }
 
 .ticker-content {
@@ -1157,5 +1169,33 @@ body.show-cursor {
   }
   .dot {
     transition: none;
+  }
+}
+
+
+/* Phase 5 Display UX: Urgent Glow & Empty State Reconnecting Pulse */
+.stage-panel.urgent-state {
+  border-color: rgba(229, 72, 77, 0.5);
+  box-shadow: 0 0 40px rgba(229, 72, 77, 0.15), inset 0 1px 0 rgba(229, 72, 77, 0.25);
+}
+
+.display-ticker.urgent-ticker {
+  background-color: rgba(229, 72, 77, 0.06);
+  border-top-color: rgba(229, 72, 77, 0.35);
+}
+
+.empty-icon.reconnecting {
+  animation: emptyPulse 2s ease-in-out infinite;
+  color: var(--muted);
+}
+
+@keyframes emptyPulse {
+  0%, 100% {
+    opacity: 0.45;
+    transform: scale(0.96);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.04);
   }
 }

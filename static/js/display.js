@@ -477,12 +477,15 @@
       if (upNextList) upNextList.innerHTML = '<div class="rail-empty">Nothing else queued</div>';
       if (upNextCount) upNextCount.textContent = '0';
 
+      const emptyIconEl = cardEmpty ? cardEmpty.querySelector('.empty-icon') : null;
       if (isOffline) {
         if (emptyTitle) emptyTitle.textContent = 'Waiting for the server';
-        if (emptySubtitle) emptySubtitle.textContent = 'Reconnecting automatically.';
+        if (emptySubtitle) emptySubtitle.textContent = 'Reconnecting automatically. Notices will appear as soon as connection is restored.';
+        if (emptyIconEl) emptyIconEl.classList.add('reconnecting');
       } else {
         if (emptyTitle) emptyTitle.textContent = 'No notices right now';
         if (emptySubtitle) emptySubtitle.textContent = 'New notices appear here as soon as they are published.';
+        if (emptyIconEl) emptyIconEl.classList.remove('reconnecting');
       }
       return;
     }
@@ -549,13 +552,37 @@
     }
   }
 
-  function showCard(cardType) {
-    if (cardText) cardText.classList.toggle('hidden', cardType !== 'text');
-    if (cardImage) cardImage.classList.toggle('hidden', cardType !== 'image');
-    if (cardVideo) cardVideo.classList.toggle('hidden', cardType !== 'video');
-    if (cardEmpty) cardEmpty.classList.toggle('hidden', cardType !== 'empty');
+  let activeCardType = null;
 
-    // Rule 28: Clean up video resources when leaving video notice
+  function showCard(cardType) {
+    const cards = [
+      { type: 'text', el: cardText },
+      { type: 'image', el: cardImage },
+      { type: 'video', el: cardVideo },
+      { type: 'empty', el: cardEmpty },
+    ];
+
+    cards.forEach(({ type, el }) => {
+      if (!el) return;
+      if (type === cardType) {
+        el.classList.remove('hidden');
+        if (displayQueue.length > 1 || activeCardType !== cardType) {
+          el.classList.add('card-entering');
+          requestAnimationFrame(() => {
+            requestAnimationFrame(() => {
+              el.classList.remove('card-entering');
+            });
+          });
+        }
+      } else {
+        el.classList.add('hidden');
+        el.classList.remove('card-entering');
+      }
+    });
+
+    activeCardType = cardType;
+
+    // Clean up video resources when leaving video notice
     if (cardType !== 'video' && videoElement) {
       videoElement.pause();
       videoElement.removeAttribute('src');
@@ -660,7 +687,11 @@
   function updateDots() {
     if (!stageDots) return;
     stageDots.innerHTML = '';
-
+    if (displayQueue.length <= 1) {
+      stageDots.style.display = 'none';
+      return;
+    }
+    stageDots.style.display = 'flex';
     displayQueue.forEach((_, idx) => {
       const dot = document.createElement('span');
       dot.className = `dot ${idx === currentIndex ? 'active' : ''}`;
@@ -746,21 +777,40 @@
   // ==========================================================================
   function updateTicker(notices) {
     if (!tickerContent) return;
+    const tickerFooter = document.querySelector('.display-ticker');
+
     if (!notices || notices.length === 0) {
       tickerContent.textContent = 'All college notices are up to date';
+      if (tickerLabel) {
+        tickerLabel.textContent = 'Latest';
+        tickerLabel.classList.remove('ticker-urgent');
+      }
+      if (tickerFooter) tickerFooter.classList.remove('urgent-ticker');
       return;
     }
 
     const headlines = notices.map(n => n.title || '').filter(Boolean);
     if (headlines.length === 0) {
-      tickerContent.textContent = 'V Notice campus board';
+      tickerContent.textContent = 'V Notice campus announcement system';
       return;
     }
 
-    // Build seamless string with muted bullet
-    const bullet = '   •   ';
+    // Clean unicode bullet (•)
+    const bullet = '   \u2022   ';
     const textStr = headlines.join(bullet);
     tickerContent.textContent = `${textStr}${bullet}${textStr}`;
+
+    if (tickerLabel) {
+      if (isUrgentTakeover) {
+        tickerLabel.textContent = 'URGENT';
+        tickerLabel.classList.add('ticker-urgent');
+        if (tickerFooter) tickerFooter.classList.add('urgent-ticker');
+      } else {
+        tickerLabel.textContent = 'Latest';
+        tickerLabel.classList.remove('ticker-urgent');
+        if (tickerFooter) tickerFooter.classList.remove('urgent-ticker');
+      }
+    }
   }
 
   // ==========================================================================
