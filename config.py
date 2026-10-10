@@ -1,5 +1,6 @@
 import os
 import sys
+import secrets
 from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -13,6 +14,27 @@ if ENV_FILE.exists():
             if line and not line.startswith('#') and '=' in line:
                 k, v = line.split('=', 1)
                 os.environ.setdefault(k.strip(), v.strip())
+
+# Environment & Production detection
+IS_RENDER = os.environ.get('RENDER') is not None
+IS_RAILWAY = os.environ.get('RAILWAY_ENVIRONMENT') is not None
+IS_PRODUCTION = (
+    IS_RENDER or 
+    IS_RAILWAY or 
+    os.environ.get('FLASK_ENV') == 'production' or 
+    os.environ.get('PRODUCTION', '').lower() in ('true', '1')
+)
+
+# SECRET_KEY Configuration (Requirement: Required in production, refuse to start if default/missing)
+SECRET_KEY = os.environ.get('SECRET_KEY')
+if IS_PRODUCTION:
+    if not SECRET_KEY or SECRET_KEY in ('default', 'vnotice-default-secret', 'changeme'):
+        print('FATAL SECURITY ERROR: SECRET_KEY environment variable is required in production.', file=sys.stderr)
+        print('Set a secure random string (e.g. openssl rand -hex 32) in your environment variables.', file=sys.stderr)
+        sys.exit(1)
+else:
+    if not SECRET_KEY:
+        SECRET_KEY = os.environ.get('DEV_SECRET_KEY') or secrets.token_hex(32)
 
 # Storage directory (supports optional STORAGE_DIR volume on Railway / Docker / Render)
 STORAGE_DIR = Path(os.environ.get('STORAGE_DIR', BASE_DIR))
@@ -30,9 +52,7 @@ MEDIA_DIR.mkdir(parents=True, exist_ok=True)
 STORAGE_DIR.mkdir(parents=True, exist_ok=True)
 
 # Render ephemeral storage detection warning
-IS_RENDER = os.environ.get('RENDER') is not None
 if IS_RENDER:
-    # Check if MEDIA_DIR is default ephemeral or custom mounted volume
     is_custom_mount = os.environ.get('STORAGE_DIR') or os.environ.get('MEDIA_DIR')
     if not is_custom_mount:
         print('!' * 72, file=sys.stderr)
@@ -41,18 +61,20 @@ if IS_RENDER:
         print('To persist data across redeploys, attach a Render Persistent Disk and set STORAGE_DIR.', file=sys.stderr)
         print('!' * 72, file=sys.stderr)
 
-# Admin authentication (Rule 11: read from ADMIN_PASSWORD env var)
+# Admin authentication credentials
 ADMIN_PASSWORD = os.environ.get('ADMIN_PASSWORD', 'vnotice2026')
+ADMIN_PASSWORD_HASH = os.environ.get('ADMIN_PASSWORD_HASH')
 
-# Server ports (Rule 3)
+# Server ports
 DISPLAY_PORT = int(os.environ.get('DISPLAY_PORT', 5000))
 ADMIN_PORT = int(os.environ.get('ADMIN_PORT', 5001))
 PORT = int(os.environ.get('PORT', ADMIN_PORT))
 
-# File uploads (Rule 12: 200 MB maximum)
-MAX_CONTENT_LENGTH = 200 * 1024 * 1024
+# File uploads (MAX_UPLOAD_MB, default 200MB)
+MAX_UPLOAD_MB = int(os.environ.get('MAX_UPLOAD_MB', 200))
+MAX_CONTENT_LENGTH = MAX_UPLOAD_MB * 1024 * 1024
 
-# Rule 12: Only allow .jpg, .jpeg, .png, .webp, .gif, .mp4, .webm
+# Allowed extensions
 ALLOWED_IMAGE_EXTENSIONS = {'jpg', 'jpeg', 'png', 'webp', 'gif'}
 ALLOWED_VIDEO_EXTENSIONS = {'mp4', 'webm'}
 ALLOWED_EXTENSIONS = ALLOWED_IMAGE_EXTENSIONS | ALLOWED_VIDEO_EXTENSIONS

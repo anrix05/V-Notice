@@ -104,6 +104,7 @@
 
   function setAdminPassword(pass) {
     sessionStorage.setItem('vnotice_admin_pass', pass);
+        if (data && data.csrf_token) cachedCsrfToken = data.csrf_token;
   }
 
   function clearAdminPassword() {
@@ -243,6 +244,23 @@
       });
       noticeScreen.value = cur || 'default';
     }
+  }
+
+  // ==========================================================================
+  // CSRF Protection (Phase 2)
+  // ==========================================================================
+  let cachedCsrfToken = '';
+  async function getCsrfToken() {
+    if (cachedCsrfToken) return cachedCsrfToken;
+    try {
+      const res = await fetch('/api/csrf-token');
+      if (res.ok) {
+        const d = await res.json();
+        cachedCsrfToken = d.csrf_token || '';
+        return cachedCsrfToken;
+      }
+    } catch (e) {}
+    return '';
   }
 
   // Fetch Notices & Compute Status
@@ -950,6 +968,8 @@
 
     xhr.open(method, endpoint, true);
     xhr.setRequestHeader('X-Password', getAdminPassword());
+    const csrf = await getCsrfToken();
+    if (csrf) xhr.setRequestHeader('X-CSRF-Token', csrf);
 
     if (uploadProgressTrack && uploadProgressFill) {
       uploadProgressTrack.classList.remove('hidden');
@@ -1024,6 +1044,7 @@
         method: 'DELETE',
         headers: {
           'X-Password': getAdminPassword(),
+          'X-CSRF-Token': (await getCsrfToken()) || '',
           'Cache-Control': 'no-cache, no-store, must-revalidate'
         }
       });

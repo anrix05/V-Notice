@@ -39,3 +39,29 @@ pytest -v
 - [ ] **Render Ephemeral Warning:**
   1. Run `RENDER=true python -c "import config"` in a terminal.
   2. Confirm the visible warning message is printed to `stderr` detailing that data will be lost on container redeploy unless a persistent disk is attached.
+
+
+### Phase 2: Security Checklist
+- [ ] **Password Hashing & Constant Time:**
+  1. Set `ADMIN_PASSWORD_HASH` using `werkzeug.security.generate_password_hash("testpass")`.
+  2. Verify login succeeds with `"testpass"` and fails with wrong passwords.
+- [ ] **Rate Limiting (5 Attempts in 10 Mins):**
+  1. Attempt 5 failed logins sequentially.
+  2. Confirm 6th attempt returns HTTP 429 with `Retry-After` header.
+- [ ] **CSRF Token Protection:**
+  1. Log into Admin Portal via browser session.
+  2. Send a `POST /api/notices` mutation without `X-CSRF-Token` header.
+  3. Confirm server rejects with HTTP 403 Forbidden.
+  4. Include valid `X-CSRF-Token` from `/api/csrf-token` and confirm 201 Created.
+- [ ] **Spoofed Media Upload Validation:**
+  1. Rename a `.txt` file to `sample.jpg`.
+  2. Attempt to upload via notice form.
+  3. Confirm magic-byte sniffer rejects file with 400 Bad Request error.
+- [ ] **Enumeration Protection:**
+  1. Create a scheduled or expired notice.
+  2. Access `/notice/<id>` without authentication and confirm HTTP 404 is returned.
+  3. Access `/notice/<id>` with admin credentials and confirm notice details load.
+- [ ] **Security Headers:**
+  1. Inspect response headers on any route (`curl -I http://localhost:5000/`).
+  2. Verify `X-Content-Type-Options: nosniff`, `Referrer-Policy`, and `Content-Security-Policy` are present.
+  3. Verify `X-Frame-Options: DENY` on admin routes.

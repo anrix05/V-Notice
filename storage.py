@@ -1,7 +1,7 @@
 import os
 import sys
 import time
-import uuid
+import secrets
 import mimetypes
 import logging
 import sqlite3
@@ -13,10 +13,16 @@ from config import (
     DB_FILE,
     DATA_FILE,
     MEDIA_DIR,
+    MAX_CONTENT_LENGTH,
     ALLOWED_EXTENSIONS,
     ALLOWED_IMAGE_EXTENSIONS,
     ALLOWED_VIDEO_EXTENSIONS,
     ALLOWED_MIME_TYPES,
+)
+from security import (
+    generate_notice_id,
+    sniff_media_type,
+    save_stream_to_disk,
 )
 
 logger = logging.getLogger("vnotice.storage")
@@ -28,18 +34,6 @@ if not logger.handlers:
 
 def get_current_time_ms():
     return int(time.time() * 1000)
-
-def allowed_file(filename, mimetype=None):
-    if "." not in filename:
-        return False
-    ext = filename.rsplit(".", 1)[1].lower()
-    if ext not in ALLOWED_EXTENSIONS:
-        return False
-    if mimetype and mimetype not in ALLOWED_MIME_TYPES:
-        guessed, _ = mimetypes.guess_type(filename)
-        if guessed not in ALLOWED_MIME_TYPES:
-            return False
-    return True
 
 def compute_status(notice, now_ms=None):
     if now_ms is None:
@@ -57,7 +51,7 @@ def compute_status(notice, now_ms=None):
         return "live"
 
 # ==============================================================================
-# Media Storage Interface (Supports Local Disk and future S3/R2 backends)
+# Media Storage Interface
 # ==============================================================================
 class MediaStorageBackend:
     def save(self, file_obj, filename: str) -> str:
@@ -82,7 +76,9 @@ class LocalMediaStorage(MediaStorageBackend):
 
     def save(self, file_obj, filename: str) -> str:
         dest_path = self.media_dir / filename
-        file_obj.save(dest_path)
+        # If file_obj has .stream, stream in chunks to avoid memory spike
+        stream = getattr(file_obj, "stream", file_obj)
+        save_stream_to_disk(stream, dest_path, max_bytes=MAX_CONTENT_LENGTH)
         return filename
 
     def delete(self, filename: str) -> bool:
@@ -109,11 +105,10 @@ class LocalMediaStorage(MediaStorageBackend):
     def url(self, filename: str) -> str:
         return f"/media/{filename}"
 
-# Default media storage instance
 media_storage = LocalMediaStorage()
 
 # ==============================================================================
-# SQLite Notice Storage (WAL mode, busy_timeout, Per-Request Connections)
+# SQLite Notice Storage with Audit Logs
 # ==============================================================================
 class NoticeStorage:
     def __init__(self, db_file: Path = DB_FILE, data_file: Path = DATA_FILE, media_backend: MediaStorageBackend = None):
@@ -125,8 +120,6 @@ class NoticeStorage:
         self._run_migration_if_needed()
 
     def get_connection(self):
-        """Returns an SQLite connection in WAL mode with busy_timeout set.
-        Reuses Flask g connection if within request context."""
         try:
             from flask import g, has_app_context
             if has_app_context():
@@ -197,11 +190,47 @@ class NoticeStorage:
                 """)
                 conn.execute("CREATE INDEX IF NOT EXISTS idx_notices_screen ON notices(screen_id);")
                 conn.execute("CREATE INDEX IF NOT EXISTS idx_notices_status ON notices(is_active, start, end);")
+
+                conn.execute("""
+                    CREATE TABLE IF NOT EXISTS audit_logs (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        timestamp INTEGER NOT NULL,
+                        actor TEXT NOT NULL,
+                        action TEXT NOT NULL,
+                        target_id TEXT NOT NULL,
+                        details TEXT DEFAULT ''
+                    );
+                """)
+                conn.execute("CREATE INDEX IF NOT EXISTS idx_audit_time ON audit_logs(timestamp);")
         finally:
             conn.close()
 
+    def record_audit(self, actor: str, action: str, target_id: str, details: str = ""):
+        conn = self.get_connection()
+        try:
+            with conn:
+                conn.execute("""
+                    INSERT INTO audit_logs (timestamp, actor, action, target_id, details)
+                    VALUES (?, ?, ?, ?, ?);
+                """, (get_current_time_ms(), actor or "admin", action, target_id, details))
+        except Exception as e:
+            logger.warning("Failed to record audit log: %s", e)
+        finally:
+            if not self._is_in_flask():
+                conn.close()
+
+    def get_audit_logs(self, limit: int = 50):
+        conn = self.get_connection()
+        try:
+            rows = conn.execute("""
+                SELECT * FROM audit_logs ORDER BY timestamp DESC LIMIT ?;
+            """, (limit,)).fetchall()
+            return [dict(r) for r in rows]
+        finally:
+            if not self._is_in_flask():
+                conn.close()
+
     def _run_migration_if_needed(self):
-        """One-time migration that imports existing notices.json into SQLite and keeps a backup."""
         conn = self._create_connection()
         try:
             count = conn.execute("SELECT COUNT(*) FROM notices;").fetchone()[0]
@@ -214,7 +243,7 @@ class NoticeStorage:
                         logger.info("Migrating %d notices from %s into SQLite...", len(items), self.data_file)
                         with conn:
                             for n in items:
-                                n_id = n.get("id") or uuid.uuid4().hex[:8]
+                                n_id = n.get("id") or generate_notice_id()
                                 conn.execute("""
                                     INSERT OR REPLACE INTO notices (
                                         id, title, body, priority, type, media, duration, start, end,
@@ -235,7 +264,6 @@ class NoticeStorage:
                                     int(n.get("created_at", n.get("start", now))),
                                     int(n.get("updated_at", now)),
                                 ))
-                        # Create backup of notices.json
                         bak_path = self.data_file.with_name(self.data_file.name + ".bak")
                         shutil.copy2(self.data_file, bak_path)
                         logger.info("One-time migration complete. Backup preserved at %s", bak_path)
@@ -345,28 +373,21 @@ class NoticeStorage:
                 conn.close()
 
     def add(self, data, file_obj=None, created_by="admin"):
-        notice_id = uuid.uuid4().hex[:8]
+        # URL-safe random token ID per Phase 2 requirement 4
+        notice_id = generate_notice_id()
         media_filename = ""
         media_type = data.get("type", "text")
         
         if file_obj and getattr(file_obj, "filename", None):
-            raw_filename = secure_filename(file_obj.filename)
-            if not raw_filename or not allowed_file(raw_filename, getattr(file_obj, "mimetype", None)):
-                raise ValueError("Invalid file extension or unsupported media type.")
-
-            ext = raw_filename.rsplit(".", 1)[1].lower()
-            media_filename = f"{notice_id}_{uuid.uuid4().hex[:8]}.{ext}"
+            # Server-side filename generation: never trust original client filename
+            stream = getattr(file_obj, "stream", file_obj)
+            dest_temp = self.media_folder / f"tmp_{notice_id}"
+            ext, category = save_stream_to_disk(stream, dest_temp, max_bytes=MAX_CONTENT_LENGTH)
             
-            try:
-                self.media_storage.save(file_obj, media_filename)
-            except Exception as e:
-                self.media_storage.delete(media_filename)
-                raise IOError(f"Failed to save upload: {e}")
-
-            if ext in ALLOWED_VIDEO_EXTENSIONS:
-                media_type = "video"
-            elif ext in ALLOWED_IMAGE_EXTENSIONS:
-                media_type = "image"
+            media_filename = f"{notice_id}_{secrets.token_urlsafe(8)}.{ext}"
+            final_path = self.media_folder / media_filename
+            dest_temp.rename(final_path)
+            media_type = category
 
         try:
             duration = int(data.get("duration", 10))
@@ -392,7 +413,6 @@ class NoticeStorage:
             priority = "normal"
 
         screen_id = str(data.get("screen_id", "default")).strip() or "default"
-        # Ensure screen exists
         self.add_screen(screen_id)
 
         creator = str(data.get("created_by") or created_by or "admin").strip()
@@ -422,14 +442,15 @@ class NoticeStorage:
                     now
                 ))
             
-            # Safe garbage collection triggered on write
+            # Record audit log
+            self.record_audit(creator, "CREATE", notice_id, f"Created notice '{data.get('title', '')}'")
             self.safe_garbage_collect_media()
             return self.get_by_id(notice_id)
         finally:
             if not self._is_in_flask():
                 conn.close()
 
-    def update(self, notice_id, data, file_obj=None):
+    def update(self, notice_id, data, file_obj=None, updated_by="admin"):
         target = self.get_by_id(notice_id)
         if not target:
             return None
@@ -438,27 +459,18 @@ class NoticeStorage:
         media_type = data.get("type", target.get("type", "text"))
 
         if file_obj and getattr(file_obj, "filename", None):
-            raw_filename = secure_filename(file_obj.filename)
-            if not raw_filename or not allowed_file(raw_filename, getattr(file_obj, "mimetype", None)):
-                raise ValueError("Invalid file extension or unsupported media type.")
-
-            ext = raw_filename.rsplit(".", 1)[1].lower()
-            old_media = media_filename
-            media_filename = f"{notice_id}_{uuid.uuid4().hex[:8]}.{ext}"
+            stream = getattr(file_obj, "stream", file_obj)
+            dest_temp = self.media_folder / f"tmp_{notice_id}"
+            ext, category = save_stream_to_disk(stream, dest_temp, max_bytes=MAX_CONTENT_LENGTH)
             
-            try:
-                self.media_storage.save(file_obj, media_filename)
-                # Remove replaced media
-                if old_media and old_media != media_filename:
-                    self.media_storage.delete(old_media)
-            except Exception as e:
-                self.media_storage.delete(media_filename)
-                raise IOError(f"Failed to update upload: {e}")
-
-            if ext in ALLOWED_VIDEO_EXTENSIONS:
-                media_type = "video"
-            elif ext in ALLOWED_IMAGE_EXTENSIONS:
-                media_type = "image"
+            old_media = media_filename
+            media_filename = f"{notice_id}_{secrets.token_urlsafe(8)}.{ext}"
+            final_path = self.media_folder / media_filename
+            dest_temp.rename(final_path)
+            media_type = category
+            
+            if old_media and old_media != media_filename:
+                self.media_storage.delete(old_media)
 
         title = str(data.get("title", target["title"])).strip()
         body = str(data.get("body", target.get("body", ""))).strip()
@@ -488,6 +500,8 @@ class NoticeStorage:
         screen_id = str(data.get("screen_id", target.get("screen_id", "default"))).strip() or "default"
         self.add_screen(screen_id)
 
+        creator = str(data.get("created_by") or target.get("created_by", "admin")).strip()
+
         now = get_current_time_ms()
         conn = self.get_connection()
         try:
@@ -503,6 +517,7 @@ class NoticeStorage:
                         start = ?,
                         end = ?,
                         screen_id = ?,
+                        created_by = ?,
                         updated_at = ?
                     WHERE id = ?;
                 """, (
@@ -515,16 +530,18 @@ class NoticeStorage:
                     start_ms,
                     end_ms,
                     screen_id,
+                    creator,
                     now,
                     notice_id
                 ))
+            self.record_audit(updated_by or creator, "UPDATE", notice_id, f"Updated notice '{title}'")
             self.safe_garbage_collect_media()
             return self.get_by_id(notice_id)
         finally:
             if not self._is_in_flask():
                 conn.close()
 
-    def delete(self, notice_id):
+    def delete(self, notice_id, actor="admin"):
         target = self.get_by_id(notice_id)
         if not target:
             return False
@@ -536,6 +553,7 @@ class NoticeStorage:
         try:
             with conn:
                 conn.execute("DELETE FROM notices WHERE id = ?;", (notice_id,))
+            self.record_audit(actor or "admin", "DELETE", notice_id, f"Deleted notice '{target.get('title', '')}'")
             self.safe_garbage_collect_media()
             return True
         finally:
@@ -543,8 +561,6 @@ class NoticeStorage:
                 conn.close()
 
     def safe_garbage_collect_media(self, grace_period_seconds: int = 600):
-        """Phase 1 Rule: Safe GC only deletes unreferenced media files older than 10 minutes (600s),
-        skipping in-flight uploads, and logging every deletion."""
         if not hasattr(self.media_storage, "media_dir"):
             return
 
@@ -562,7 +578,7 @@ class NoticeStorage:
 
         now = time.time()
         for item in media_dir.iterdir():
-            if item.is_file() and item.name not in referenced:
+            if item.is_file() and item.name not in referenced and not item.name.startswith("tmp_"):
                 try:
                     stat = item.stat()
                     age = now - stat.st_mtime
