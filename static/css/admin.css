@@ -1274,3 +1274,49 @@ input[type="datetime-local"] {
   from { opacity: 0; transform: translateY(8px); }
   to { opacity: 1; transform: translateY(0); }
 }
+
+
+/* Screen Filter & Form Layout (Phase 1) */
+.screen-filter-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+}
+.screen-filter-label {
+  font-size: 0.825rem;
+  font-weight: 600;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  white-space: nowrap;
+}
+.screen-select {
+  max-width: 220px;
+  min-height: 38px;
+  padding: 0 10px;
+  font-size: 0.875rem;
+}
+.form-row-2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+@media (max-width: 480px) {
+  .form-row-2 {
+    grid-template-columns: 1fr;
+  }
+}
+.badge-screen {
+  background-color: rgba(59, 130, 246, 0.15);
+  color: #60A5FA;
+  border: 1px solid rgba(59, 130, 246, 0.3);
+  font-size: 0.75rem;
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+.card-posted-by {
+  font-size: 0.8rem;
+  color: var(--muted);
+  margin-left: auto;
+}

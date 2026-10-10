@@ -29,6 +29,9 @@
 
   // DOM Elements - Dashboard
   const noticesContainer = document.getElementById('notices-container');
+  const feedScreenFilter = document.getElementById('feed-screen-filter');
+  const noticeScreen = document.getElementById('notice-screen');
+  const noticeCreatedBy = document.getElementById('notice-created-by');
   const btnOpenCreate = document.getElementById('btn-open-create');
 
   // DOM Elements - Create Modal
@@ -160,7 +163,11 @@
 
       setAdminPassword(pass);
       hideLoginModal();
-      fetchNotices();
+      if (feedScreenFilter) {
+      feedScreenFilter.addEventListener('change', () => fetchNotices());
+    }
+    loadScreens();
+    fetchNotices();
     } catch (err) {
       loginError.classList.remove('hidden');
       passwordInput.select();
@@ -193,11 +200,58 @@
   }
 
   // ==========================================================================
+
+  // ==========================================================================
+  // Screen Management (Phase 1)
+  // ==========================================================================
+  let availableScreens = [];
+
+  async function loadScreens() {
+    try {
+      const res = await fetch('/api/screens');
+      if (res.ok) {
+        const data = await res.json();
+        availableScreens = data.screens || data || [];
+        populateScreenDropdowns(availableScreens);
+      }
+    } catch (e) {
+      console.warn('Failed to load screens:', e);
+    }
+  }
+
+  function populateScreenDropdowns(screens) {
+    if (!screens || !screens.length) return;
+    if (feedScreenFilter) {
+      const cur = feedScreenFilter.value;
+      feedScreenFilter.innerHTML = '<option value="all">All Screens</option>';
+      screens.forEach(s => {
+        const opt = document.createElement('option');
+        opt.value = s.id;
+        opt.textContent = s.name || s.id;
+        feedScreenFilter.appendChild(opt);
+      });
+      feedScreenFilter.value = cur || 'all';
+    }
+    if (noticeScreen) {
+      const cur = noticeScreen.value;
+      noticeScreen.innerHTML = '';
+      screens.forEach(s => {
+        const opt = document.createElement('option');
+        opt.value = s.id;
+        opt.textContent = s.name || s.id;
+        noticeScreen.appendChild(opt);
+      });
+      noticeScreen.value = cur || 'default';
+    }
+  }
+
   // Fetch Notices & Compute Status
   // ==========================================================================
   async function fetchNotices() {
     const pass = getAdminPassword();
-    const res = await fetch(`/api/notices?_t=${Date.now()}`, {
+    const selectedScreen = feedScreenFilter ? feedScreenFilter.value : 'all';
+    const screenQuery = selectedScreen && selectedScreen !== 'all' ? `&screen=${encodeURIComponent(selectedScreen)}` : '';
+    const res = await fetch(`/api/notices?_t=${Date.now()}${screenQuery}`, {
       cache: 'no-store',
       headers: {
         'X-Password': pass,
@@ -514,6 +568,8 @@
     if (modalHeading) modalHeading.textContent = 'New notice';
     if (btnSubmitText) btnSubmitText.textContent = 'Publish';
     resetCreateForm();
+    if (noticeScreen) noticeScreen.value = 'default';
+    if (noticeCreatedBy) noticeCreatedBy.value = 'admin';
     noticeModal.classList.remove('hidden');
     inputTitle.focus();
   }
@@ -535,6 +591,8 @@
     }
 
     inputBody.value = notice.body || '';
+    if (noticeScreen) noticeScreen.value = notice.screen_id || 'default';
+    if (noticeCreatedBy) noticeCreatedBy.value = notice.created_by || 'admin';
 
     // Priority
     const prio = (notice.priority || 'normal').toLowerCase();
@@ -870,6 +928,8 @@
 
     const formData = new FormData();
     formData.append('title', title);
+    if (noticeScreen) formData.append('screen_id', noticeScreen.value || 'default');
+    if (noticeCreatedBy) formData.append('created_by', noticeCreatedBy.value || 'admin');
     formData.append('body', inputBody.value.trim());
     formData.append('priority', priority);
     formData.append('type', type);

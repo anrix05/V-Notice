@@ -16,6 +16,10 @@
   let isUrgentTakeover = false;
   let isOffline = false;
 
+  // Screen Configuration (Phase 1)
+  const urlParams = new URLSearchParams(window.location.search);
+  const currentScreenId = urlParams.get('screen') || urlParams.get('screen_id') || 'default';
+
   // DOM Elements - Frame & Header
   const stagePanel = document.getElementById('stage-panel');
   const offlineBadge = document.getElementById('offline-badge');
@@ -113,7 +117,7 @@
   // ==========================================================================
   async function fetchNotices() {
     try {
-      const response = await fetch(`/api/notices?_t=${Date.now()}`, {
+      const response = await fetch(`/api/notices?screen=${encodeURIComponent(currentScreenId)}&_t=${Date.now()}`, {
         cache: 'no-store',
         headers: {
           'Cache-Control': 'no-cache, no-store, must-revalidate',
@@ -128,7 +132,7 @@
 
       // Cache notices to localStorage
       try {
-        localStorage.setItem('vnotice_cache', JSON.stringify(data));
+        localStorage.setItem(`vnotice_cache_${currentScreenId}`, JSON.stringify(data));
       } catch (e) {
         console.warn('LocalStorage save failed:', e);
       }
@@ -141,7 +145,7 @@
 
       // Fallback to localStorage cache
       try {
-        const cached = localStorage.getItem('vnotice_cache');
+        const cached = localStorage.getItem(`vnotice_cache_${currentScreenId}`) || localStorage.getItem('vnotice_cache');
         if (cached) {
           applyNotices(JSON.parse(cached));
         } else {

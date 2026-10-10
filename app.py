@@ -116,10 +116,19 @@ def create_display_app():
         host = request.host.split(":")[0]
         return redirect(f"http://{host}:{ADMIN_PORT}/")
 
+    @app.teardown_appcontext
+    def teardown_db(exception=None):
+        storage.close_connection()
+
     @app.route("/api/notices", methods=["GET"])
     def get_active_notices():
-        active_notices = storage.get_active()
+        screen = request.args.get("screen") or request.args.get("screen_id")
+        active_notices = storage.get_active(screen_id=screen)
         return jsonify(active_notices)
+
+    @app.route("/api/screens", methods=["GET"])
+    def get_screens():
+        return jsonify({"success": True, "screens": storage.get_screens()})
 
     @app.route("/api/system-info", methods=["GET"])
     def system_info():
@@ -232,11 +241,21 @@ def create_admin_app():
         session.pop("is_admin", None)
         return jsonify({"success": True})
 
+    @app.teardown_appcontext
+    def teardown_db(exception=None):
+        storage.close_connection()
+
     @app.route("/api/notices", methods=["GET"])
     @admin_required
     def get_all_notices():
-        notices = storage.get_all()
+        screen = request.args.get("screen") or request.args.get("screen_id")
+        notices = storage.get_all(screen_id=screen)
         return jsonify(notices)
+
+    @app.route("/api/screens", methods=["GET"])
+    @admin_required
+    def get_screens():
+        return jsonify({"success": True, "screens": storage.get_screens()})
 
     @app.errorhandler(413)
     def request_entity_too_large(error):
@@ -349,12 +368,21 @@ def create_unified_app():
         session.pop("is_admin", None)
         return jsonify({"success": True})
 
+    @app.teardown_appcontext
+    def teardown_db(exception=None):
+        storage.close_connection()
+
+    @app.route("/api/screens", methods=["GET"])
+    def get_screens():
+        return jsonify({"success": True, "screens": storage.get_screens()})
+
     # Smart Dual Notices API: Admin gets all notices; Public gets active only
     @app.route("/api/notices", methods=["GET"])
     def get_notices():
+        screen = request.args.get("screen") or request.args.get("screen_id")
         if check_admin_auth():
-            return jsonify(storage.get_all())
-        return jsonify(storage.get_active())
+            return jsonify(storage.get_all(screen_id=screen))
+        return jsonify(storage.get_active(screen_id=screen))
 
     @app.errorhandler(413)
     def request_entity_too_large(error):

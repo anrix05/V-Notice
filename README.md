@@ -43,9 +43,15 @@ V Notice runs a unified Flask backend serving two distinct interfaces on dedicat
        └─────────────────────────────────────────┘
 ```
 
-### Storage Layer
-- **`notices.json`**: Flat JSON database storing notice metadata, priority, timing, and durations.
-- **`media/`**: Directory storing uploaded campus posters (PNG/JPG/WEBP) and video announcements (MP4/WEBM, up to 200MB).
+### Storage Layer (SQLite in WAL Mode)
+- **`notices.db`**: High-performance SQLite database operating in **Write-Ahead Logging (WAL)** mode with busy timeout handling, storing notices, screen definitions, and audit fields.
+- **Legacy Migration & Backup**: Automatically imports legacy `notices.json` on first run and preserves an untouched `notices.json.bak` backup.
+- **`media/` (`MEDIA_DIR`)**: Configurable media storage managed via `MediaStorageBackend` interface, with automated safe garbage collection (deleting only unreferenced media older than 10 minutes to protect in-flight uploads).
+
+> [!WARNING]
+> **Render Free Tier Ephemeral Storage Note:**  
+> Render's free web service containers run on an **ephemeral disk**. Notices and media uploaded during runtime are reset when a new Git build or container redeploy occurs.  
+> To persist notice data across redeploys, attach a Render Persistent Disk and set `STORAGE_DIR` (or `MEDIA_DIR`) to the mounted volume path.
 
 ---
 
@@ -108,6 +114,26 @@ Each notice adheres to the following JSON schema:
 | `POST` | `/api/logout` | Admin (5001) | No | Terminates session |
 | `GET` | `/media/<file>` | Both | No | Serves uploaded images and video files |
 | `GET` | `/api/health` | Both | No | Health check endpoint |
+
+---
+
+## Configuration & Environment Variables
+
+All settings use safe defaults and can be customized via `.env` or container environment variables:
+
+| Variable | Default | Description |
+| :--- | :--- | :--- |
+| `ADMIN_PASSWORD` | `vnotice2026` | Plaintext password or secret for Admin Portal authentication. |
+| `STORAGE_DIR` | `./` | Root directory for SQLite database and storage. |
+| `MEDIA_DIR` | `${STORAGE_DIR}/media` | Dedicated directory for uploaded posters and videos. |
+| `DB_FILE` | `${STORAGE_DIR}/notices.db` | Path to the SQLite WAL database file. |
+| `DISPLAY_PORT` | `5000` | Local port for Kiosk Display (Mode B). |
+| `ADMIN_PORT` | `5001` | Local port for Admin Portal (Mode B). |
+| `PORT` | `5000` | Dynamic single port for cloud deployments (Render / Railway). |
+| `CAMPUS_CITY` | `MUMBAI` | City label displayed in kiosk weather widget. |
+| `CAMPUS_LAT` | `19.0760` | Campus latitude for live weather forecast. |
+| `CAMPUS_LON` | `72.8777` | Campus longitude for live weather forecast. |
+| `MAX_CONTENT_LENGTH` | `209715200` | Maximum file upload size in bytes (200MB). |
 
 ---
 

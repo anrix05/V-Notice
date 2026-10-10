@@ -55,3 +55,12 @@ memory.md
 
 
 design.md
+
+
+# Database, backups & test caches
+*.db
+*.db-wal
+*.db-shm
+*.sqlite3
+*.bak
+.pytest_cache/
