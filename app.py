@@ -48,29 +48,13 @@ def get_system_weather():
     if _weather_cache["data"] and (now - _weather_cache["timestamp"] < 600):
         return _weather_cache["data"]
 
-    city = os.environ.get("CAMPUS_CITY", "")
-    lat = float(os.environ.get("CAMPUS_LAT", 0) or 0)
-    lon = float(os.environ.get("CAMPUS_LON", 0) or 0)
+    # Default to Mumbai campus location (coordinates 19.0760 N, 72.8777 E)
+    city = os.environ.get("CAMPUS_CITY", "MUMBAI").strip() or "MUMBAI"
+    lat = float(os.environ.get("CAMPUS_LAT", 19.0760) or 19.0760)
+    lon = float(os.environ.get("CAMPUS_LON", 72.8777) or 72.8777)
 
-    if not city or not lat or not lon:
-        try:
-            req = urllib.request.Request("http://ip-api.com/json/", headers={"User-Agent": "VNotice/1.0"})
-            with urllib.request.urlopen(req, timeout=2) as r:
-                geo = json.loads(r.read().decode("utf-8", "ignore"))
-                if geo.get("status") == "success":
-                    city = geo.get("city", "Campus")
-                    lat = float(geo.get("lat", 19.0760))
-                    lon = float(geo.get("lon", 72.8777))
-        except Exception:
-            pass
-
-    if not city:
-        city = "Campus"
-        lat = 19.0760
-        lon = 72.8777
-
-    temp = "28°C"
-    icon = "☀️"
+    temp = "30\u00b0C"
+    icon = "\u2600\ufe0f"
     try:
         url = f"https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}&current=temperature_2m,weather_code"
         req = urllib.request.Request(url, headers={"User-Agent": "VNotice/1.0"})
@@ -78,15 +62,28 @@ def get_system_weather():
             w_data = json.loads(r.read().decode("utf-8", "ignore"))
             if "current" in w_data:
                 raw_temp = round(w_data["current"]["temperature_2m"])
-                temp = f"{raw_temp}°C"
+                temp = f"{raw_temp}\u00b0C"
                 code = w_data["current"]["weather_code"]
                 icons = {
-                    0: "☀️", 1: "🌤️", 2: "⛅", 3: "☁️",
-                    45: "🌫️", 48: "🌫️", 51: "🌦️", 53: "🌧️",
-                    55: "🌧️", 61: "🌧️", 63: "🌧️", 65: "⛈️",
-                    71: "🌨️", 80: "🌦️", 81: "🌧️", 82: "⛈️", 95: "⚡"
+                    0: "\u2600\ufe0f",
+                    1: "\U0001f324\ufe0f",
+                    2: "\u26c5",
+                    3: "\u2601\ufe0f",
+                    45: "\U0001f32b\ufe0f",
+                    48: "\U0001f32b\ufe0f",
+                    51: "\U0001f326\ufe0f",
+                    53: "\U0001f327\ufe0f",
+                    55: "\U0001f327\ufe0f",
+                    61: "\U0001f327\ufe0f",
+                    63: "\U0001f327\ufe0f",
+                    65: "\u26c8\ufe0f",
+                    71: "\U0001f328\ufe0f",
+                    80: "\U0001f326\ufe0f",
+                    81: "\U0001f327\ufe0f",
+                    82: "\u26c8\ufe0f",
+                    95: "\u26a1"
                 }
-                icon = icons.get(code, "🌤️")
+                icon = icons.get(code, "\u2600\ufe0f")
     except Exception:
         pass
 
