@@ -1237,7 +1237,6 @@
     formData.append('title', title);
     const screensArr = Array.from(selectedScreenCodes);
     screensArr.forEach(s => formData.append('screens[]', s));
-    formData.append('screens', JSON.stringify(screensArr));
     formData.append('screen_id', screensArr[0] || 'ALL');
     if (noticeCreatedBy) formData.append('created_by', noticeCreatedBy.value || 'admin');
     formData.append('body', inputBody.value.trim());

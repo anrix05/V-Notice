@@ -54,6 +54,41 @@ def compute_status(notice, now_ms=None):
 
 SCREEN_CODE_REGEX = re.compile(r"^[A-Z0-9_-]{2,10}$")
 
+
+def sanitize_screen_codes(raw_input):
+    if not raw_input:
+        return ["ALL"]
+    results = []
+    if isinstance(raw_input, str):
+        cleaned = raw_input.strip()
+        if cleaned.lower() == "default":
+            return ["ALL"]
+        if cleaned.startswith("[") and cleaned.endswith("]"):
+            try:
+                import json
+                parsed = json.loads(cleaned)
+                if isinstance(parsed, list):
+                    return sanitize_screen_codes(parsed)
+            except Exception:
+                pass
+        cleaned = cleaned.replace("[", "").replace("]", "").replace('"', "").replace("'", "")
+        for part in cleaned.split(","):
+            p = part.strip()
+            if p.lower() == "default":
+                results.append("ALL")
+            elif p:
+                results.append(p)
+    elif isinstance(raw_input, (list, tuple, set)):
+        for item in raw_input:
+            if isinstance(item, str):
+                results.extend(sanitize_screen_codes(item))
+            elif item:
+                results.append(str(item).strip())
+    deduped = list(dict.fromkeys(results))
+    if any(s.upper() == "ALL" for s in deduped):
+        return ["ALL"]
+    return deduped or ["ALL"]
+
 def validate_screen_code(code: str) -> str:
     if not isinstance(code, str):
         raise ValueError("Screen code must be a string.")
@@ -371,6 +406,22 @@ class NoticeStorage:
                 conn.execute("""
                     UPDATE notices SET screen_id = 'ALL' 
                     WHERE screen_id = 'default' OR screen_id = 'DEFAULT';
+                """)
+
+                # Clean up any legacy corrupted screen_codes containing brackets or quotes
+                conn.execute("""
+                    UPDATE notices
+                    SET screen_id = REPLACE(REPLACE(REPLACE(REPLACE(screen_id, '[', ''), ']', ''), '"', ''), "'", '')
+                    WHERE screen_id LIKE '%[%' OR screen_id LIKE '%"%';
+                """)
+                conn.execute("""
+                    UPDATE OR IGNORE notice_screens
+                    SET screen_code = REPLACE(REPLACE(REPLACE(REPLACE(screen_code, '[', ''), ']', ''), '"', ''), "'", '')
+                    WHERE screen_code LIKE '%[%' OR screen_code LIKE '%"%';
+                """)
+                conn.execute("""
+                    DELETE FROM notice_screens
+                    WHERE screen_code LIKE '%[%' OR screen_code LIKE '%"%';
                 """)
 
                 # Populate notice_screens for any existing notices missing join entries
@@ -772,30 +823,8 @@ class NoticeStorage:
             priority = "normal"
 
         # Determine target screens
-        raw_screens = data.get("screens")
-        if raw_screens and isinstance(raw_screens, list):
-            target_screens = [str(s).strip().upper() for s in raw_screens if str(s).strip()]
-        elif raw_screens and isinstance(raw_screens, str):
-            try:
-                parsed = json.loads(raw_screens)
-                if isinstance(parsed, list):
-                    target_screens = [str(s).strip().upper() for s in parsed if str(s).strip()]
-                else:
-                    target_screens = [s.strip().upper() for s in raw_screens.split(",") if s.strip()]
-            except Exception:
-                target_screens = [s.strip().upper() for s in raw_screens.split(",") if s.strip()]
-        else:
-            raw_single = str(data.get("screen_id") or "ALL").strip()
-            if raw_single.lower() == "default":
-                raw_single = "ALL"
-            target_screens = [raw_single]
-
-        if not target_screens:
-            target_screens = ["ALL"]
-
-        # ALL deselects others
-        if any(s.upper() == "ALL" for s in target_screens):
-            target_screens = ["ALL"]
+        raw_input = data.get("screens") or data.get("screen_id") or "ALL"
+        target_screens = sanitize_screen_codes(raw_input)
 
         primary_screen = target_screens[0]
 
@@ -906,30 +935,9 @@ class NoticeStorage:
 
         # Parse screens
         target_screens = None
-        if "screens" in data:
-            raw_screens = data["screens"]
-            if isinstance(raw_screens, list):
-                target_screens = [str(s).strip().upper() for s in raw_screens if str(s).strip()]
-            elif isinstance(raw_screens, str):
-                try:
-                    parsed = json.loads(raw_screens)
-                    if isinstance(parsed, list):
-                        target_screens = [str(s).strip().upper() for s in parsed if str(s).strip()]
-                    else:
-                        target_screens = [s.strip().upper() for s in raw_screens.split(",") if s.strip()]
-                except Exception:
-                    target_screens = [s.strip().upper() for s in raw_screens.split(",") if s.strip()]
-        elif "screen_id" in data:
-            raw_single = str(data.get("screen_id", target.get("screen_id", "ALL"))).strip()
-            if raw_single.lower() == "default":
-                raw_single = "ALL"
-            target_screens = [raw_single]
-
-        if target_screens is not None:
-            if not target_screens:
-                target_screens = ["ALL"]
-            if any(s.upper() == "ALL" for s in target_screens):
-                target_screens = ["ALL"]
+        if "screens" in data or "screen_id" in data:
+            raw_input = data.get("screens") or data.get("screen_id")
+            target_screens = sanitize_screen_codes(raw_input)
             primary_screen = target_screens[0]
         else:
             primary_screen = target.get("screen_id", "ALL")

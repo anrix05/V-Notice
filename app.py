@@ -34,7 +34,7 @@ from security import (
     validate_csrf_token,
     check_password_config_warnings,
 )
-from storage import storage, compute_status
+from storage import storage, compute_status, sanitize_screen_codes
 import socket
 import urllib.request
 import json
@@ -555,6 +555,18 @@ def create_display_app():
             return render_template("screen_not_found.html", code=upper_code, departments=active_depts), 404
         return render_template("display.html", screen_code=upper_code, department=dept)
 
+    @app.route("/<code>")
+    def display_shortcut(code):
+        if not code:
+            return redirect("/display", code=301)
+        if code.lower() in ("static", "api", "sw.js", "favicon.ico", "media", "display"):
+            return "Not Found", 404
+        canonical = code.strip().upper()
+        dept = storage.get_department(canonical)
+        if dept:
+            return redirect(f"/display/{canonical}", code=301)
+        return "Not Found", 404
+
     @app.route("/api/heartbeat", methods=["POST"])
     def display_heartbeat():
         data = request.get_json(silent=True) or request.form.to_dict() or {}
@@ -894,19 +906,10 @@ def create_admin_app():
         if not form_data and request.is_json:
             form_data = request.get_json()
 
-        screens = request.form.getlist("screens") or request.form.getlist("screens[]")
-        if not screens and form_data.get("screens"):
-            raw_s = form_data.get("screens")
-            if isinstance(raw_s, list):
-                screens = raw_s
-            elif isinstance(raw_s, str):
-                try:
-                    parsed_s = json.loads(raw_s)
-                    screens = parsed_s if isinstance(parsed_s, list) else [s.strip() for s in raw_s.split(",") if s.strip()]
-                except Exception:
-                    screens = [s.strip() for s in raw_s.split(",") if s.strip()]
-        if screens:
-            form_data["screens"] = screens
+        raw_input = request.form.getlist("screens[]") or request.form.getlist("screens") or form_data.get("screens") or form_data.get("screen_id")
+        screens = sanitize_screen_codes(raw_input)
+        form_data["screens"] = screens
+        form_data["screen_id"] = screens[0] if screens else "ALL"
 
         title = form_data.get("title", "").strip()
         if not title:
@@ -936,19 +939,10 @@ def create_admin_app():
         if not form_data and request.is_json:
             form_data = request.get_json()
 
-        screens = request.form.getlist("screens") or request.form.getlist("screens[]")
-        if not screens and form_data.get("screens"):
-            raw_s = form_data.get("screens")
-            if isinstance(raw_s, list):
-                screens = raw_s
-            elif isinstance(raw_s, str):
-                try:
-                    parsed_s = json.loads(raw_s)
-                    screens = parsed_s if isinstance(parsed_s, list) else [s.strip() for s in raw_s.split(",") if s.strip()]
-                except Exception:
-                    screens = [s.strip() for s in raw_s.split(",") if s.strip()]
-        if screens:
-            form_data["screens"] = screens
+        raw_input = request.form.getlist("screens[]") or request.form.getlist("screens") or form_data.get("screens") or form_data.get("screen_id")
+        screens = sanitize_screen_codes(raw_input)
+        form_data["screens"] = screens
+        form_data["screen_id"] = screens[0] if screens else "ALL"
 
         title = form_data.get("title", "").strip()
         if not title:
@@ -1135,6 +1129,18 @@ def create_unified_app():
             return render_template("screen_not_found.html", code=upper_code, departments=active_depts), 404
         return render_template("display.html", screen_code=upper_code, department=dept)
 
+    @app.route("/<code>")
+    def dept_shortcut(code):
+        if not code:
+            return redirect("/display", code=301)
+        if code.lower() in ("static", "api", "sw.js", "favicon.ico", "media", "display", "notice", "admin"):
+            return "Not Found", 404
+        canonical = code.strip().upper()
+        dept = storage.get_department(canonical)
+        if dept:
+            return redirect(f"/display/{canonical}", code=301)
+        return "Not Found", 404
+
     @app.route("/api/heartbeat", methods=["POST"])
     def post_heartbeat():
         data = request.get_json(silent=True) or request.form.to_dict() or {}
@@ -1316,7 +1322,9 @@ def create_unified_app():
     @app.route("/api/notices", methods=["GET"])
     def get_notices():
         screen = request.args.get("screen") or request.args.get("screen_id")
-        if check_admin_auth():
+        is_admin_view = request.args.get("view") == "admin" or request.args.get("admin") == "1"
+        is_api_key_auth = bool(request.headers.get("X-Password") and verify_admin_password(request.headers.get("X-Password")))
+        if is_api_key_auth or (is_admin_view and check_admin_auth()):
             return make_etag_response(storage.get_all(screen_id=screen))
         # Public kiosk view: active notices only with admin fields stripped
         active = storage.get_active(screen_id=screen)
@@ -1360,19 +1368,10 @@ def create_unified_app():
         if not form_data and request.is_json:
             form_data = request.get_json()
 
-        screens = request.form.getlist("screens") or request.form.getlist("screens[]")
-        if not screens and form_data.get("screens"):
-            raw_s = form_data.get("screens")
-            if isinstance(raw_s, list):
-                screens = raw_s
-            elif isinstance(raw_s, str):
-                try:
-                    parsed_s = json.loads(raw_s)
-                    screens = parsed_s if isinstance(parsed_s, list) else [s.strip() for s in raw_s.split(",") if s.strip()]
-                except Exception:
-                    screens = [s.strip() for s in raw_s.split(",") if s.strip()]
-        if screens:
-            form_data["screens"] = screens
+        raw_input = request.form.getlist("screens[]") or request.form.getlist("screens") or form_data.get("screens") or form_data.get("screen_id")
+        screens = sanitize_screen_codes(raw_input)
+        form_data["screens"] = screens
+        form_data["screen_id"] = screens[0] if screens else "ALL"
 
         title = form_data.get("title", "").strip()
         if not title:
@@ -1402,19 +1401,10 @@ def create_unified_app():
         if not form_data and request.is_json:
             form_data = request.get_json()
 
-        screens = request.form.getlist("screens") or request.form.getlist("screens[]")
-        if not screens and form_data.get("screens"):
-            raw_s = form_data.get("screens")
-            if isinstance(raw_s, list):
-                screens = raw_s
-            elif isinstance(raw_s, str):
-                try:
-                    parsed_s = json.loads(raw_s)
-                    screens = parsed_s if isinstance(parsed_s, list) else [s.strip() for s in raw_s.split(",") if s.strip()]
-                except Exception:
-                    screens = [s.strip() for s in raw_s.split(",") if s.strip()]
-        if screens:
-            form_data["screens"] = screens
+        raw_input = request.form.getlist("screens[]") or request.form.getlist("screens") or form_data.get("screens") or form_data.get("screen_id")
+        screens = sanitize_screen_codes(raw_input)
+        form_data["screens"] = screens
+        form_data["screen_id"] = screens[0] if screens else "ALL"
 
         title = form_data.get("title", "").strip()
         if not title:
