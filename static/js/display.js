@@ -277,10 +277,15 @@
 
     stageQrCanvas.innerHTML = '';
 
-    // Use actual LAN Wi-Fi IP so phones on the same network connect directly (not localhost)
-    const host = (systemInfo.lan_ip && systemInfo.lan_ip !== '127.0.0.1') ? systemInfo.lan_ip : window.location.hostname;
-    const port = systemInfo.display_port ? `:${systemInfo.display_port}` : (window.location.port ? `:${window.location.port}` : ':5000');
-    const targetUrl = `http://${host}${port}/notice/${notice.id}?download=1`;
+    // If running on HTTPS / public cloud (e.g. Railway), use origin directly; otherwise use campus LAN IP
+    let targetUrl;
+    if (window.location.protocol === 'https:' || window.location.hostname.includes('railway.app') || window.location.hostname.includes('trycloudflare.com')) {
+      targetUrl = `${window.location.origin}/notice/${notice.id}?download=1`;
+    } else {
+      const host = (systemInfo.lan_ip && systemInfo.lan_ip !== '127.0.0.1') ? systemInfo.lan_ip : window.location.hostname;
+      const port = systemInfo.display_port ? `:${systemInfo.display_port}` : (window.location.port ? `:${window.location.port}` : ':5000');
+      targetUrl = `http://${host}${port}/notice/${notice.id}?download=1`;
+    }
 
     if (window.QRCode) {
       try {

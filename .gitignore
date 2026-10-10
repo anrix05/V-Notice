@@ -49,3 +49,7 @@ brag-output*/
 tunnel.*
 tunnel_url.txt
 
+# Local documentation (Do not push to git)
+prd.md
+memory.md
+

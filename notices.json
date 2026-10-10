@@ -1,46 +1,46 @@
 [
   {
-    "id": "b837f9ac",
-    "title": "Sechuld test",
+    "id": "b7280bf2",
+    "title": "Introducing V Notice",
     "body": "",
-    "priority": "normal",
-    "type": "text",
-    "media": "",
-    "duration": 10,
-    "start": 1790796780000,
-    "end": 1791315180000
-  },
-  {
-    "id": "323d9a4d",
-    "title": "What is V Notice Video",
-    "body": "Intro Video of V Notice",
-    "priority": "normal",
+    "priority": "info",
     "type": "video",
-    "media": "323d9a4d_20f90b08.mp4",
+    "media": "b7280bf2_0006c673.mp4",
     "duration": 10,
-    "start": 1790704800000,
-    "end": 1793296800000
+    "start": 1790715420000,
+    "end": 1793384940000
   },
   {
-    "id": "25deca29",
+    "id": "139ac95c",
+    "title": "NexaLink",
+    "body": "Connect with Alumini",
+    "priority": "info",
+    "type": "video",
+    "media": "139ac95c_82171970.mp4",
+    "duration": 10,
+    "start": 1790714700000,
+    "end": 1792002540000
+  },
+  {
+    "id": "28c7b14b",
     "title": "What is V Notice",
-    "body": "A smart digital notice board for college campuses built with Python Flask and Raspberry Pi. Features real-time announcements, urgent alert takeover, media playback, and an offline-resilient.",
-    "priority": "normal",
+    "body": "",
+    "priority": "info",
     "type": "image",
-    "media": "vnotice_clean_promo_poster.jpg",
-    "duration": 15,
-    "start": 1699999980000,
-    "end": 1899999960000
+    "media": "28c7b14b_3a3ee353.png",
+    "duration": 10,
+    "start": 1790714340000,
+    "end": 1792002540000
   },
   {
-    "id": "vnot0002",
-    "title": "Campus Placement Drive – TCS & Infosys",
-    "body": "Eligible branches: MCA & B.Tech (All). Complete profile verification on VERP portal before 5:00 PM.",
-    "priority": "normal",
-    "type": "text",
-    "media": "",
+    "id": "60e7ea43",
+    "title": "Mse 2 Time Table",
+    "body": "",
+    "priority": "info",
+    "type": "image",
+    "media": "60e7ea43_d69eb647.png",
     "duration": 10,
-    "start": 1700000000000,
-    "end": 1900000000000
+    "start": 1790714160000,
+    "end": 1792002540000
   }
 ]

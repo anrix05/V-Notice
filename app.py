@@ -1,4 +1,4 @@
-import os
+﻿import os
 import sys
 import threading
 from functools import wraps
@@ -67,23 +67,23 @@ def get_system_weather():
             lat = 19.0748
             lon = 72.8856
 
-    temp = "28°C"
-    icon = "🌤"
+    temp = "28Â°C"
+    icon = "ðŸŒ¤"
     try:
         url = f"https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}&current=temperature_2m,apparent_temperature,weather_code"
         with urllib.request.urlopen(url, timeout=3) as r:
             w_data = json.loads(r.read().decode())
             if "current" in w_data:
                 raw_temp = round(w_data["current"]["temperature_2m"])
-                temp = f"{raw_temp}°C"
+                temp = f"{raw_temp}Â°C"
                 code = w_data["current"]["weather_code"]
                 icons = {
-                    0: "☀️", 1: "🌤", 2: "⛅", 3: "☁️",
-                    45: "🌫", 48: "🌫", 51: "🌦", 53: "🌦",
-                    55: "🌧", 61: "🌧", 63: "🌧", 65: "🌧",
-                    71: "🌨", 80: "🌦", 81: "🌧", 82: "⛈", 95: "⛈"
+                    0: "â˜€ï¸", 1: "ðŸŒ¤", 2: "â›…", 3: "â˜ï¸",
+                    45: "ðŸŒ«", 48: "ðŸŒ«", 51: "ðŸŒ¦", 53: "ðŸŒ¦",
+                    55: "ðŸŒ§", 61: "ðŸŒ§", 63: "ðŸŒ§", 65: "ðŸŒ§",
+                    71: "ðŸŒ¨", 80: "ðŸŒ¦", 81: "ðŸŒ§", 82: "â›ˆ", 95: "â›ˆ"
                 }
-                icon = icons.get(code, "🌤")
+                icon = icons.get(code, "ðŸŒ¤")
     except Exception:
         pass
 
@@ -155,7 +155,7 @@ def create_display_app():
         filename = f"{clean_title or 'notice'}.txt"
         content = (
             f"====================================================\n"
-            f"  V NOTICE — OFFICIAL CAMPUS ANNOUNCEMENT\n"
+            f"  V NOTICE â€” OFFICIAL CAMPUS ANNOUNCEMENT\n"
             f"====================================================\n\n"
             f"TITLE:    {notice.get('title', '')}\n"
             f"PRIORITY: {notice.get('priority', 'Normal').upper()}\n\n"
@@ -309,6 +309,171 @@ def create_admin_app():
 display_app = create_display_app()
 admin_app = create_admin_app()
 
+def create_unified_app():
+    app = Flask(__name__, template_folder="templates", static_folder="static")
+    app.config["SECRET_KEY"] = os.urandom(24)
+    app.config["MAX_CONTENT_LENGTH"] = MAX_CONTENT_LENGTH
+    app.config["TEMPLATES_AUTO_RELOAD"] = True
+
+    # 1. Admin UI (Default Root and /admin)
+    @app.route("/")
+    @app.route("/admin")
+    def admin_home():
+        return render_template("admin.html")
+
+    # 2. Display Kiosk UI
+    @app.route("/display")
+    def display_home():
+        return render_template("display.html")
+
+    @app.route("/favicon.ico")
+    def favicon():
+        return send_from_directory("static", "favicon.ico")
+
+    # Auth
+    @app.route("/api/login", methods=["POST"])
+    def login():
+        data = request.get_json(silent=True) or request.form
+        password = data.get("password", "")
+        if password == ADMIN_PASSWORD:
+            session["is_admin"] = True
+            return jsonify({"success": True, "message": "Authentication successful"})
+        return jsonify({"success": False, "error": "Invalid password"}), 401
+
+    @app.route("/api/logout", methods=["POST"])
+    def logout():
+        session.pop("is_admin", None)
+        return jsonify({"success": True})
+
+    # Smart Dual Notices API: Admin gets all notices; Public gets active only
+    @app.route("/api/notices", methods=["GET"])
+    def get_notices():
+        if check_admin_auth():
+            return jsonify(storage.get_all())
+        return jsonify(storage.get_active())
+
+    @app.errorhandler(413)
+    def request_entity_too_large(error):
+        return jsonify({"error": "File exceeds the 200 MB maximum upload limit."}), 413
+
+    @app.errorhandler(500)
+    def internal_server_error(error):
+        return jsonify({"error": "An internal server error occurred. Please try again."}), 500
+
+    @app.route("/api/notices", methods=["POST"])
+    @admin_required
+    def create_notice():
+        form_data = request.form.to_dict()
+        file_obj = request.files.get("media_file")
+        if not form_data and request.is_json:
+            form_data = request.get_json()
+
+        title = form_data.get("title", "").strip()
+        if not title:
+            return jsonify({"error": "Notice title/headline is required"}), 400
+
+        try:
+            notice = storage.add(form_data, file_obj=file_obj)
+            return jsonify(notice), 201
+        except ValueError as ve:
+            return jsonify({"error": str(ve)}), 400
+        except Exception as e:
+            return jsonify({"error": f"Failed to publish notice: {str(e)}"}), 500
+
+    @app.route("/api/notices/<notice_id>", methods=["PUT", "POST"])
+    @admin_required
+    def update_notice(notice_id):
+        form_data = request.form.to_dict()
+        file_obj = request.files.get("media_file")
+        if not form_data and request.is_json:
+            form_data = request.get_json()
+
+        title = form_data.get("title", "").strip()
+        if not title:
+            return jsonify({"error": "Notice title/headline is required"}), 400
+
+        try:
+            updated = storage.update(notice_id, form_data, file_obj=file_obj)
+            if not updated:
+                return jsonify({"error": "Notice not found"}), 404
+            return jsonify(updated), 200
+        except ValueError as ve:
+            return jsonify({"error": str(ve)}), 400
+        except Exception as e:
+            return jsonify({"error": f"Failed to update notice: {str(e)}"}), 500
+
+    @app.route("/api/notices/<notice_id>", methods=["DELETE"])
+    @admin_required
+    def delete_notice(notice_id):
+        success = storage.delete(notice_id)
+        if success:
+            return jsonify({"success": True, "id": notice_id})
+        return jsonify({"error": "Notice not found"}), 404
+
+    @app.route("/api/system-info", methods=["GET"])
+    def system_info():
+        return jsonify(get_system_weather())
+
+    @app.route("/notice/<notice_id>")
+    def notice_detail(notice_id):
+        notice = storage.get_by_id(notice_id)
+        if not notice:
+            return render_template("notice_detail.html", notice=None), 404
+        return render_template("notice_detail.html", notice=notice)
+
+    @app.route("/notice/<notice_id>/download")
+    def notice_download(notice_id):
+        notice = storage.get_by_id(notice_id)
+        if not notice:
+            return jsonify({"error": "Notice not found"}), 404
+        
+        if notice.get("media"):
+            media_path = MEDIA_FOLDER / notice["media"]
+            if media_path.exists():
+                return send_from_directory(
+                    MEDIA_FOLDER,
+                    notice["media"],
+                    as_attachment=True,
+                    download_name=notice["media"]
+                )
+
+        title = notice.get("title", "Notice")
+        clean_title = "".join(c for c in title if c.isalnum() or c in (" ", "_", "-")).rstrip()
+        filename = f"{clean_title or 'notice'}.txt"
+        lines = [
+            "====================================================",
+            "  V NOTICE -- OFFICIAL CAMPUS ANNOUNCEMENT",
+            "====================================================",
+            "",
+            f"TITLE:    {notice.get('title', '')}",
+            f"PRIORITY: {notice.get('priority', 'Normal').upper()}",
+            "",
+            "DETAILS:",
+            notice.get('body', 'No additional details provided.'),
+            "",
+            "====================================================",
+            "Saved from V Notice Smart Display",
+        ]
+        content = "\n".join(lines)
+        from flask import Response
+        return Response(
+            content,
+            mimetype="text/plain; charset=utf-8",
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'}
+        )
+
+    @app.route("/media/<path:filename>")
+    def serve_media(filename):
+        return send_from_directory(MEDIA_FOLDER, filename)
+
+    @app.route("/api/health")
+    def health():
+        return jsonify({"status": "ok", "app": "vnotice-unified", "notices_count": len(storage.get_all())})
+
+    return app
+
+unified_app = create_unified_app()
+
 def run_display_server():
     print(f"[*] Starting V Notice Display on http://0.0.0.0:{DISPLAY_PORT}")
     run_simple("0.0.0.0", DISPLAY_PORT, display_app, use_reloader=False, threaded=True)
@@ -318,21 +483,31 @@ def run_admin_server():
     run_simple("0.0.0.0", ADMIN_PORT, admin_app, use_reloader=False, threaded=True)
 
 if __name__ == "__main__":
-    print("=" * 60)
-    print("            V NOTICE - SMART DIGITAL NOTICE BOARD          ")
-    print("=" * 60)
-    print(f"Display Interface:  http://localhost:{DISPLAY_PORT}")
-    print(f"Admin Interface:    http://localhost:{ADMIN_PORT}")
-    print(f"Default Admin Pass: {ADMIN_PASSWORD}")
-    print("=" * 60)
+    port_env = os.environ.get("PORT")
+    if port_env:
+        port = int(port_env)
+        print("=" * 60)
+        print(f"       V NOTICE -- CLOUD UNIFIED SERVER (PORT {port})       ")
+        print("=" * 60)
+        print(f"Admin Portal:     http://0.0.0.0:{port}/ (or /admin)")
+        print(f"Display Kiosk:    http://0.0.0.0:{port}/display")
+        print("=" * 60)
+        run_simple("0.0.0.0", port, unified_app, use_reloader=False, threaded=True)
+    else:
+        print("=" * 60)
+        print("            V NOTICE - SMART DIGITAL NOTICE BOARD          ")
+        print("=" * 60)
+        print(f"Display Interface:  http://localhost:{DISPLAY_PORT}")
+        print(f"Admin Interface:    http://localhost:{ADMIN_PORT}")
+        print(f"Default Admin Pass: {ADMIN_PASSWORD}")
+        print("=" * 60)
 
-    # Start admin server in background thread
-    admin_thread = threading.Thread(target=run_admin_server, daemon=True)
-    admin_thread.start()
+        admin_thread = threading.Thread(target=run_admin_server, daemon=True)
+        admin_thread.start()
 
-    # Start display server in main thread
-    try:
-        run_display_server()
-    except KeyboardInterrupt:
-        print("\n[!] Shutting down V Notice servers...")
-        sys.exit(0)
+        try:
+            run_display_server()
+        except KeyboardInterrupt:
+            print("[!] Shutting down V Notice servers...")
+            sys.exit(0)
+
