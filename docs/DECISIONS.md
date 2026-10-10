@@ -121,3 +121,13 @@
 - **Status:** Accepted (Phase 5)
 - **Context:** Harsh, instantaneous cuts between notices created a flickering feel, and ticker marquee animations caused frame drops on low-power Raspberry Pi 3B+ GPU/CPU chips.
 - **Decision:** Apply CSS `will-change: opacity, transform` and a gentle cubic-bezier curve (`cubic-bezier(0.16, 1, 0.3, 1)`) for 280ms card entrances. Avoid re-animating when only 1 notice exists. Add `will-change: transform` to `.ticker-track` for smooth sub-pixel GPU scrolling and pause ticker on hover. Preserve poster aspect ratios using `object-fit: contain` with an Apple TV-style blurred frosted ambient backdrop.
+
+
+## Decision 19: Administrative Audit Transparency & Client Upload Validation
+- **Date:** 2026-10-11
+- **Status:** Accepted (Phase 6)
+- **Context:** Faculty administrators need transparency into security actions (logins, creates, edits, deletes) without querying raw SQLite databases. Additionally, users uploading invalid or oversized files experienced slow server-side rejection rather than fast client-side feedback.
+- **Decision:**
+  1. Provide a responsive in-portal Audit Logs Viewer modal (`#audit-modal`) directly accessible via header button (`#btn-view-audit`), querying `/api/audit-logs` and rendering styled action badges.
+  2. Implement client-side dropzone validation checking file size (`<= 200MB`) and format (`jpg, png, webp, gif, mp4, webm`) before initiating chunked or multipart uploads.
+  3. When encountering rate-limit HTTP 429 responses on login, extract `Retry-After` and render a live countdown timer disabling inputs until lockout expiration.

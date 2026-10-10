@@ -85,6 +85,11 @@
             <h1 class="page-title">Notices</h1>
             <p class="page-subtitle">Publish and schedule what appears on the board.</p>
           </div>
+                    <button id="btn-view-audit" class="btn-icon" aria-label="Security Audit Logs" title="Security Audit Logs">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
+            </svg>
+          </button>
           <button id="btn-refresh" class="btn-icon btn-refresh" aria-label="Refresh notices" title="Refresh notices">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <path d="M23 4v6h-6"></path>
@@ -354,6 +359,39 @@
       <div class="modal-footer">
         <button type="button" id="btn-cancel-delete" class="btn btn-text">Cancel</button>
         <button type="button" id="btn-confirm-delete" class="btn btn-danger">Delete</button>
+      </div>
+    </div>
+  </div>
+
+
+  <!-- Security Audit Logs Modal -->
+  <div class="modal-backdrop hidden" id="audit-modal" role="dialog" aria-modal="true" aria-labelledby="audit-heading">
+    <div class="modal-dialog modal-dialog-wide">
+      <div class="modal-header">
+        <div>
+          <h2 class="modal-heading" id="audit-heading">Audit & Security Activity</h2>
+          <p class="modal-subhead">Recent administrative events, logins, and notice operations.</p>
+        </div>
+        <button type="button" class="btn-icon" id="btn-close-audit" aria-label="Close audit logs">&times;</button>
+      </div>
+      <div class="audit-modal-body">
+        <div id="audit-loading" class="audit-loading hidden">Loading activity records...</div>
+        <div id="audit-table-wrapper" class="audit-table-wrapper">
+          <table class="audit-table">
+            <thead>
+              <tr>
+                <th>Timestamp</th>
+                <th>Action</th>
+                <th>Actor</th>
+                <th>Target ID</th>
+                <th>IP Address</th>
+              </tr>
+            </thead>
+            <tbody id="audit-tbody">
+              <!-- Dynamically populated -->
+            </tbody>
+          </table>
+        </div>
       </div>
     </div>
   </div>

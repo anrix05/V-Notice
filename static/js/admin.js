@@ -160,16 +160,49 @@
         body: JSON.stringify({ password: pass })
       });
 
-      if (!res.ok) throw new Error('Incorrect password');
+      if (res.status === 429) {
+        const data = await res.json().catch(() => ({}));
+        let retrySeconds = parseInt(res.headers.get('Retry-After') || data.retry_after || 600, 10);
+        loginError.classList.remove('hidden');
+        passwordInput.disabled = true;
+        const btnLogin = document.getElementById('btn-login');
+        if (btnLogin) btnLogin.disabled = true;
 
+        clearInterval(window._loginCountdown);
+        const updateCountdown = () => {
+          if (retrySeconds <= 0) {
+            clearInterval(window._loginCountdown);
+            loginError.textContent = 'Lockout period ended. You may now try again.';
+            passwordInput.disabled = false;
+            if (btnLogin) btnLogin.disabled = false;
+            passwordInput.focus();
+            return;
+          }
+          loginError.textContent = `Too many failed attempts. Try again in ${retrySeconds}s.`;
+          retrySeconds--;
+        };
+        updateCountdown();
+        window._loginCountdown = setInterval(updateCountdown, 1000);
+        return;
+      }
+
+      if (!res.ok) {
+        loginError.textContent = 'Incorrect password. Please try again.';
+        loginError.classList.remove('hidden');
+        passwordInput.select();
+        return;
+      }
+
+      clearInterval(window._loginCountdown);
       setAdminPassword(pass);
       hideLoginModal();
       if (feedScreenFilter) {
-      feedScreenFilter.addEventListener('change', () => fetchNotices(true));
-    }
-    loadScreens();
-    fetchNotices();
+        feedScreenFilter.addEventListener('change', () => fetchNotices(true));
+      }
+      loadScreens();
+      fetchNotices(true);
     } catch (err) {
+      loginError.textContent = err.message || 'Connection error. Please retry.';
       loginError.classList.remove('hidden');
       passwordInput.select();
     }
@@ -814,12 +847,35 @@
 
   mediaFileInput.addEventListener('change', handleFileSelected);
 
+  const MAX_FILE_SIZE_MB = 200;
+  const ALLOWED_EXTS = ['jpg', 'jpeg', 'png', 'webp', 'gif', 'mp4', 'webm'];
+
   function handleFileSelected() {
     if (mediaFileInput.files && mediaFileInput.files[0]) {
       const file = mediaFileInput.files[0];
+      const ext = file.name.split('.').pop().toLowerCase();
+
+      // Allowed extension check
+      if (!ALLOWED_EXTS.includes(ext)) {
+        errMedia.textContent = `Unsupported file type (.${ext}). Allowed: jpg, png, webp, gif, mp4, webm.`;
+        errMedia.classList.remove('hidden');
+        resetFileDrop();
+        return;
+      }
+
+      // Max file size check
+      const sizeMb = file.size / (1024 * 1024);
+      if (sizeMb > MAX_FILE_SIZE_MB) {
+        errMedia.textContent = `File size (${sizeMb.toFixed(1)} MB) exceeds limit of ${MAX_FILE_SIZE_MB} MB.`;
+        errMedia.classList.remove('hidden');
+        resetFileDrop();
+        return;
+      }
+
+      errMedia.textContent = '';
+      errMedia.classList.add('hidden');
       fileName.textContent = file.name;
-      const sizeMb = (file.size / (1024 * 1024)).toFixed(1);
-      fileSize.textContent = `${sizeMb} MB`;
+      fileSize.textContent = `${sizeMb.toFixed(1)} MB`;
       dropPrompt.classList.add('hidden');
       dropSelected.classList.remove('hidden');
 
@@ -1106,5 +1162,74 @@
       fetchNotices(false).catch(() => {});
     }
   });
+
+
+  // ==========================================================================
+  // Audit Logs Modal Controller (Phase 6)
+  // ==========================================================================
+  const btnViewAudit = document.getElementById('btn-view-audit');
+  const auditModal = document.getElementById('audit-modal');
+  const btnCloseAudit = document.getElementById('btn-close-audit');
+  const auditLoading = document.getElementById('audit-loading');
+  const auditTbody = document.getElementById('audit-tbody');
+
+  function openAuditModal() {
+    if (auditModal) {
+      auditModal.classList.remove('hidden');
+      loadAuditLogs();
+    }
+  }
+
+  function closeAuditModal() {
+    if (auditModal) auditModal.classList.add('hidden');
+  }
+
+  async function loadAuditLogs() {
+    if (!auditTbody) return;
+    if (auditLoading) auditLoading.classList.remove('hidden');
+    auditTbody.innerHTML = '';
+
+    try {
+      const res = await fetch('/api/audit-logs?limit=50', {
+        headers: {
+          'X-Password': getAdminPassword(),
+          'Cache-Control': 'no-cache'
+        }
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      const logs = Array.isArray(data) ? data : (data.logs || []);
+
+      if (auditLoading) auditLoading.classList.add('hidden');
+
+      if (logs.length === 0) {
+        auditTbody.innerHTML = '<tr><td colspan="5" class="audit-empty-row">No security or administrative activity recorded yet.</td></tr>';
+        return;
+      }
+
+      auditTbody.innerHTML = logs.map(log => {
+        const timeStr = log.created_at ? new Date(log.created_at).toLocaleString() : 'N/A';
+        const actionCls = `audit-action-${(log.action || '').toLowerCase()}`;
+        return `<tr>
+          <td style="white-space: nowrap; color: var(--muted);">${escapeHtml(timeStr)}</td>
+          <td><span class="audit-action-badge ${actionCls}">${escapeHtml(log.action || '')}</span></td>
+          <td><strong>${escapeHtml(log.actor || 'admin')}</strong></td>
+          <td style="font-family: monospace; font-size: 12px;">${escapeHtml(log.target_id || '-')}</td>
+          <td style="color: var(--muted); font-family: monospace;">${escapeHtml(log.ip_address || '-')}</td>
+        </tr>`;
+      }).join('');
+    } catch (err) {
+      if (auditLoading) auditLoading.classList.add('hidden');
+      auditTbody.innerHTML = `<tr><td colspan="5" class="audit-empty-row" style="color: var(--red);">Error loading audit logs: ${escapeHtml(err.message)}</td></tr>`;
+    }
+  }
+
+  if (btnViewAudit) btnViewAudit.addEventListener('click', openAuditModal);
+  if (btnCloseAudit) btnCloseAudit.addEventListener('click', closeAuditModal);
+  if (auditModal) {
+    auditModal.addEventListener('click', (e) => {
+      if (e.target === auditModal) closeAuditModal();
+    });
+  }
 
 })();

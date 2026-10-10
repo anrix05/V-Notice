@@ -150,3 +150,28 @@ pytest -v
   1. Test at 1920x1080 (1080p): Headline scales to 64px, readable from 10 meters away.
   2. Test at 1366x768 (720p / 900p): Headline scales to 54px with balanced spacing.
   3. Test at 800x480 (7-inch touch LCD): Headline scales to 40px without overflowing frame bounds.
+
+
+- **Phase 6 (Admin UX & Audit Logging):** `tests/test_admin_ux_phase6.py`
+  - Tests admin dashboard HTML elements (modal, presets, dropzone, audit UI, delete modal).
+  - Tests audit logs API security (blocks unauthenticated access, returns structured audit entries).
+  - Tests modal styling rules and badge colors.
+  - Tests client-side file limits (`MAX_FILE_SIZE_MB`, `ALLOWED_EXTS`) and rate limit countdown.
+
+---
+
+### Phase 6: Admin UX
+- [ ] **1-Click Expiration Presets:**
+  1. Open Admin Portal (`http://localhost:5001/` or `/admin`).
+  2. Click **"+ New notice"**.
+  3. Click **"End of Today"**, **"3 Days"**, **"1 Week"**, **"1 Month"**; verify start and end date/time fields update immediately.
+- [ ] **File Dropzone & Live Aspect Ratio Preview:**
+  1. Drag a photo or video into the file drop area.
+  2. Verify file name and size appear immediately with live image/video preview and calculated aspect ratio pill.
+  3. Attempt dragging a `.txt` or `.exe` file; verify inline error message appears and file is rejected.
+- [ ] **Security Audit Logs Viewer:**
+  1. Click the shield/audit icon in the top navigation bar.
+  2. Verify the Audit Activity modal opens and lists recent login attempts, creations, edits, and deletions with timestamps, action badges, and IP addresses.
+- [ ] **Login Rate Limit Countdown:**
+  1. Intentionally enter wrong passwords 5 times consecutively.
+  2. Verify HTTP 429 is received and the login modal displays a real-time countdown disabling the submit button until the lockout duration expires.
