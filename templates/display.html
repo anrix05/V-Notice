@@ -27,6 +27,11 @@
           </svg>
         </div>
         <span class="logo-text"><span class="brand-v">V</span> <span class="brand-name">Notice</span></span>
+        <div class="dept-header-pill" id="dept-header-pill" style="{% if department and department.accent_color %}--dept-accent: {{ department.accent_color }};{% endif %}">
+          <span class="dept-code" id="dept-pill-code">{{ department.code if department else (screen_code or 'ALL') }}</span>
+          <span class="dept-sep" aria-hidden="true">|</span>
+          <span class="dept-name" id="dept-pill-name">{{ department.name if department else 'All Departments (college-wide)' }}</span>
+        </div>
         <div class="offline-badge hidden" id="offline-badge">
           <span class="offline-dot"></span>
           <span class="offline-text">Reconnecting…</span>
@@ -61,6 +66,7 @@
         <div class="stage-meta">
           <div class="meta-left">
             <span class="stage-priority hidden" id="stage-priority"></span>
+            <span class="stage-audience hidden" id="stage-audience">College-wide</span>
             <span class="stage-type" id="stage-type">Text</span>
           </div>
           <div class="meta-right">

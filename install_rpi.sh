@@ -2,6 +2,7 @@
 # ==============================================================================
 # V NOTICE — Automated 1-Click Raspberry Pi Kiosk Installer
 # Compatible with Raspberry Pi OS (Bullseye & Bookworm 32-bit / 64-bit)
+# Supports department-wise digital displays (e.g., EXCS, CMPN, INFT, BIOM, ALL)
 # ==============================================================================
 
 set -e
@@ -19,8 +20,12 @@ echo ""
 APP_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CURRENT_USER="$(whoami)"
 
+# Configurable Department Screen Code (default: EXCS, can be overridden via DEPARTMENT_CODE=CMPN ./install_rpi.sh)
+DEPARTMENT_CODE="${DEPARTMENT_CODE:-EXCS}"
+
 echo -e "📂 Install Directory: ${GREEN}${APP_DIR}${NC}"
-echo -e "👤 Running as User:  ${GREEN}${CURRENT_USER}${NC}"
+echo -e "👤 Running as User:   ${GREEN}${CURRENT_USER}${NC}"
+echo -e "🏷️  Department Screen: ${GREEN}${DEPARTMENT_CODE}${NC}"
 echo ""
 
 # 1. Update and install system dependencies
@@ -43,6 +48,7 @@ if [ ! -f "${APP_DIR}/.env" ]; then
 DISPLAY_PORT=5000
 ADMIN_PORT=5001
 ADMIN_PASSWORD=vnotice2026
+DEPARTMENT_CODE=${DEPARTMENT_CODE}
 EOF
 else
     echo -e "${BLUE}[3/5] Existing .env file found. Preserving configuration.${NC}"
@@ -65,6 +71,7 @@ ExecStart=${APP_DIR}/venv/bin/python ${APP_DIR}/app.py
 Restart=always
 RestartSec=5
 Environment=PYTHONUNBUFFERED=1
+Environment=DEPARTMENT_CODE=${DEPARTMENT_CODE}
 
 [Install]
 WantedBy=multi-user.target
@@ -74,7 +81,7 @@ sudo systemctl daemon-reload
 sudo systemctl enable vnotice.service
 sudo systemctl restart vnotice.service
 
-echo -e "${GREEN}✓ V Notice service installed and started successfully!${NC}"
+echo -e "${GREEN}✔ V Notice service installed and started successfully!${NC}"
 
 # 5. Configure Fullscreen Kiosk Mode on Boot
 echo -e "${BLUE}[5/5] Configuring Fullscreen Chromium Kiosk on display boot...${NC}"
@@ -88,21 +95,33 @@ mkdir -p "${AUTOSTART_DIR}"
 cat <<EOF > "${AUTOSTART_DIR}/vnotice-kiosk.desktop"
 [Desktop Entry]
 Type=Application
-Name=V Notice Kiosk
-Exec=${APP_DIR}/systemd/kiosk.sh
+Name=V Notice Kiosk (${DEPARTMENT_CODE})
+Exec=env DEPARTMENT_CODE=${DEPARTMENT_CODE} ${APP_DIR}/systemd/kiosk.sh
 X-GNOME-Autostart-enabled=true
 EOF
 
 echo ""
 echo -e "${GREEN}==========================================================${NC}"
-echo -e "${GREEN}           🎉 V NOTICE INSTALLATION COMPLETE!             ${NC}"
+echo -e "${GREEN}           ✔ V NOTICE INSTALLATION COMPLETE!             ${NC}"
 echo -e "${GREEN}==========================================================${NC}"
-echo -e "🖥️  Display Screen:  ${BLUE}http://localhost:5000${NC}"
-echo -e "⚙️  Admin Portal:    ${BLUE}http://$(hostname -I | awk '{print $1}'):5001${NC}"
-echo -e "🔑 Default Password: ${GREEN}vnotice2026${NC}"
+echo -e "📺 Dedicated Screen:  ${BLUE}https://v-notice.onrender.com/display/${DEPARTMENT_CODE}${NC}"
+echo -e "   (Local Screen):    ${BLUE}http://localhost:5000/display/${DEPARTMENT_CODE}${NC}"
+echo -e "🔐 Admin Portal:      ${BLUE}http://$(hostname -I 2>/dev/null | awk '{print $1}'):5001${NC}"
+echo -e "🔑 Default Password:  ${GREEN}vnotice2026${NC}"
+echo ""
+echo -e "Note: Each department screen uses its own dedicated URL:"
+echo -e "  - Computer Engineering:        https://v-notice.onrender.com/display/CMPN"
+echo -e "  - Information Technology:      https://v-notice.onrender.com/display/INFT"
+echo -e "  - Electronics & Telecom:       https://v-notice.onrender.com/display/EXTC"
+echo -e "  - Electronics & Computer Sci:  https://v-notice.onrender.com/display/EXCS"
+echo -e "  - Biomedical Engineering:      https://v-notice.onrender.com/display/BIOM"
+echo -e "  - College-Wide (All Boards):   https://v-notice.onrender.com/display/ALL"
+echo ""
+echo -e "To change the department screen code, run installer with:"
+echo -e "  ${BLUE}DEPARTMENT_CODE=CMPN ./install_rpi.sh${NC}"
 echo ""
 echo -e "To launch fullscreen kiosk now, run:"
-echo -e "  ${BLUE}${APP_DIR}/systemd/kiosk.sh${NC}"
+echo -e "  ${BLUE}DEPARTMENT_CODE=${DEPARTMENT_CODE} ${APP_DIR}/systemd/kiosk.sh${NC}"
 echo ""
-echo -e "On reboot, the Raspberry Pi will automatically display V Notice full screen!"
+echo -e "On reboot, the Raspberry Pi will automatically display V Notice ${DEPARTMENT_CODE} full screen!"
 echo ""

@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # V Notice Chromium Kiosk Launcher for Raspberry Pi OS
 # Optimized for 18-inch & 22-inch standard monitors (1080p / 900p / 720p) & 7-inch displays
+# Each department screen uses its own dedicated URL (e.g., /display/EXCS, /display/CMPN, /display/INFT)
 
 # Disable screen blanking & power saving
 xset s noblank
@@ -10,10 +11,9 @@ xset -dpms
 # Hide mouse cursor when idle
 unclutter -idle 0.5 -root &
 
-# Wait for Flask display server to become active
-while ! curl -s http://localhost:5000/api/health > /dev/null; do
-    sleep 1
-done
+# Configurable Department Screen (Default: EXCS)
+DEPARTMENT_CODE="${DEPARTMENT_CODE:-EXCS}"
+KIOSK_URL="${KIOSK_URL:-https://v-notice.onrender.com/display/${DEPARTMENT_CODE}}"
 
 # Persistent user data directory so Service Worker and local caches survive reboot
 KIOSK_USER_DATA="${HOME}/.config/vnotice-kiosk"
@@ -29,7 +29,7 @@ sed -i 's/"exit_type":"Crashed"/"exit_type":"Normal"/' ~/.config/chromium/Defaul
 CHROMIUM_BIN=$(command -v chromium-browser || command -v chromium)
 
 # Launch Chromium in true fullscreen kiosk mode (persists service worker and cache across reboots)
-"$CHROMIUM_BIN" --kiosk http://localhost:5000 \
+"$CHROMIUM_BIN" --kiosk "${KIOSK_URL}" \
   --user-data-dir="${KIOSK_USER_DATA}" \
   --autoplay-policy=no-user-gesture-required \
   --noerrdialogs \

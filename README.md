@@ -24,7 +24,7 @@ V Notice runs a unified Flask backend serving two distinct interfaces on dedicat
 
 | Site | Port | Access | Description |
 | :--- | :---: | :--- | :--- |
-| **V Notice Display** | `5000` | Read-only (Public) | Wall-mounted kiosk display rotating active notices |
+| **V Notice Display** | `5000` | Read-only (Public) | Dedicated department kiosk display (`/display/<CODE>`) or college-wide (`/display`) |
 | **V Notice Admin** | `5001` | Password-protected | Mobile-first portal to publish, schedule, and manage notices |
 
 ```
@@ -74,6 +74,14 @@ For portrait posters and widescreen videos, instead of empty black dead bars on 
 - Edit existing notices directly (`PUT /api/notices/<id>`) without needing to delete and recreate.
 
 ---
+
+
+### 🔐 6. Role-Based Permissions & Department Boundaries (Phase 6)
+- **Roles**:
+  - `super_admin`: Full access to college-wide (`ALL`) broadcasting, all department screens, screen CRUD, and user management. Authenticates via shared `ADMIN_PASSWORD` or user credentials.
+  - `dept_admin`: Restricted access. Can only create, edit, and delete notices whose targets are strictly within their assigned departments. Cannot target `ALL` unless specifically granted.
+- **Per-User Authentication**: Hashed password storage with constant-time password validation and brute-force rate limiting.
+- **Audit Logging**: Notices record the actual `created_by` and updater identity from the session.
 
 ## 4. Notice Data Model
 

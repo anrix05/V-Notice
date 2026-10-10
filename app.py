@@ -1,3 +1,4 @@
+import re
 import config
 import hashlib
 import queue
@@ -24,6 +25,7 @@ from config import (
     SECRET_KEY,
     MAX_CONTENT_LENGTH,
 )
+SCREEN_CODE_REGEX = re.compile(r"^[A-Z0-9_-]{2,10}$")
 from security import (
     verify_admin_password,
     login_rate_limiter,
@@ -89,20 +91,51 @@ def make_etag_response(data):
 _sse_subscribers = []
 _sse_lock = threading.Lock()
 
-def notify_notice_change():
-    """Broadcast notice change to all active SSE listeners."""
-    with _sse_lock:
-        for q in list(_sse_subscribers):
-            try:
-                q.put_nowait("update")
-            except Exception:
-                pass
+_screen_heartbeats = {}
+_screen_heartbeats_lock = threading.Lock()
 
-def sse_event_stream():
-    """Generator for Server-Sent Events with keep-alive pings."""
-    q = queue.Queue(maxsize=10)
+def record_heartbeat(screen_code: str):
+    if not screen_code:
+        return
+    code = str(screen_code).strip().upper()
+    with _screen_heartbeats_lock:
+        _screen_heartbeats[code] = int(time.time() * 1000)
+
+def get_screen_last_seen(screen_code: str):
+    if not screen_code:
+        return None
+    code = str(screen_code).strip().upper()
+    with _screen_heartbeats_lock:
+        return _screen_heartbeats.get(code)
+
+def notify_notice_change(affected_screens=None):
+    """Broadcast notice change to affected SSE listeners. ALL changes notify everyone."""
     with _sse_lock:
-        _sse_subscribers.append(q)
+        if affected_screens:
+            aff_set = {str(s).strip().upper() for s in affected_screens if str(s).strip()}
+        else:
+            aff_set = None
+
+        is_college_wide = (aff_set is None) or ("ALL" in aff_set)
+        for item in list(_sse_subscribers):
+            q, sub_screen = item
+            if sub_screen is None or is_college_wide or (aff_set and sub_screen in aff_set):
+                try:
+                    payload = json.dumps({
+                        "action": "update",
+                        "screens": list(aff_set) if aff_set else ["ALL"]
+                    })
+                    q.put_nowait(payload)
+                except Exception:
+                    pass
+
+def sse_event_stream(screen_code=None):
+    """Generator for Server-Sent Events with keep-alive pings and screen scoping."""
+    sub_screen = str(screen_code).strip().upper() if screen_code else None
+    q = queue.Queue(maxsize=10)
+    item = (q, sub_screen)
+    with _sse_lock:
+        _sse_subscribers.append(item)
     try:
         yield "event: connected\ndata: ok\n\n"
         while True:
@@ -115,8 +148,8 @@ def sse_event_stream():
         pass
     finally:
         with _sse_lock:
-            if q in _sse_subscribers:
-                _sse_subscribers.remove(q)
+            if item in _sse_subscribers:
+                _sse_subscribers.remove(item)
 
 def get_system_weather():
     import config
@@ -260,6 +293,56 @@ def read_admin_required(f):
 
         return jsonify({"error": "Unauthorized. Authentication required."}), 401
     return decorated_function
+
+
+def get_current_user():
+    # 1. Check API Key header
+    auth_header = request.headers.get("X-Password")
+    if auth_header and verify_admin_password(auth_header):
+        return {
+            "username": "admin",
+            "role": "super_admin",
+            "departments": ["ALL"],
+            "can_target_all": True
+        }
+
+    # 2. Check session
+    if session.get("is_admin") is True:
+        role = session.get("role", "super_admin")
+        username = session.get("username", "admin")
+        departments = session.get("departments", ["ALL"] if role == "super_admin" else [])
+        can_target_all = bool(session.get("can_target_all", role == "super_admin"))
+        return {
+            "username": username,
+            "role": role,
+            "departments": departments,
+            "can_target_all": can_target_all
+        }
+    return None
+
+def check_notice_permissions(user, target_screens):
+    """Phase 6: Enforces permission boundaries between super_admin and dept_admin."""
+    if not user:
+        return False, "Authentication required."
+    if user.get("role") == "super_admin":
+        return True, None
+
+    # dept_admin role
+    screens = [str(s).strip().upper() for s in target_screens if str(s).strip()]
+    if not screens:
+        screens = ["ALL"]
+
+    if "ALL" in screens and not user.get("can_target_all", False):
+        return False, "Permission denied: dept_admin cannot target All Departments (college-wide)"
+
+    user_depts = [str(d).strip().upper() for d in user.get("departments", [])]
+    for sc in screens:
+        if sc == "ALL":
+            continue
+        if sc not in user_depts:
+            return False, f"Permission denied: dept_admin cannot target department '{sc}'"
+
+    return True, None
 
 def mutation_admin_required(f):
     @wraps(f)
@@ -446,8 +529,38 @@ def create_display_app():
         storage.close_connection()
 
     @app.route("/")
+    @app.route("/display")
     def index():
-        return render_template("display.html")
+        screen = request.args.get("screen") or request.args.get("screen_id")
+        if screen:
+            target = screen.strip().upper()
+            if target == "DEFAULT":
+                target = "ALL"
+            return redirect(f"/display/{target}", code=301)
+        dept = storage.get_department("ALL")
+        return render_template("display.html", screen_code="ALL", department=dept)
+
+    @app.route("/display/<code>")
+    def display_screen(code):
+        if not code:
+            return redirect("/display", code=301)
+        upper_code = code.strip().upper()
+        if code != upper_code:
+            qs = request.query_string.decode("utf-8")
+            url = f"/display/{upper_code}" + (f"?{qs}" if qs else "")
+            return redirect(url, code=301)
+        dept = storage.get_department(upper_code)
+        if not dept or not dept.get("active"):
+            active_depts = storage.get_departments(active_only=True)
+            return render_template("screen_not_found.html", code=upper_code, departments=active_depts), 404
+        return render_template("display.html", screen_code=upper_code, department=dept)
+
+    @app.route("/api/heartbeat", methods=["POST"])
+    def display_heartbeat():
+        data = request.get_json(silent=True) or request.form.to_dict() or {}
+        code = data.get("screen") or data.get("screen_id") or data.get("code") or "ALL"
+        record_heartbeat(code)
+        return jsonify({"success": True, "code": str(code).strip().upper(), "timestamp": int(time.time() * 1000)})
 
     @app.route("/favicon.ico")
     def favicon():
@@ -470,8 +583,9 @@ def create_display_app():
         import config
         if not getattr(config, "SSE_ENABLED", False):
             return jsonify({"error": "SSE is disabled; use conditional polling with ETag"}), 404
+        screen = request.args.get("screen") or request.args.get("screen_id")
         return Response(
-            sse_event_stream(),
+            sse_event_stream(screen),
             mimetype="text/event-stream",
             headers={
                 "Cache-Control": "no-cache",
@@ -482,7 +596,11 @@ def create_display_app():
 
     @app.route("/api/screens", methods=["GET"])
     def get_screens():
-        return jsonify({"success": True, "screens": storage.get_screens()})
+        depts = storage.get_departments(active_only=True)
+        screens = [{"code": d["code"], "name": d["name"], "id": d["code"], "accent_color": d.get("accent_color")} for d in depts]
+        return jsonify({"success": True, "screens": screens})
+
+    
 
     @app.route("/api/system-info", methods=["GET"])
     def system_info():
@@ -573,9 +691,18 @@ def create_admin_app():
         return send_from_directory("static", "favicon.ico")
 
     @app.route("/display")
-    def to_display():
+    @app.route("/display/<code>")
+    def to_display(code=None):
         host = request.host.split(":")[0]
-        return redirect(f"http://{host}:{DISPLAY_PORT}/")
+        sub = f"/{code}" if code else ""
+        return redirect(f"http://{host}:{DISPLAY_PORT}/display{sub}")
+
+    @app.route("/api/heartbeat", methods=["POST"])
+    def admin_heartbeat():
+        data = request.get_json(silent=True) or request.form.to_dict() or {}
+        code = data.get("screen") or data.get("screen_id") or data.get("code") or "ALL"
+        record_heartbeat(code)
+        return jsonify({"success": True, "code": str(code).strip().upper(), "timestamp": int(time.time() * 1000)})
 
     @app.route("/api/csrf-token", methods=["GET"])
     def get_csrf():
@@ -600,16 +727,60 @@ def create_admin_app():
             return res
 
         data = request.get_json(silent=True) or request.form
-        password = data.get("password", "")
-        if verify_admin_password(password):
-            login_rate_limiter.record_success(ip)
-            session["is_admin"] = True
-            token = generate_csrf_token()
-            session["csrf_token"] = token
-            return jsonify({"success": True, "message": "Authentication successful", "csrf_token": token})
+        username = str(data.get("username", "")).strip()
+        password = str(data.get("password", "")).strip()
+
+        # Shared password / super_admin login
+        if not username or username.lower() == "admin":
+            if verify_admin_password(password):
+                login_rate_limiter.record_success(ip)
+                session["is_admin"] = True
+                session["username"] = "admin"
+                session["role"] = "super_admin"
+                session["departments"] = ["ALL"]
+                session["can_target_all"] = True
+                token = generate_csrf_token()
+                session["csrf_token"] = token
+                return jsonify({
+                    "success": True,
+                    "message": "Authentication successful",
+                    "csrf_token": token,
+                    "user": {
+                        "username": "admin",
+                        "role": "super_admin",
+                        "departments": ["ALL"],
+                        "can_target_all": True
+                    }
+                })
+            else:
+                login_rate_limiter.record_failure(ip)
+                return jsonify({"success": False, "error": "Invalid password"}), 401
         else:
-            login_rate_limiter.record_failure(ip)
-            return jsonify({"success": False, "error": "Invalid password"}), 401
+            # Per-user dept_admin login with hashed passwords
+            user = storage.verify_user_credentials(username, password)
+            if user:
+                login_rate_limiter.record_success(ip)
+                session["is_admin"] = True
+                session["username"] = user["username"]
+                session["role"] = user["role"]
+                session["departments"] = user["departments"]
+                session["can_target_all"] = user["can_target_all"]
+                token = generate_csrf_token()
+                session["csrf_token"] = token
+                return jsonify({
+                    "success": True,
+                    "message": "Authentication successful",
+                    "csrf_token": token,
+                    "user": {
+                        "username": user["username"],
+                        "role": user["role"],
+                        "departments": user["departments"],
+                        "can_target_all": user["can_target_all"]
+                    }
+                })
+            else:
+                login_rate_limiter.record_failure(ip)
+                return jsonify({"success": False, "error": "Invalid username or password"}), 401
 
     @app.route("/api/logout", methods=["POST"])
     def logout():
@@ -620,7 +791,79 @@ def create_admin_app():
     @app.route("/api/screens", methods=["GET"])
     @read_admin_required
     def get_screens():
-        return jsonify({"success": True, "screens": storage.get_screens()})
+        depts = storage.get_departments(active_only=False)
+        now_ms = int(time.time() * 1000)
+        for d in depts:
+            ls = get_screen_last_seen(d["code"])
+            d["last_seen"] = ls
+            d["online"] = (ls is not None) and ((now_ms - ls) < 60000)
+        return jsonify({"success": True, "screens": depts})
+
+    @app.route("/api/screens", methods=["POST"])
+    @mutation_admin_required
+    def create_screen():
+        user = get_current_user()
+        if not user or user.get("role") != "super_admin":
+            return jsonify({"error": "Permission denied: Only super_admin can create screens"}), 403
+        data = request.get_json(silent=True) or request.form.to_dict() or {}
+        code = data.get("code")
+        name = data.get("name")
+        sort_order = data.get("sort_order", 0)
+        active = data.get("active", True)
+        if isinstance(active, str):
+            active = active.lower() in ("true", "1", "yes")
+        accent_color = data.get("accent_color")
+
+        if not code or not isinstance(code, str):
+            return jsonify({"error": "Screen code is required"}), 400
+        code = code.strip()
+        if not SCREEN_CODE_REGEX.match(code):
+            return jsonify({"error": "Screen code must be 2-10 uppercase alphanumeric characters, underscores, or hyphens (lowercase, spaces, and symbols are rejected)"}), 400
+
+        if not name or not str(name).strip():
+            return jsonify({"error": "Screen name is required"}), 400
+
+        try:
+            created = storage.add_department(code=code, name=name, sort_order=sort_order, active=active, accent_color=accent_color)
+            return jsonify({"success": True, "screen": created}), 201
+        except ValueError as ve:
+            return jsonify({"error": str(ve)}), 400
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
+
+    @app.route("/api/screens/<code>", methods=["PUT", "POST"])
+    @mutation_admin_required
+    def update_screen(code):
+        data = request.get_json(silent=True) or request.form.to_dict() or {}
+        code = str(code).strip().upper()
+        dept = storage.get_department(code)
+        if not dept:
+            return jsonify({"error": f"Screen '{code}' not found"}), 404
+
+        try:
+            updated = storage.update_department(code, data)
+            return jsonify({"success": True, "screen": updated}), 200
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
+
+    @app.route("/api/screens/<code>", methods=["DELETE"])
+    @mutation_admin_required
+    def delete_screen(code):
+        code = str(code).strip().upper()
+        if code == "ALL":
+            return jsonify({"error": "The college-wide 'ALL' screen cannot be deleted"}), 400
+
+        dept = storage.get_department(code)
+        if not dept:
+            return jsonify({"error": f"Screen '{code}' not found"}), 404
+
+        try:
+            res = storage.delete_department(code)
+            return jsonify(res), 200
+        except ValueError as ve:
+            return jsonify({"error": str(ve)}), 400
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
 
     @app.route("/api/notices", methods=["GET"])
     @read_admin_required
@@ -651,13 +894,34 @@ def create_admin_app():
         if not form_data and request.is_json:
             form_data = request.get_json()
 
+        screens = request.form.getlist("screens") or request.form.getlist("screens[]")
+        if not screens and form_data.get("screens"):
+            raw_s = form_data.get("screens")
+            if isinstance(raw_s, list):
+                screens = raw_s
+            elif isinstance(raw_s, str):
+                try:
+                    parsed_s = json.loads(raw_s)
+                    screens = parsed_s if isinstance(parsed_s, list) else [s.strip() for s in raw_s.split(",") if s.strip()]
+                except Exception:
+                    screens = [s.strip() for s in raw_s.split(",") if s.strip()]
+        if screens:
+            form_data["screens"] = screens
+
         title = form_data.get("title", "").strip()
         if not title:
             return jsonify({"error": "Notice title/headline is required"}), 400
 
+        user = get_current_user()
+        target_candidates = screens or [form_data.get("screen_id") or "ALL"]
+        ok, err = check_notice_permissions(user, target_candidates)
+        if not ok:
+            return jsonify({"error": err}), 403
+
         try:
-            creator = form_data.get("created_by") or "admin"
+            creator = (user.get("username") if user else None) or form_data.get("created_by") or "admin"
             notice = storage.add(form_data, file_obj=file_obj, created_by=creator)
+            notify_notice_change(affected_screens=notice.get("screens"))
             return jsonify(notice), 201
         except ValueError as ve:
             return jsonify({"error": str(ve)}), 400
@@ -672,15 +936,46 @@ def create_admin_app():
         if not form_data and request.is_json:
             form_data = request.get_json()
 
+        screens = request.form.getlist("screens") or request.form.getlist("screens[]")
+        if not screens and form_data.get("screens"):
+            raw_s = form_data.get("screens")
+            if isinstance(raw_s, list):
+                screens = raw_s
+            elif isinstance(raw_s, str):
+                try:
+                    parsed_s = json.loads(raw_s)
+                    screens = parsed_s if isinstance(parsed_s, list) else [s.strip() for s in raw_s.split(",") if s.strip()]
+                except Exception:
+                    screens = [s.strip() for s in raw_s.split(",") if s.strip()]
+        if screens:
+            form_data["screens"] = screens
+
         title = form_data.get("title", "").strip()
         if not title:
             return jsonify({"error": "Notice title/headline is required"}), 400
 
+        user = get_current_user()
+        existing = storage.get_by_id(notice_id)
+        if not existing:
+            return jsonify({"error": "Notice not found"}), 404
+
+        existing_screens = existing.get("screens") or [existing.get("screen_id", "ALL")]
+        ok, err = check_notice_permissions(user, existing_screens)
+        if not ok:
+            return jsonify({"error": err}), 403
+
+        if screens or form_data.get("screen_id"):
+            new_targets = screens or [form_data.get("screen_id") or "ALL"]
+            ok_new, err_new = check_notice_permissions(user, new_targets)
+            if not ok_new:
+                return jsonify({"error": err_new}), 403
+
         try:
-            updater = form_data.get("created_by") or "admin"
+            updater = (user.get("username") if user else None) or form_data.get("created_by") or "admin"
             updated = storage.update(notice_id, form_data, file_obj=file_obj, updated_by=updater)
             if not updated:
                 return jsonify({"error": "Notice not found"}), 404
+            notify_notice_change(affected_screens=updated.get("screens"))
             return jsonify(updated), 200
         except ValueError as ve:
             return jsonify({"error": str(ve)}), 400
@@ -690,8 +985,20 @@ def create_admin_app():
     @app.route("/api/notices/<notice_id>", methods=["DELETE"])
     @mutation_admin_required
     def delete_notice(notice_id):
-        success = storage.delete(notice_id, actor="admin")
-        notify_notice_change()
+        user = get_current_user()
+        target = storage.get_by_id(notice_id)
+        if not target:
+            return jsonify({"error": "Notice not found"}), 404
+
+        target_screens = target.get("screens") or [target.get("screen_id", "ALL")]
+        ok, err = check_notice_permissions(user, target_screens)
+        if not ok:
+            return jsonify({"error": err}), 403
+
+        affected = target.get("screens") if target else None
+        actor = (user.get("username") if user else None) or "admin"
+        success = storage.delete(notice_id, actor=actor)
+        notify_notice_change(affected_screens=affected)
         if success:
             return jsonify({"success": True, "id": notice_id})
         return jsonify({"error": "Notice not found"}), 404
@@ -711,6 +1018,66 @@ def create_admin_app():
         data, code = get_health_payload("vnotice-admin")
         return jsonify(data), code
 
+    
+    @app.route("/api/me", methods=["GET"])
+    def get_me():
+        user = get_current_user()
+        if not user:
+            return jsonify({"authenticated": False}), 200
+        return jsonify({
+            "authenticated": True,
+            "username": user["username"],
+            "role": user["role"],
+            "departments": user["departments"],
+            "can_target_all": user["can_target_all"]
+        })
+
+    @app.route("/api/users", methods=["GET"])
+    @read_admin_required
+    def get_users_list():
+        user = get_current_user()
+        if not user or user.get("role") != "super_admin":
+            return jsonify({"error": "Permission denied: Only super_admin can list users"}), 403
+        return jsonify({"success": True, "users": storage.list_users()})
+
+    @app.route("/api/users", methods=["POST"])
+    @mutation_admin_required
+    def create_dept_user():
+        user = get_current_user()
+        if not user or user.get("role") != "super_admin":
+            return jsonify({"error": "Permission denied: Only super_admin can create users"}), 403
+        data = request.get_json(silent=True) or request.form.to_dict() or {}
+        username = data.get("username", "").strip()
+        password = data.get("password", "").strip()
+        role = data.get("role", "dept_admin").strip()
+        departments = data.get("departments", [])
+        can_target_all = bool(data.get("can_target_all", False))
+        if not username or not password:
+            return jsonify({"error": "Username and password are required"}), 400
+        try:
+            created = storage.create_user(
+                username=username,
+                password=password,
+                role=role,
+                departments=departments,
+                can_target_all=can_target_all
+            )
+            return jsonify({"success": True, "user": created}), 201
+        except Exception as e:
+            return jsonify({"error": str(e)}), 400
+
+    @app.route("/api/users/<username>", methods=["DELETE"])
+    @mutation_admin_required
+    def delete_dept_user(username):
+        user = get_current_user()
+        if not user or user.get("role") != "super_admin":
+            return jsonify({"error": "Permission denied: Only super_admin can delete users"}), 403
+        if username.lower() == "admin":
+            return jsonify({"error": "Cannot delete primary admin"}), 400
+        deleted = storage.delete_user(username)
+        if deleted:
+            return jsonify({"success": True, "username": username})
+        return jsonify({"error": "User not found"}), 404
     return app
 
 # ==============================================================================
@@ -744,7 +1111,36 @@ def create_unified_app():
     # 2. Display Kiosk UI
     @app.route("/display")
     def display_home():
-        return render_template("display.html")
+        screen = request.args.get("screen") or request.args.get("screen_id")
+        if screen:
+            target = screen.strip().upper()
+            if target == "DEFAULT":
+                target = "ALL"
+            return redirect(f"/display/{target}", code=301)
+        dept = storage.get_department("ALL")
+        return render_template("display.html", screen_code="ALL", department=dept)
+
+    @app.route("/display/<code>")
+    def display_screen(code):
+        if not code:
+            return redirect("/display", code=301)
+        upper_code = code.strip().upper()
+        if code != upper_code:
+            qs = request.query_string.decode("utf-8")
+            url = f"/display/{upper_code}" + (f"?{qs}" if qs else "")
+            return redirect(url, code=301)
+        dept = storage.get_department(upper_code)
+        if not dept or not dept.get("active"):
+            active_depts = storage.get_departments(active_only=True)
+            return render_template("screen_not_found.html", code=upper_code, departments=active_depts), 404
+        return render_template("display.html", screen_code=upper_code, department=dept)
+
+    @app.route("/api/heartbeat", methods=["POST"])
+    def post_heartbeat():
+        data = request.get_json(silent=True) or request.form.to_dict() or {}
+        code = data.get("screen") or data.get("screen_id") or data.get("code") or "ALL"
+        record_heartbeat(code)
+        return jsonify({"success": True, "code": str(code).strip().upper(), "timestamp": int(time.time() * 1000)})
 
     @app.route("/favicon.ico")
     def favicon():
@@ -774,16 +1170,60 @@ def create_unified_app():
             return res
 
         data = request.get_json(silent=True) or request.form
-        password = data.get("password", "")
-        if verify_admin_password(password):
-            login_rate_limiter.record_success(ip)
-            session["is_admin"] = True
-            token = generate_csrf_token()
-            session["csrf_token"] = token
-            return jsonify({"success": True, "message": "Authentication successful", "csrf_token": token})
+        username = str(data.get("username", "")).strip()
+        password = str(data.get("password", "")).strip()
+
+        # Shared password / super_admin login
+        if not username or username.lower() == "admin":
+            if verify_admin_password(password):
+                login_rate_limiter.record_success(ip)
+                session["is_admin"] = True
+                session["username"] = "admin"
+                session["role"] = "super_admin"
+                session["departments"] = ["ALL"]
+                session["can_target_all"] = True
+                token = generate_csrf_token()
+                session["csrf_token"] = token
+                return jsonify({
+                    "success": True,
+                    "message": "Authentication successful",
+                    "csrf_token": token,
+                    "user": {
+                        "username": "admin",
+                        "role": "super_admin",
+                        "departments": ["ALL"],
+                        "can_target_all": True
+                    }
+                })
+            else:
+                login_rate_limiter.record_failure(ip)
+                return jsonify({"success": False, "error": "Invalid password"}), 401
         else:
-            login_rate_limiter.record_failure(ip)
-            return jsonify({"success": False, "error": "Invalid password"}), 401
+            # Per-user dept_admin login with hashed passwords
+            user = storage.verify_user_credentials(username, password)
+            if user:
+                login_rate_limiter.record_success(ip)
+                session["is_admin"] = True
+                session["username"] = user["username"]
+                session["role"] = user["role"]
+                session["departments"] = user["departments"]
+                session["can_target_all"] = user["can_target_all"]
+                token = generate_csrf_token()
+                session["csrf_token"] = token
+                return jsonify({
+                    "success": True,
+                    "message": "Authentication successful",
+                    "csrf_token": token,
+                    "user": {
+                        "username": user["username"],
+                        "role": user["role"],
+                        "departments": user["departments"],
+                        "can_target_all": user["can_target_all"]
+                    }
+                })
+            else:
+                login_rate_limiter.record_failure(ip)
+                return jsonify({"success": False, "error": "Invalid username or password"}), 401
 
     @app.route("/api/logout", methods=["POST"])
     def logout():
@@ -793,7 +1233,84 @@ def create_unified_app():
 
     @app.route("/api/screens", methods=["GET"])
     def get_screens():
-        return jsonify({"success": True, "screens": storage.get_screens()})
+        if check_admin_auth():
+            depts = storage.get_departments(active_only=False)
+            now_ms = int(time.time() * 1000)
+            for d in depts:
+                ls = get_screen_last_seen(d["code"])
+                d["last_seen"] = ls
+                d["online"] = (ls is not None) and ((now_ms - ls) < 60000)
+            return jsonify({"success": True, "screens": depts})
+        else:
+            depts = storage.get_departments(active_only=True)
+            screens = [{"code": d["code"], "name": d["name"], "id": d["code"], "accent_color": d.get("accent_color")} for d in depts]
+            return jsonify({"success": True, "screens": screens})
+
+    @app.route("/api/screens", methods=["POST"])
+    @mutation_admin_required
+    def create_screen():
+        user = get_current_user()
+        if not user or user.get("role") != "super_admin":
+            return jsonify({"error": "Permission denied: Only super_admin can create screens"}), 403
+        data = request.get_json(silent=True) or request.form.to_dict() or {}
+        code = data.get("code")
+        name = data.get("name")
+        sort_order = data.get("sort_order", 0)
+        active = data.get("active", True)
+        if isinstance(active, str):
+            active = active.lower() in ("true", "1", "yes")
+        accent_color = data.get("accent_color")
+
+        if not code or not isinstance(code, str):
+            return jsonify({"error": "Screen code is required"}), 400
+        code = code.strip()
+        if not SCREEN_CODE_REGEX.match(code):
+            return jsonify({"error": "Screen code must be 2-10 uppercase alphanumeric characters, underscores, or hyphens (lowercase, spaces, and symbols are rejected)"}), 400
+
+        if not name or not str(name).strip():
+            return jsonify({"error": "Screen name is required"}), 400
+
+        try:
+            created = storage.add_department(code=code, name=name, sort_order=sort_order, active=active, accent_color=accent_color)
+            return jsonify({"success": True, "screen": created}), 201
+        except ValueError as ve:
+            return jsonify({"error": str(ve)}), 400
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
+
+    @app.route("/api/screens/<code>", methods=["PUT", "POST"])
+    @mutation_admin_required
+    def update_screen(code):
+        data = request.get_json(silent=True) or request.form.to_dict() or {}
+        code = str(code).strip().upper()
+        dept = storage.get_department(code)
+        if not dept:
+            return jsonify({"error": f"Screen '{code}' not found"}), 404
+
+        try:
+            updated = storage.update_department(code, data)
+            return jsonify({"success": True, "screen": updated}), 200
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
+
+    @app.route("/api/screens/<code>", methods=["DELETE"])
+    @mutation_admin_required
+    def delete_screen(code):
+        code = str(code).strip().upper()
+        if code == "ALL":
+            return jsonify({"error": "The college-wide 'ALL' screen cannot be deleted"}), 400
+
+        dept = storage.get_department(code)
+        if not dept:
+            return jsonify({"error": f"Screen '{code}' not found"}), 404
+
+        try:
+            res = storage.delete_department(code)
+            return jsonify(res), 200
+        except ValueError as ve:
+            return jsonify({"error": str(ve)}), 400
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
 
     # Smart Dual Notices API: Admin gets all notices; Public gets active only
     @app.route("/api/notices", methods=["GET"])
@@ -810,8 +1327,9 @@ def create_unified_app():
         import config
         if not getattr(config, "SSE_ENABLED", False):
             return jsonify({"error": "SSE is disabled; use conditional polling with ETag"}), 404
+        screen = request.args.get("screen") or request.args.get("screen_id")
         return Response(
-            sse_event_stream(),
+            sse_event_stream(screen),
             mimetype="text/event-stream",
             headers={
                 "Cache-Control": "no-cache",
@@ -842,13 +1360,34 @@ def create_unified_app():
         if not form_data and request.is_json:
             form_data = request.get_json()
 
+        screens = request.form.getlist("screens") or request.form.getlist("screens[]")
+        if not screens and form_data.get("screens"):
+            raw_s = form_data.get("screens")
+            if isinstance(raw_s, list):
+                screens = raw_s
+            elif isinstance(raw_s, str):
+                try:
+                    parsed_s = json.loads(raw_s)
+                    screens = parsed_s if isinstance(parsed_s, list) else [s.strip() for s in raw_s.split(",") if s.strip()]
+                except Exception:
+                    screens = [s.strip() for s in raw_s.split(",") if s.strip()]
+        if screens:
+            form_data["screens"] = screens
+
         title = form_data.get("title", "").strip()
         if not title:
             return jsonify({"error": "Notice title/headline is required"}), 400
 
+        user = get_current_user()
+        target_candidates = screens or [form_data.get("screen_id") or "ALL"]
+        ok, err = check_notice_permissions(user, target_candidates)
+        if not ok:
+            return jsonify({"error": err}), 403
+
         try:
-            creator = form_data.get("created_by") or "admin"
+            creator = (user.get("username") if user else None) or form_data.get("created_by") or "admin"
             notice = storage.add(form_data, file_obj=file_obj, created_by=creator)
+            notify_notice_change(affected_screens=notice.get("screens"))
             return jsonify(notice), 201
         except ValueError as ve:
             return jsonify({"error": str(ve)}), 400
@@ -863,15 +1402,46 @@ def create_unified_app():
         if not form_data and request.is_json:
             form_data = request.get_json()
 
+        screens = request.form.getlist("screens") or request.form.getlist("screens[]")
+        if not screens and form_data.get("screens"):
+            raw_s = form_data.get("screens")
+            if isinstance(raw_s, list):
+                screens = raw_s
+            elif isinstance(raw_s, str):
+                try:
+                    parsed_s = json.loads(raw_s)
+                    screens = parsed_s if isinstance(parsed_s, list) else [s.strip() for s in raw_s.split(",") if s.strip()]
+                except Exception:
+                    screens = [s.strip() for s in raw_s.split(",") if s.strip()]
+        if screens:
+            form_data["screens"] = screens
+
         title = form_data.get("title", "").strip()
         if not title:
             return jsonify({"error": "Notice title/headline is required"}), 400
 
+        user = get_current_user()
+        existing = storage.get_by_id(notice_id)
+        if not existing:
+            return jsonify({"error": "Notice not found"}), 404
+
+        existing_screens = existing.get("screens") or [existing.get("screen_id", "ALL")]
+        ok, err = check_notice_permissions(user, existing_screens)
+        if not ok:
+            return jsonify({"error": err}), 403
+
+        if screens or form_data.get("screen_id"):
+            new_targets = screens or [form_data.get("screen_id") or "ALL"]
+            ok_new, err_new = check_notice_permissions(user, new_targets)
+            if not ok_new:
+                return jsonify({"error": err_new}), 403
+
         try:
-            updater = form_data.get("created_by") or "admin"
+            updater = (user.get("username") if user else None) or form_data.get("created_by") or "admin"
             updated = storage.update(notice_id, form_data, file_obj=file_obj, updated_by=updater)
             if not updated:
                 return jsonify({"error": "Notice not found"}), 404
+            notify_notice_change(affected_screens=updated.get("screens"))
             return jsonify(updated), 200
         except ValueError as ve:
             return jsonify({"error": str(ve)}), 400
@@ -881,8 +1451,20 @@ def create_unified_app():
     @app.route("/api/notices/<notice_id>", methods=["DELETE"])
     @mutation_admin_required
     def delete_notice(notice_id):
-        success = storage.delete(notice_id, actor="admin")
-        notify_notice_change()
+        user = get_current_user()
+        target = storage.get_by_id(notice_id)
+        if not target:
+            return jsonify({"error": "Notice not found"}), 404
+
+        target_screens = target.get("screens") or [target.get("screen_id", "ALL")]
+        ok, err = check_notice_permissions(user, target_screens)
+        if not ok:
+            return jsonify({"error": err}), 403
+
+        affected = target.get("screens") if target else None
+        actor = (user.get("username") if user else None) or "admin"
+        success = storage.delete(notice_id, actor=actor)
+        notify_notice_change(affected_screens=affected)
         if success:
             return jsonify({"success": True, "id": notice_id})
         return jsonify({"error": "Notice not found"}), 404
@@ -954,6 +1536,66 @@ def create_unified_app():
         data, code = get_health_payload("vnotice-unified")
         return jsonify(data), code
 
+    
+    @app.route("/api/me", methods=["GET"])
+    def get_me():
+        user = get_current_user()
+        if not user:
+            return jsonify({"authenticated": False}), 200
+        return jsonify({
+            "authenticated": True,
+            "username": user["username"],
+            "role": user["role"],
+            "departments": user["departments"],
+            "can_target_all": user["can_target_all"]
+        })
+
+    @app.route("/api/users", methods=["GET"])
+    @read_admin_required
+    def get_users_list():
+        user = get_current_user()
+        if not user or user.get("role") != "super_admin":
+            return jsonify({"error": "Permission denied: Only super_admin can list users"}), 403
+        return jsonify({"success": True, "users": storage.list_users()})
+
+    @app.route("/api/users", methods=["POST"])
+    @mutation_admin_required
+    def create_dept_user():
+        user = get_current_user()
+        if not user or user.get("role") != "super_admin":
+            return jsonify({"error": "Permission denied: Only super_admin can create users"}), 403
+        data = request.get_json(silent=True) or request.form.to_dict() or {}
+        username = data.get("username", "").strip()
+        password = data.get("password", "").strip()
+        role = data.get("role", "dept_admin").strip()
+        departments = data.get("departments", [])
+        can_target_all = bool(data.get("can_target_all", False))
+        if not username or not password:
+            return jsonify({"error": "Username and password are required"}), 400
+        try:
+            created = storage.create_user(
+                username=username,
+                password=password,
+                role=role,
+                departments=departments,
+                can_target_all=can_target_all
+            )
+            return jsonify({"success": True, "user": created}), 201
+        except Exception as e:
+            return jsonify({"error": str(e)}), 400
+
+    @app.route("/api/users/<username>", methods=["DELETE"])
+    @mutation_admin_required
+    def delete_dept_user(username):
+        user = get_current_user()
+        if not user or user.get("role") != "super_admin":
+            return jsonify({"error": "Permission denied: Only super_admin can delete users"}), 403
+        if username.lower() == "admin":
+            return jsonify({"error": "Cannot delete primary admin"}), 400
+        deleted = storage.delete_user(username)
+        if deleted:
+            return jsonify({"success": True, "username": username})
+        return jsonify({"error": "User not found"}), 404
     return app
 
 display_app = create_display_app()

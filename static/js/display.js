@@ -23,9 +23,56 @@
     }
 
 
-  // Screen Configuration (Phase 1)
-  const urlParams = new URLSearchParams(window.location.search);
-  const currentScreenId = urlParams.get('screen') || urlParams.get('screen_id') || 'default';
+  // Screen Configuration (Phase 1 & 3: Department IS a screen, extracted from URL path)
+  function getScreenFromPath() {
+    const segments = window.location.pathname.split('/').filter(Boolean);
+    if (segments.length >= 2 && segments[0].toLowerCase() === 'display') {
+      return segments[1].toUpperCase();
+    }
+    const p = new URLSearchParams(window.location.search);
+    const q = p.get('screen') || p.get('screen_id');
+    if (q) return q.toUpperCase() === 'DEFAULT' ? 'ALL' : q.toUpperCase();
+    return 'ALL';
+  }
+  const currentScreenCode = getScreenFromPath();
+  const currentScreenId = currentScreenCode;
+
+  // Heartbeat tracking (Phase 2 & 3)
+  async function sendHeartbeat() {
+    try {
+      await fetch('/api/heartbeat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ screen: currentScreenCode })
+      });
+    } catch (e) {}
+  }
+  setInterval(sendHeartbeat, 30000);
+  sendHeartbeat();
+
+  async function loadDepartmentInfo() {
+    try {
+      const res = await fetch('/api/screens');
+      if (res.ok) {
+        const data = await res.json();
+        const screens = data.screens || [];
+        const match = screens.find(s => (s.code || s.id || '').toUpperCase() === currentScreenCode);
+        if (match) {
+          const deptPill = document.getElementById('dept-header-pill');
+          const deptPillCode = document.getElementById('dept-pill-code');
+          const deptPillName = document.getElementById('dept-pill-name');
+          if (deptPillCode) deptPillCode.textContent = match.code || currentScreenCode;
+          if (deptPillName) deptPillName.textContent = match.name || match.code;
+          if (deptPill && match.accent_color) {
+            deptPill.style.setProperty('--dept-accent', match.accent_color);
+          }
+        }
+      }
+    } catch (e) {
+      console.warn('Failed to load screen info:', e);
+    }
+  }
+  loadDepartmentInfo();
 
   // DOM Elements - Frame & Header
   const stagePanel = document.getElementById('stage-panel');
@@ -43,6 +90,7 @@
   // Stage Elements
   const stagePriority = document.getElementById('stage-priority');
   const stageType = document.getElementById('stage-type');
+  const stageAudience = document.getElementById('stage-audience');
   const stageCounter = document.getElementById('stage-counter');
   const stageDots = document.getElementById('stage-dots');
 
@@ -227,7 +275,7 @@
     if (!window.EventSource || !systemInfo.sse_enabled) return;
     try {
       if (sseSource) sseSource.close();
-      sseSource = new EventSource('/api/events');
+      sseSource = new EventSource(`/api/events?screen=${encodeURIComponent(currentScreenCode)}`);
       sseSource.addEventListener('notice_update', () => {
         fetchNotices(true);
       });
@@ -525,7 +573,7 @@
         if (emptySubtitle) emptySubtitle.textContent = 'Reconnecting automatically. Notices will appear as soon as connection is restored.';
         if (emptyIconEl) emptyIconEl.classList.add('reconnecting');
       } else {
-        if (emptyTitle) emptyTitle.textContent = 'No notices right now';
+        if (emptyTitle) emptyTitle.textContent = (currentScreenCode === 'ALL') ? 'No announcements right now' : `No announcements for ${currentScreenCode} right now`;
         if (emptySubtitle) emptySubtitle.textContent = 'New notices appear here as soon as they are published.';
         if (emptyIconEl) emptyIconEl.classList.remove('reconnecting');
       }
@@ -539,6 +587,16 @@
     const notice = displayQueue[currentIndex];
     const durationSec = notice.duration || 10;
     const currentDurationMs = durationSec * 1000;
+
+    // Meta Row: College-wide audience tag (Phase 3)
+    const isCollegeWide = (notice.screens && notice.screens.includes('ALL')) || (notice.screen_id === 'ALL');
+    if (stageAudience) {
+      if (isCollegeWide && currentScreenCode !== 'ALL') {
+        stageAudience.classList.remove('hidden');
+      } else {
+        stageAudience.classList.add('hidden');
+      }
+    }
 
     // Meta Row: Priority
     const prio = (notice.priority || 'normal').toLowerCase();
@@ -840,10 +898,12 @@
       const meta = document.createElement('div');
       meta.className = 'rail-item-meta';
 
+      const isNoticeCW = (notice.screens && notice.screens.includes('ALL')) || (notice.screen_id === 'ALL');
+      const cwBadge = (isNoticeCW && currentScreenCode !== 'ALL') ? '<span class="badge-college-wide">College-wide</span>' : '';
       if (prio === 'urgent') {
-        meta.innerHTML = `<span class="meta-urgent">Urgent</span> · ${typeText}`;
+        meta.innerHTML = `<span class="meta-urgent">Urgent</span> · ${typeText}${cwBadge}`;
       } else {
-        meta.textContent = `${prioText} · ${typeText}`;
+        meta.innerHTML = `${prioText} · ${typeText}${cwBadge}`;
       }
 
       info.appendChild(title);

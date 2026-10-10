@@ -114,6 +114,7 @@
   }
 
   async function checkAuthAndLoad() {
+    loadScreens();
     const pass = getAdminPassword();
     if (!pass) {
       showLoginModal();
@@ -155,11 +156,14 @@
     const pass = passwordInput.value.trim();
     if (!pass) return;
 
+    const usernameInput = document.getElementById('admin-username-input');
+    const username = usernameInput ? usernameInput.value.trim() : '';
+
     try {
       const res = await fetch('/api/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ password: pass })
+        body: JSON.stringify({ username, password: pass })
       });
 
       if (res.status === 429) {
@@ -243,9 +247,18 @@
   // ==========================================================================
 
   // ==========================================================================
-  // Screen Management (Phase 1)
+  // Screen & Department Management (Phase 1 & 4)
   // ==========================================================================
-  let availableScreens = [];
+  const DEFAULT_DEPARTMENTS = [
+    { code: 'ALL', name: 'All Departments (college-wide)', id: 'ALL' },
+    { code: 'CMPN', name: 'Computer Engineering', id: 'CMPN', accent_color: '#3B82F6' },
+    { code: 'INFT', name: 'Information Technology', id: 'INFT', accent_color: '#10B981' },
+    { code: 'EXTC', name: 'Electronics & Telecommunication', id: 'EXTC', accent_color: '#F59E0B' },
+    { code: 'EXCS', name: 'Electronics & Computer Science', id: 'EXCS', accent_color: '#8B5CF6' },
+    { code: 'BIOM', name: 'Biomedical Engineering', id: 'BIOM', accent_color: '#EC4899' }
+  ];
+  let availableScreens = [...DEFAULT_DEPARTMENTS];
+  let selectedScreenCodes = new Set(['ALL']);
 
   async function loadScreens() {
     try {
@@ -260,30 +273,94 @@
     }
   }
 
+  function renderChipPicker(screens) {
+    const container = document.getElementById('screen-chip-picker');
+    if (!container) return;
+    container.innerHTML = '';
+
+    if (!screens || !screens.length) {
+      screens = DEFAULT_DEPARTMENTS;
+    }
+
+    // 1. ALL chip
+    const allChip = document.createElement('button');
+    allChip.type = 'button';
+    const isAllSel = selectedScreenCodes.has('ALL');
+    allChip.className = `chip ${isAllSel ? 'selected' : ''}`;
+    allChip.setAttribute('role', 'checkbox');
+    allChip.setAttribute('aria-checked', isAllSel ? 'true' : 'false');
+    allChip.innerHTML = `
+      <span class="chip-check" aria-hidden="true">✓</span>
+      <span class="chip-code">ALL</span>
+      <span class="chip-name">All Departments (college-wide)</span>
+    `;
+    allChip.addEventListener('click', () => {
+      selectedScreenCodes.clear();
+      selectedScreenCodes.add('ALL');
+      validateScreenPicker();
+      renderChipPicker(screens);
+    });
+    container.appendChild(allChip);
+
+    // 2. Department chips
+    screens.filter(s => (s.code || s.id) !== 'ALL').forEach(dept => {
+      const code = dept.code || dept.id;
+      const isSel = selectedScreenCodes.has(code);
+      const chip = document.createElement('button');
+      chip.type = 'button';
+      chip.className = `chip ${isSel ? 'selected' : ''}`;
+      chip.setAttribute('role', 'checkbox');
+      chip.setAttribute('aria-checked', isSel ? 'true' : 'false');
+      if (dept.accent_color) {
+        chip.style.setProperty('--dept-accent', dept.accent_color);
+      }
+      chip.innerHTML = `
+        <span class="chip-check" aria-hidden="true">✓</span>
+        <span class="chip-code">${escapeHtml(code)}</span>
+        <span class="chip-name">${escapeHtml(dept.name || code)}</span>
+      `;
+      chip.addEventListener('click', () => {
+        selectedScreenCodes.delete('ALL');
+        if (selectedScreenCodes.has(code)) {
+          selectedScreenCodes.delete(code);
+        } else {
+          selectedScreenCodes.add(code);
+        }
+        validateScreenPicker();
+        renderChipPicker(screens);
+      });
+      container.appendChild(chip);
+    });
+  }
+
+  function validateScreenPicker() {
+    const errEl = document.getElementById('screen-picker-error');
+    if (selectedScreenCodes.size === 0) {
+      if (errEl) {
+        errEl.textContent = 'Please select at least one target screen.';
+        errEl.classList.remove('hidden');
+      }
+      return false;
+    }
+    if (errEl) errEl.classList.add('hidden');
+    return true;
+  }
+
   function populateScreenDropdowns(screens) {
     if (!screens || !screens.length) return;
     if (feedScreenFilter) {
       const cur = feedScreenFilter.value;
       feedScreenFilter.innerHTML = '<option value="all">All Screens</option>';
       screens.forEach(s => {
+        const code = s.code || s.id;
         const opt = document.createElement('option');
-        opt.value = s.id;
-        opt.textContent = s.name || s.id;
+        opt.value = code;
+        opt.textContent = code === 'ALL' ? 'All Departments (college-wide)' : `${code} - ${s.name || code}`;
         feedScreenFilter.appendChild(opt);
       });
       feedScreenFilter.value = cur || 'all';
     }
-    if (noticeScreen) {
-      const cur = noticeScreen.value;
-      noticeScreen.innerHTML = '';
-      screens.forEach(s => {
-        const opt = document.createElement('option');
-        opt.value = s.id;
-        opt.textContent = s.name || s.id;
-        noticeScreen.appendChild(opt);
-      });
-      noticeScreen.value = cur || 'default';
-    }
+    renderChipPicker(screens);
   }
 
   // ==========================================================================
@@ -574,6 +651,18 @@
             <span class="badge-type">
               <span>${typeLabel}</span>${durationText}
             </span>
+            ${(() => {
+              const targetCodes = (notice.screens && notice.screens.length) ? notice.screens : [notice.screen_id || 'ALL'];
+              if (targetCodes.includes('ALL')) {
+                return '<span class="badge-dept-chip badge-all" title="All Departments (college-wide)">ALL</span>';
+              }
+              const maxShown = 2;
+              const shown = targetCodes.slice(0, maxShown);
+              const overflow = targetCodes.length - maxShown;
+              const chips = shown.map(c => `<span class="badge-dept-chip">${escapeHtml(c)}</span>`).join('');
+              const overflowChip = overflow > 0 ? `<span class="badge-dept-chip badge-overflow" title="${escapeHtml(targetCodes.join(', '))}">+${overflow}</span>` : '';
+              return chips + overflowChip;
+            })()}
           </div>
           <div class="notice-schedule-line">${scheduleLine}</div>
         </div>
@@ -741,12 +830,18 @@
     scheduleSummaryText.textContent = `${startText} · ${endText} (${durationLabel})`;
   }
 
-  function openCreateModal() {
+  async function openCreateModal() {
     editingNoticeId = null;
     if (modalHeading) modalHeading.textContent = 'New notice';
     if (btnSubmitText) btnSubmitText.textContent = 'Publish';
     resetCreateForm();
-    if (noticeScreen) noticeScreen.value = 'default';
+    selectedScreenCodes = new Set(['ALL']);
+    if (!availableScreens || availableScreens.length <= 1) {
+      await loadScreens();
+    }
+    renderChipPicker(availableScreens.length > 1 ? availableScreens : DEFAULT_DEPARTMENTS);
+    const spErr = document.getElementById('screen-picker-error');
+    if (spErr) spErr.classList.add('hidden');
     if (noticeCreatedBy) noticeCreatedBy.value = 'admin';
     noticeModal.classList.remove('hidden');
     inputTitle.focus();
@@ -769,7 +864,14 @@
     }
 
     inputBody.value = notice.body || '';
-    if (noticeScreen) noticeScreen.value = notice.screen_id || 'default';
+    selectedScreenCodes = new Set(notice.screens || [notice.screen_id || 'ALL']);
+    if (selectedScreenCodes.has('default')) {
+      selectedScreenCodes.delete('default');
+      selectedScreenCodes.add('ALL');
+    }
+    renderChipPicker(availableScreens.length > 1 ? availableScreens : DEFAULT_DEPARTMENTS);
+    const spErr2 = document.getElementById('screen-picker-error');
+    if (spErr2) spErr2.classList.add('hidden');
     if (noticeCreatedBy) noticeCreatedBy.value = notice.created_by || 'admin';
 
     // Priority
@@ -1124,12 +1226,19 @@
       return;
     }
 
+    if (!validateScreenPicker()) {
+      return;
+    }
+
     const priority = document.querySelector('input[name="priority"]:checked')?.value || 'normal';
     const duration = parseInt(inputDuration.value, 10) || 10;
 
     const formData = new FormData();
     formData.append('title', title);
-    if (noticeScreen) formData.append('screen_id', noticeScreen.value || 'default');
+    const screensArr = Array.from(selectedScreenCodes);
+    screensArr.forEach(s => formData.append('screens[]', s));
+    formData.append('screens', JSON.stringify(screensArr));
+    formData.append('screen_id', screensArr[0] || 'ALL');
     if (noticeCreatedBy) formData.append('created_by', noticeCreatedBy.value || 'admin');
     formData.append('body', inputBody.value.trim());
     formData.append('priority', priority);
@@ -1259,7 +1368,12 @@
     }
   });
 
-  // Initialize
+  // Wire feed screen filter change listener immediately
+  if (feedScreenFilter) {
+    feedScreenFilter.addEventListener('change', () => fetchNotices(true));
+  }
+  // Initialize screens and auth
+  loadScreens();
   checkAuthAndLoad();
 
   // Background auto-sync in admin every 5 seconds (uses ETag 304); throttled when tab is hidden
@@ -1343,5 +1457,248 @@
       if (e.target === auditModal) closeAuditModal();
     });
   }
+
+
+  // ==========================================================================
+  // Preview on Display Button (Phase 4)
+  // ==========================================================================
+  const btnPreviewDisplay = document.getElementById('btn-preview-display');
+  if (btnPreviewDisplay) {
+    btnPreviewDisplay.addEventListener('click', () => {
+      const code = Array.from(selectedScreenCodes)[0] || 'ALL';
+      window.open(`/display/${encodeURIComponent(code)}`, '_blank');
+    });
+  }
+
+  // ==========================================================================
+  // Screens Management Panel (Phase 4)
+  // ==========================================================================
+  const screensModal = document.getElementById('screens-modal');
+  const btnViewScreens = document.getElementById('btn-view-screens');
+  const btnCloseScreens = document.getElementById('btn-close-screens-modal');
+  const deptTableBody = document.getElementById('dept-table-body');
+  const addDeptForm = document.getElementById('add-dept-form');
+  const deptCodeInput = document.getElementById('dept-code-input');
+  const deptNameInput = document.getElementById('dept-name-input');
+  const deptColorInput = document.getElementById('dept-color-input');
+  const deptFormError = document.getElementById('dept-form-error');
+
+  function openScreensModal() {
+    if (screensModal) {
+      screensModal.classList.remove('hidden');
+      loadAndRenderScreensTable();
+    }
+  }
+
+  function closeScreensModal() {
+    if (screensModal) screensModal.classList.add('hidden');
+  }
+
+  function formatRelativeHeartbeat(timestamp) {
+    if (!timestamp) return '<span class="hb-offline">⚪ Never seen</span>';
+    const diffSec = Math.floor((Date.now() - timestamp) / 1000);
+    if (diffSec < 60) return '<span class="hb-online">🟢 Online</span>';
+    if (diffSec < 3600) return `<span class="hb-recent">🟡 Seen ${Math.floor(diffSec / 60)}m ago</span>`;
+    if (diffSec < 86400) return `<span class="hb-recent">🟡 Seen ${Math.floor(diffSec / 3600)}h ago</span>`;
+    return `<span class="hb-offline">⚪ Seen ${Math.floor(diffSec / 86400)}d ago</span>`;
+  }
+
+  async function loadAndRenderScreensTable() {
+    if (!deptTableBody) return;
+    deptTableBody.innerHTML = '<tr><td colspan="6" style="text-align: center; color: var(--muted); padding: 20px;">Loading screens…</td></tr>';
+
+    try {
+      const res = await fetch('/api/screens', { credentials: 'same-origin' });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      const screens = data.screens || [];
+      availableScreens = screens;
+      populateScreenDropdowns(screens);
+
+      if (screens.length === 0) {
+        deptTableBody.innerHTML = '<tr><td colspan="6" style="text-align: center; color: var(--muted);">No screens registered.</td></tr>';
+        return;
+      }
+
+      deptTableBody.innerHTML = screens.map(s => {
+        const code = s.code || s.id;
+        const isAll = code === 'ALL';
+        const accentStyle = s.accent_color ? `border-color: ${s.accent_color}55; color: ${s.accent_color};` : '';
+        const statusBadge = s.active 
+          ? '<span class="badge-status badge-status-live"><span class="status-indicator-dot"></span><span>Active</span></span>'
+          : '<span class="badge-status badge-status-expired"><span>Inactive</span></span>';
+
+        return `<tr>
+          <td><span class="dept-pill-badge" style="${accentStyle}">${escapeHtml(code)}</span></td>
+          <td><strong>${escapeHtml(s.name || code)}</strong></td>
+          <td>${statusBadge}</td>
+          <td>${formatRelativeHeartbeat(s.last_seen)}</td>
+          <td>
+            <button type="button" class="btn btn-secondary btn-sm btn-copy-screen-link" data-code="${escapeHtml(code)}">
+              Copy Link
+            </button>
+          </td>
+          <td>
+            <div class="dept-actions-cell">
+              <button type="button" class="btn btn-secondary btn-sm btn-toggle-screen" data-code="${escapeHtml(code)}" data-active="${s.active ? '1' : '0'}">
+                ${s.active ? 'Deactivate' : 'Activate'}
+              </button>
+              ${!isAll ? `
+                <button type="button" class="btn btn-secondary btn-sm btn-delete-screen" data-code="${escapeHtml(code)}" style="color: var(--red);">
+                  Delete
+                </button>
+              ` : ''}
+            </div>
+          </td>
+        </tr>`;
+      }).join('');
+
+      // Wire Copy Link buttons
+      deptTableBody.querySelectorAll('.btn-copy-screen-link').forEach(btn => {
+        btn.addEventListener('click', async () => {
+          const code = btn.getAttribute('data-code');
+          const baseUrl = window.location.origin;
+          const url = `${baseUrl}/display/${encodeURIComponent(code)}`;
+          try {
+            await navigator.clipboard.writeText(url);
+            showToast(`Display link copied: ${url}`);
+          } catch (e) {
+            prompt('Copy display URL:', url);
+          }
+        });
+      });
+
+      // Wire Toggle Active buttons
+      deptTableBody.querySelectorAll('.btn-toggle-screen').forEach(btn => {
+        btn.addEventListener('click', async () => {
+          const code = btn.getAttribute('data-code');
+          const isAct = btn.getAttribute('data-active') === '1';
+          const csrf = await getCsrfToken();
+          try {
+            const updRes = await fetch(`/api/screens/${encodeURIComponent(code)}`, {
+              method: 'PUT',
+              headers: {
+                'Content-Type': 'application/json',
+                'X-CSRF-Token': csrf
+              },
+              body: JSON.stringify({ active: !isAct })
+            });
+            if (updRes.ok) {
+              showToast(`Screen ${code} ${!isAct ? 'activated' : 'deactivated'}.`);
+              loadAndRenderScreensTable();
+              loadScreens();
+            } else {
+              const err = await updRes.json();
+              showToast(err.error || 'Failed to update screen', true);
+            }
+          } catch (e) {
+            showToast('Network error updating screen', true);
+          }
+        });
+      });
+
+      // Wire Delete Screen buttons
+      deptTableBody.querySelectorAll('.btn-delete-screen').forEach(btn => {
+        btn.addEventListener('click', async () => {
+          const code = btn.getAttribute('data-code');
+          if (!confirm(`Delete or deactivate screen ${code}?`)) return;
+          const csrf = await getCsrfToken();
+          try {
+            const delRes = await fetch(`/api/screens/${encodeURIComponent(code)}`, {
+              method: 'DELETE',
+              headers: { 'X-CSRF-Token': csrf }
+            });
+            const data = await delRes.json();
+            if (delRes.ok) {
+              if (data.deactivated) {
+                showToast(`Screen ${code} has notices and was deactivated instead of deleted.`);
+              } else {
+                showToast(`Screen ${code} deleted.`);
+              }
+              loadAndRenderScreensTable();
+              loadScreens();
+            } else {
+              showToast(data.error || 'Failed to delete screen', true);
+            }
+          } catch (e) {
+            showToast('Network error deleting screen', true);
+          }
+        });
+      });
+
+    } catch (err) {
+      deptTableBody.innerHTML = `<tr><td colspan="6" style="text-align: center; color: var(--red);">Error loading screens: ${escapeHtml(err.message)}</td></tr>`;
+    }
+  }
+
+  if (addDeptForm) {
+    addDeptForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      if (deptFormError) deptFormError.classList.add('hidden');
+
+      const rawCode = deptCodeInput.value.trim().toUpperCase();
+      const name = deptNameInput.value.trim();
+      const color = deptColorInput ? deptColorInput.value : null;
+
+      if (!/^[A-Z0-9_-]{2,10}$/.test(rawCode)) {
+        if (deptFormError) {
+          deptFormError.textContent = 'Code must be 2-10 uppercase alphanumeric characters, underscores, or hyphens (e.g. CMPN, EXCS).';
+          deptFormError.classList.remove('hidden');
+        }
+        return;
+      }
+
+      if (!name) {
+        if (deptFormError) {
+          deptFormError.textContent = 'Department name is required.';
+          deptFormError.classList.remove('hidden');
+        }
+        return;
+      }
+
+      const csrf = await getCsrfToken();
+      try {
+        const res = await fetch('/api/screens', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-CSRF-Token': csrf
+          },
+          body: JSON.stringify({
+            code: rawCode,
+            name: name,
+            accent_color: color
+          })
+        });
+
+        const data = await res.json();
+        if (res.ok && data.success) {
+          showToast(`Screen ${rawCode} created successfully!`);
+          addDeptForm.reset();
+          loadAndRenderScreensTable();
+          loadScreens();
+        } else {
+          if (deptFormError) {
+            deptFormError.textContent = data.error || 'Failed to create screen.';
+            deptFormError.classList.remove('hidden');
+          }
+        }
+      } catch (err) {
+        if (deptFormError) {
+          deptFormError.textContent = 'Network error while creating screen.';
+          deptFormError.classList.remove('hidden');
+        }
+      }
+    });
+  }
+
+  if (btnViewScreens) btnViewScreens.addEventListener('click', openScreensModal);
+  if (btnCloseScreens) btnCloseScreens.addEventListener('click', closeScreensModal);
+  if (screensModal) {
+    screensModal.addEventListener('click', (e) => {
+      if (e.target === screensModal) closeScreensModal();
+    });
+  }
+
 
 })();

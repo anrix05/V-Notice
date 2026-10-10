@@ -33,6 +33,10 @@
 
       <form id="login-form" class="auth-form" onsubmit="return false;">
         <div class="form-group">
+          <label for="admin-username-input" class="form-label">Username <span style="font-weight: normal; opacity: 0.65; font-size: 0.85em;">(Optional for Super Admin)</span></label>
+          <input type="text" id="admin-username-input" class="form-control" placeholder="admin or dept username (e.g. excs_staff)" autocomplete="username">
+        </div>
+        <div class="form-group">
           <label for="admin-password-input" class="form-label">Password</label>
           <div class="input-password-wrap">
             <input type="password" id="admin-password-input" class="form-control" placeholder="Enter admin password" required autofocus autocomplete="current-password">
@@ -71,6 +75,7 @@
         </div>
 
         <div class="nav-actions">
+          <span id="auth-user-badge" class="badge badge-dept-chip" style="margin-right: 8px; font-weight: 600; text-transform: none;">admin</span>
           <button id="btn-logout" class="btn-icon btn-logout" aria-label="Log out" title="Log out">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75">
               <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path>
@@ -93,6 +98,14 @@
             <p class="page-subtitle">Publish and schedule what appears on the board.</p>
           </div>
           <div class="header-toolbar-group">
+            <button id="btn-view-screens" class="btn btn-secondary btn-toolbar" aria-label="Department Screens" title="Manage department display screens">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                <rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect>
+                <line x1="8" y1="21" x2="16" y2="21"></line>
+                <line x1="12" y1="17" x2="12" y2="21"></line>
+              </svg>
+              <span>Screens</span>
+            </button>
             <button id="btn-view-audit" class="btn btn-secondary btn-toolbar" aria-label="Security Audit Logs" title="View security audit logs">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
                 <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
@@ -130,7 +143,12 @@
         <label for="feed-screen-filter" class="screen-filter-label">Screen:</label>
         <select id="feed-screen-filter" class="form-control screen-select" aria-label="Filter notices by screen">
           <option value="all">All Screens</option>
-          <option value="default">Default Screen</option>
+          <option value="ALL">All Departments (college-wide)</option>
+          <option value="CMPN">CMPN - Computer Engineering</option>
+          <option value="INFT">INFT - Information Technology</option>
+          <option value="EXTC">EXTC - Electronics &amp; Telecommunication</option>
+          <option value="EXCS">EXCS - Electronics &amp; Computer Science</option>
+          <option value="BIOM">BIOM - Biomedical Engineering</option>
         </select>
       </div>
 
@@ -164,18 +182,22 @@
       <form id="create-notice-form" class="modal-form-wrapper" enctype="multipart/form-data">
         
         <div class="modal-body-scroll">
-          <!-- Target Screen & Posted By Row -->
-          <div class="form-row-2">
-            <div class="form-group">
-              <label for="notice-screen" class="form-label">Target Screen</label>
-              <select id="notice-screen" name="screen_id" class="form-control">
-                <option value="default">Default Screen</option>
-              </select>
+          <!-- Target Screens Multi-Select Chip Picker (Phase 4) -->
+          <div class="form-group screen-picker-group">
+            <div class="label-row">
+              <label class="form-label" id="screen-picker-label">Target Screens <span class="required">*</span></label>
+              <span class="field-hint" id="screen-picker-hint">Select at least one</span>
             </div>
-            <div class="form-group">
-              <label for="notice-created-by" class="form-label">Posted by</label>
-              <input type="text" id="notice-created-by" name="created_by" class="form-control" placeholder="admin" value="admin">
+            <input type="hidden" id="notice-screen" name="screen_id" value="ALL">
+            <div class="chip-picker" id="screen-chip-picker" role="group" aria-labelledby="screen-picker-label" tabindex="0">
+              <!-- Rendered dynamically -->
             </div>
+            <div class="inline-error hidden" id="screen-picker-error">Please select at least one target screen.</div>
+          </div>
+
+          <div class="form-group">
+            <label for="notice-created-by" class="form-label">Posted by</label>
+            <input type="text" id="notice-created-by" name="created_by" class="form-control" placeholder="admin" value="admin">
           </div>
 
           <!-- 1. Headline (Counter appears after 80 chars) -->
@@ -344,6 +366,10 @@
 
         <!-- Fixed Modal Footer (Never overlaps content, always visible at bottom) -->
         <div class="modal-footer">
+          <button type="button" id="btn-preview-display" class="btn btn-secondary btn-preview-display" title="Preview on selected department display">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>
+            <span>Preview on display</span>
+          </button>
           <button type="button" id="btn-cancel-create" class="btn btn-text">Cancel</button>
           <button type="submit" id="btn-submit-create" class="btn btn-primary">
             <span id="btn-submit-text">Publish</span>
@@ -410,5 +436,69 @@
   <div class="toast-container" id="toast-container" aria-live="polite"></div>
 
   <script src="/static/js/admin.js?v=4"></script>
+  <!-- ========================================================================
+       Screens Management Modal (Phase 4)
+       ======================================================================== -->
+  <div id="screens-modal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="screens-heading">
+    <div class="modal-dialog modal-dialog-lg">
+      <div class="modal-header">
+        <div class="modal-header-titles">
+          <h2 class="modal-heading" id="screens-heading">Department Screens</h2>
+          <p class="modal-subtitle">Manage campus display screens, kiosk links, and live heartbeats.</p>
+        </div>
+        <button id="btn-close-screens-modal" class="btn-icon" aria-label="Close dialog">&times;</button>
+      </div>
+      
+      <div class="modal-body-scroll">
+        <!-- Add Department Inline Form -->
+        <div class="card-add-dept">
+          <h3 class="section-title">Add Department Screen</h3>
+          <form id="add-dept-form" class="dept-form-grid">
+            <div class="form-group">
+              <label for="dept-code-input" class="form-label">Code <span class="required">*</span></label>
+              <input type="text" id="dept-code-input" class="form-control" placeholder="e.g. AIDS" maxlength="10" required>
+              <span class="field-hint">2-10 uppercase [A-Z0-9_-]</span>
+            </div>
+            <div class="form-group form-group-grow">
+              <label for="dept-name-input" class="form-label">Full Department Name <span class="required">*</span></label>
+              <input type="text" id="dept-name-input" class="form-control" placeholder="e.g. Artificial Intelligence & Data Science" required>
+            </div>
+            <div class="form-group form-group-color">
+              <label for="dept-color-input" class="form-label">Accent</label>
+              <input type="color" id="dept-color-input" class="form-control form-control-color" value="#3B82F6" title="Department accent color">
+            </div>
+            <div class="form-group form-group-btn">
+              <label class="form-label">&nbsp;</label>
+              <button type="submit" id="btn-save-dept" class="btn btn-primary">Add Screen</button>
+            </div>
+          </form>
+          <div class="inline-error hidden" id="dept-form-error"></div>
+        </div>
+
+        <!-- Screens List Table -->
+        <div class="dept-list-section">
+          <h3 class="section-title">Campus Screens</h3>
+          <div class="dept-table-wrapper">
+            <table class="dept-table">
+              <thead>
+                <tr>
+                  <th>Code</th>
+                  <th>Department Name</th>
+                  <th>Status</th>
+                  <th>Heartbeat</th>
+                  <th>Display URL</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody id="dept-table-body">
+                <!-- Populated dynamically -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
 </body>
 </html>

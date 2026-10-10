@@ -1854,3 +1854,295 @@ input[type="datetime-local"] {
     gap: 12px;
   }
 }
+
+
+/* ==========================================================================
+   Phase 4: Admin Department Screens, Multi-select Chip Picker & Screens Panel
+   ========================================================================== */
+
+/* Multi-select Chip Picker (Publish Modal) */
+.screen-picker-group {
+  margin-bottom: 20px;
+}
+
+.chip-picker {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+  outline: none;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 40px;
+  padding: 8px 14px;
+  border-radius: 999px;
+  background: #1C2B45;
+  border: 1px solid #24344F;
+  color: #94A3B8;
+  font-family: var(--font-stack, system-ui, sans-serif);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  user-select: none;
+  transition: all 0.15s ease;
+  touch-action: manipulation;
+}
+
+.chip:hover {
+  background: #223454;
+  border-color: #3B82F6;
+  color: #F8FAFC;
+}
+
+.chip:focus-visible {
+  outline: 2px solid #2563EB;
+  outline-offset: 2px;
+}
+
+.chip.selected {
+  background: #2563EB;
+  border-color: #3B82F6;
+  color: #FFFFFF;
+  box-shadow: 0 2px 8px rgba(37, 99, 235, 0.35);
+}
+
+.chip.selected[style*="--dept-accent"] {
+  background: color-mix(in srgb, var(--dept-accent) 25%, #1C2B45);
+  border-color: var(--dept-accent);
+  color: #FFFFFF;
+  box-shadow: 0 2px 10px color-mix(in srgb, var(--dept-accent) 30%, transparent);
+}
+
+.chip-check {
+  display: none;
+  font-size: 12px;
+  font-weight: bold;
+}
+
+.chip.selected .chip-check {
+  display: inline-block;
+}
+
+.chip-code {
+  font-family: 'Outfit', var(--font-stack, sans-serif);
+  font-weight: 700;
+  letter-spacing: 0.03em;
+}
+
+.chip-name {
+  font-size: 12px;
+  opacity: 0.9;
+}
+
+/* Compact Target Chips in Notice Cards */
+.badge-dept-chip {
+  display: inline-flex;
+  align-items: center;
+  font-family: 'Outfit', var(--font-stack, sans-serif);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  padding: 2px 7px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  color: #E2E8F0;
+}
+
+.badge-dept-chip.badge-all {
+  background: rgba(37, 99, 235, 0.2);
+  border-color: rgba(59, 130, 246, 0.4);
+  color: #93C5FD;
+}
+
+.badge-dept-chip.badge-overflow {
+  background: rgba(255, 255, 255, 0.05);
+  border-color: rgba(255, 255, 255, 0.1);
+  color: #94A3B8;
+  cursor: help;
+}
+
+/* Modal Footer Preview Button */
+.btn-preview-display {
+  margin-right: auto;
+  gap: 6px;
+}
+
+/* Screens Management Modal */
+.modal-dialog-lg {
+  max-width: 820px;
+}
+
+.card-add-dept {
+  background: #141F33;
+  border: 1px solid #24344F;
+  border-radius: 12px;
+  padding: 18px 20px;
+  margin-bottom: 24px;
+}
+
+.card-add-dept .section-title,
+.dept-list-section .section-title {
+  font-size: 14px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #94A3B8;
+  margin-bottom: 14px;
+}
+
+.dept-form-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+.dept-form-grid .form-group {
+  margin-bottom: 0;
+}
+
+.form-group-grow {
+  flex: 1;
+  min-width: 200px;
+}
+
+.form-group-color {
+  width: 60px;
+}
+
+.form-control-color {
+  height: 42px;
+  padding: 4px 6px;
+  cursor: pointer;
+}
+
+.form-group-btn {
+  display: flex;
+  flex-direction: column;
+}
+
+.form-group-btn button {
+  height: 42px;
+}
+
+.dept-table-wrapper {
+  background: #141F33;
+  border: 1px solid #24344F;
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.dept-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+  text-align: left;
+}
+
+.dept-table th {
+  background: #101A2B;
+  color: #94A3B8;
+  font-weight: 600;
+  text-transform: uppercase;
+  font-size: 11px;
+  letter-spacing: 0.05em;
+  padding: 12px 16px;
+  border-bottom: 1px solid #24344F;
+}
+
+.dept-table td {
+  padding: 14px 16px;
+  border-bottom: 1px solid #1E2D47;
+  color: #F8FAFC;
+  vertical-align: middle;
+}
+
+.dept-table tr:last-child td {
+  border-bottom: none;
+}
+
+.dept-table tr:hover td {
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.dept-pill-badge {
+  display: inline-block;
+  font-family: 'Outfit', var(--font-stack, sans-serif);
+  font-weight: 700;
+  font-size: 12px;
+  padding: 3px 8px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.07);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  color: #FFFFFF;
+}
+
+.hb-online {
+  color: #4ADE80;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.hb-recent {
+  color: #FBBF24;
+  font-size: 12px;
+}
+
+.hb-offline {
+  color: #64748B;
+  font-size: 12px;
+}
+
+.dept-actions-cell {
+  display: flex;
+  gap: 8px;
+}
+
+.btn-sm {
+  padding: 6px 12px;
+  font-size: 12px;
+  border-radius: 6px;
+}
+
+.toast-feedback {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  background: #10B981;
+  color: #FFFFFF;
+  padding: 10px 18px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.4);
+  z-index: 99999;
+  animation: toastFade 2.2s forwards;
+}
+
+@keyframes toastFade {
+  0% { opacity: 0; transform: translateY(10px); }
+  15% { opacity: 1; transform: translateY(0); }
+  85% { opacity: 1; transform: translateY(0); }
+  100% { opacity: 0; transform: translateY(-10px); }
+}
+
+@media (max-width: 600px) {
+  .dept-form-grid {
+    flex-direction: column;
+  }
+  .dept-form-grid .form-group {
+    width: 100%;
+  }
+  .form-group-btn button {
+    width: 100%;
+  }
+  .chip {
+    width: 100%;
+    justify-content: flex-start;
+  }
+}

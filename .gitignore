@@ -63,4 +63,5 @@ design.md
 *.db-shm
 *.sqlite3
 *.bak
+*.bak*
 .pytest_cache/

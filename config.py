@@ -114,5 +114,5 @@ SSE_ENABLED = os.environ.get('SSE_ENABLED', 'false').lower() in ('true', '1', 'y
 
 
 # Observability & Version (Phase 7)
-VERSION = '2.0.0'
+VERSION = '2.1.0'
 LOG_LEVEL = os.environ.get('LOG_LEVEL', 'INFO').upper()
