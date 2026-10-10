@@ -172,7 +172,9 @@ def create_display_app():
 
     @app.route("/media/<path:filename>")
     def serve_media(filename):
-        return send_from_directory(MEDIA_FOLDER, filename)
+        response = send_from_directory(MEDIA_FOLDER, filename)
+        response.headers["Cache-Control"] = "public, max-age=86400"
+        return response
 
     @app.route("/api/health")
     def health():
@@ -298,7 +300,9 @@ def create_admin_app():
 
     @app.route("/media/<path:filename>")
     def serve_media(filename):
-        return send_from_directory(MEDIA_FOLDER, filename)
+        response = send_from_directory(MEDIA_FOLDER, filename)
+        response.headers["Cache-Control"] = "public, max-age=86400"
+        return response
 
     @app.route("/api/health")
     def health():
@@ -464,7 +468,9 @@ def create_unified_app():
 
     @app.route("/media/<path:filename>")
     def serve_media(filename):
-        return send_from_directory(MEDIA_FOLDER, filename)
+        response = send_from_directory(MEDIA_FOLDER, filename)
+        response.headers["Cache-Control"] = "public, max-age=86400"
+        return response
 
     @app.route("/api/health")
     def health():

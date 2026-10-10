@@ -306,6 +306,26 @@
   // ==========================================================================
   // Render Main Stage
   // ==========================================================================
+
+  // Background Preloader for ultra-smooth video & poster transitions
+  function preloadNextMedia() {
+    if (!displayQueue || displayQueue.length < 2) return;
+    const nextIdx = (currentIndex + 1) % displayQueue.length;
+    const nextNotice = displayQueue[nextIdx];
+    if (nextNotice && nextNotice.media) {
+      const nextSrc = `/media/${encodeURIComponent(nextNotice.media)}`;
+      const mediaType = (nextNotice.media_type || '').toLowerCase();
+      if (mediaType.startsWith('video') || nextNotice.media.endsWith('.mp4') || nextNotice.media.endsWith('.webm')) {
+        const preloader = document.createElement('video');
+        preloader.preload = 'auto';
+        preloader.src = nextSrc;
+      } else {
+        const preloader = new Image();
+        preloader.src = nextSrc;
+      }
+    }
+  }
+
   function renderStage() {
     clearTimeout(rotationTimer);
 
@@ -376,6 +396,7 @@
 
     // Update QR Code pointing to this notice
     updateStageQr(notice);
+    preloadNextMedia();
 
     // Advance timer if not waiting for video to end
     if (!isVideoPlaying) {
