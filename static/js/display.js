@@ -115,20 +115,44 @@
   // ==========================================================================
   // Fetch Notices & Cache for Offline Resilience
   // ==========================================================================
-  async function fetchNotices() {
+  let lastNoticesEtag = null;
+  let basePollInterval = 5000;
+  let backoffDelay = basePollInterval;
+  let pollTimeoutId = null;
+  let sseSource = null;
+
+  async function fetchNotices(forceRefresh = false) {
     try {
-      const response = await fetch(`/api/notices?screen=${encodeURIComponent(currentScreenId)}&_t=${Date.now()}`, {
-        cache: 'no-store',
-        headers: {
-          'Cache-Control': 'no-cache, no-store, must-revalidate',
-          'Pragma': 'no-cache'
-        }
+      const headers = {
+        'Cache-Control': 'no-cache'
+      };
+      if (lastNoticesEtag && !forceRefresh) {
+        headers['If-None-Match'] = lastNoticesEtag;
+      }
+
+      const response = await fetch(`/api/notices?screen=${encodeURIComponent(currentScreenId)}`, {
+        cache: 'no-cache',
+        headers
       });
+
+      if (response.status === 304) {
+        // HTTP 304 Not Modified: notices unchanged, zero DOM rebuild, zero JSON re-parsing
+        isOffline = false;
+        if (offlineBadge) offlineBadge.classList.add('hidden');
+        backoffDelay = basePollInterval;
+        return;
+      }
+
       if (!response.ok) throw new Error(`HTTP error ${response.status}`);
+
+      const etag = response.headers.get('ETag');
+      if (etag) lastNoticesEtag = etag;
+
       const data = await response.json();
 
       isOffline = false;
       if (offlineBadge) offlineBadge.classList.add('hidden');
+      backoffDelay = basePollInterval;
 
       // Cache notices to localStorage
       try {
@@ -139,22 +163,55 @@
 
       applyNotices(data);
     } catch (err) {
-      console.warn('Network fetch error, loading from local cache:', err);
+      console.warn('Network sync error:', err);
       isOffline = true;
       if (offlineBadge) offlineBadge.classList.remove('hidden');
 
-      // Fallback to localStorage cache
-      try {
-        const cached = localStorage.getItem(`vnotice_cache_${currentScreenId}`) || localStorage.getItem('vnotice_cache');
-        if (cached) {
-          applyNotices(JSON.parse(cached));
-        } else {
+      // Exponential backoff with random reconnect jitter (0 - 500ms)
+      backoffDelay = Math.min(60000, Math.round(backoffDelay * 1.5)) + Math.floor(Math.random() * 500);
+
+      // Fallback to localStorage cache if queue is empty
+      if (displayQueue.length === 0) {
+        try {
+          const cached = localStorage.getItem(`vnotice_cache_${currentScreenId}`) || localStorage.getItem('vnotice_cache');
+          if (cached) {
+            applyNotices(JSON.parse(cached));
+          } else {
+            applyNotices([]);
+          }
+        } catch (e) {
+          console.error('Error reading localStorage cache:', e);
           applyNotices([]);
         }
-      } catch (e) {
-        console.error('Error reading localStorage cache:', e);
-        applyNotices([]);
       }
+    }
+  }
+
+  function scheduleNextPoll() {
+    if (pollTimeoutId) clearTimeout(pollTimeoutId);
+    pollTimeoutId = setTimeout(async () => {
+      await fetchNotices();
+      scheduleNextPoll();
+    }, backoffDelay);
+  }
+
+  function initSSE() {
+    if (!window.EventSource || !systemInfo.sse_enabled) return;
+    try {
+      if (sseSource) sseSource.close();
+      sseSource = new EventSource('/api/events');
+      sseSource.addEventListener('notice_update', () => {
+        fetchNotices(true);
+      });
+      sseSource.onerror = () => {
+        console.warn('[Sync] SSE connection interrupted; relying on conditional polling');
+        if (sseSource) {
+          sseSource.close();
+          sseSource = null;
+        }
+      };
+    } catch (e) {
+      console.warn('[Sync] SSE init error:', e);
     }
   }
 
@@ -167,7 +224,9 @@
   window.addEventListener('online', () => {
     isOffline = false;
     if (offlineBadge) offlineBadge.classList.add('hidden');
-    fetchNotices();
+    backoffDelay = basePollInterval;
+    fetchNotices(true);
+    scheduleNextPoll();
   });
 
   // ==========================================================================
@@ -240,6 +299,12 @@
         const info = await res.json();
         if (info) {
           systemInfo = { ...systemInfo, ...info };
+          if (info.poll_interval_seconds) {
+            basePollInterval = Math.max(2, info.poll_interval_seconds) * 1000;
+          }
+          if (info.sse_enabled && !sseSource) {
+            initSSE();
+          }
 
           if (info.weather_enabled === false) {
             headerWeather.classList.add('hidden');
@@ -699,12 +764,11 @@
   }
 
   // ==========================================================================
-  // Initialization & Polling Interval (Every 10 seconds per PRD Section 4)
+  // Initialization & Adaptive Sync Scheduling (Phase 4)
   // ==========================================================================
-  fetchNotices();
+  fetchNotices(true);
   fetchCampusWeather();
-  setInterval(fetchNotices, 3000); // Responsive fast live sync for instant deletion/addition
-  setInterval(fetchNotices, 10000); // 10-second contract per PRD Section 4
+  scheduleNextPoll();
   setInterval(fetchCampusWeather, 1800000); // Campus weather update every 30 minutes
 
 })();

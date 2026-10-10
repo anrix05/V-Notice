@@ -93,3 +93,30 @@ pytest -v
 - [ ] **Urgent Audio Chime & Video Muting:**
   1. Publish an urgent notice. With `URGENT_CHIME=true`, verify a soft two-tone chime sounds when the notice appears on stage.
   2. Publish a video notice. Verify the video plays seamlessly and is strictly muted.
+
+
+- **Phase 4 (Sync Efficiency & ETag):** `tests/test_sync_efficiency_phase4.py`
+  - Tests presence of valid `ETag` and `Cache-Control: no-cache` on `GET /api/notices`.
+  - Tests conditional `If-None-Match` request returns HTTP `304 Not Modified` with empty body.
+  - Tests dynamic `ETag` invalidation when notices are created, updated, or deleted.
+  - Tests distinct `ETag` values for multi-screen notice queries.
+  - Tests admin notices conditional polling with `ETag`.
+  - Tests `/api/events` disabled (404) and enabled (`text/event-stream`).
+  - Tests `/api/system-info` returns `poll_interval_seconds` and `sse_enabled`.
+
+---
+
+### Phase 4: Sync Efficiency
+- [ ] **HTTP 304 Conditional Polling Verification:**
+  1. Open Chrome DevTools Network tab on `http://localhost:5000/display`.
+  2. Observe background requests to `/api/notices`.
+  3. Verify that requests after the initial load return status **`304 Not Modified`** with `0 B` transferred.
+  4. In the Admin Portal (`http://localhost:5001/` or `/`), publish or edit a notice.
+  5. Verify the very next `/api/notices` request on the display immediately returns status **`200 OK`** with the updated notice set, and subsequent polls return `304`.
+- [ ] **Adaptive Backoff & Offline Jitter:**
+  1. Disconnect network or stop server (`Ctrl+C`); verify `#offline-badge` appears on display.
+  2. Inspect console logs: verify poll retry interval expands progressively up to 60s with random jitter.
+  3. Reconnect network / restart server: verify display recovers immediately on next poll or `online` event and `#offline-badge` disappears.
+- [ ] **Admin Visibility Throttling:**
+  1. Open Admin Portal, switch to another browser tab for 30 seconds.
+  2. Switch back: verify an immediate sync occurs upon tab focus without UI lag.

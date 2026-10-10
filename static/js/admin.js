@@ -165,7 +165,7 @@
       setAdminPassword(pass);
       hideLoginModal();
       if (feedScreenFilter) {
-      feedScreenFilter.addEventListener('change', () => fetchNotices());
+      feedScreenFilter.addEventListener('change', () => fetchNotices(true));
     }
     loadScreens();
     fetchNotices();
@@ -265,18 +265,30 @@
 
   // Fetch Notices & Compute Status
   // ==========================================================================
-  async function fetchNotices() {
+  let adminNoticesEtag = null;
+
+  async function fetchNotices(forceRefresh = false) {
     const pass = getAdminPassword();
     const selectedScreen = feedScreenFilter ? feedScreenFilter.value : 'all';
-    const screenQuery = selectedScreen && selectedScreen !== 'all' ? `&screen=${encodeURIComponent(selectedScreen)}` : '';
-    const res = await fetch(`/api/notices?_t=${Date.now()}${screenQuery}`, {
-      cache: 'no-store',
-      headers: {
-        'X-Password': pass,
-        'Cache-Control': 'no-cache, no-store, must-revalidate',
-        'Pragma': 'no-cache'
-      }
+    const screenQuery = selectedScreen && selectedScreen !== 'all' ? `?screen=${encodeURIComponent(selectedScreen)}` : '';
+    
+    const headers = {
+      'X-Password': pass,
+      'Cache-Control': 'no-cache'
+    };
+    if (adminNoticesEtag && !forceRefresh) {
+      headers['If-None-Match'] = adminNoticesEtag;
+    }
+
+    const res = await fetch(`/api/notices${screenQuery}`, {
+      cache: 'no-cache',
+      headers
     });
+
+    if (res.status === 304) {
+      // HTTP 304 Not Modified: notices unchanged, zero DOM rebuild
+      return;
+    }
 
     if (res.status === 401) {
       const err = new Error('Unauthorized');
@@ -285,6 +297,9 @@
     }
 
     if (!res.ok) throw new Error(`Server returned ${res.status}`);
+
+    const etag = res.headers.get('ETag');
+    if (etag) adminNoticesEtag = etag;
 
     const data = await res.json();
     notices = Array.isArray(data) ? data : [];
@@ -482,7 +497,7 @@
   });
 
   btnRefresh.addEventListener('click', () => {
-    fetchNotices();
+    fetchNotices(true);
   });
 
   // ==========================================================================
@@ -988,7 +1003,7 @@
       if (xhr.status >= 200 && xhr.status < 300) {
         closeCreateModal();
         showToast(editingNoticeId ? 'Notice updated' : 'Published');
-        await fetchNotices();
+        await fetchNotices(true);
       } else {
         let msg = editingNoticeId ? 'Failed to update notice.' : 'Failed to publish notice.';
         try {
@@ -1079,11 +1094,17 @@
   // Initialize
   checkAuthAndLoad();
 
-  // Background auto-sync in admin every 5 seconds so updates appear without manual refresh
+  // Background auto-sync in admin every 5 seconds (uses ETag 304); throttled when tab is hidden
   setInterval(() => {
     if (localStorage.getItem('vnotice_admin_pass') && !document.hidden) {
-      fetchNotices().catch(() => {});
+      fetchNotices(false).catch(() => {});
     }
   }, 5000);
+
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden && localStorage.getItem('vnotice_admin_pass')) {
+      fetchNotices(false).catch(() => {});
+    }
+  });
 
 })();

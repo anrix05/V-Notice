@@ -1,3 +1,6 @@
+import hashlib
+import queue
+import threading
 import sys
 import os
 import threading
@@ -58,6 +61,62 @@ def get_client_ip():
         return forwarded.split(",")[0].strip()
     return request.remote_addr or "127.0.0.1"
 
+
+# ==============================================================================
+# Phase 4: Sync Efficiency - ETag & SSE Helpers
+# ==============================================================================
+
+def compute_etag(data):
+    """Compute a deterministic 16-character SHA-256 hex digest for JSON-serializable notice data."""
+    dumped = json.dumps(data, sort_keys=True, separators=(',', ':'))
+    return hashlib.sha256(dumped.encode('utf-8')).hexdigest()[:16]
+
+def make_etag_response(data):
+    """Return HTTP 304 Not Modified if client If-None-Match matches, else 200 with ETag header."""
+    etag = compute_etag(data)
+    client_etag = request.headers.get("If-None-Match", "").strip('"')
+    if client_etag and client_etag == etag:
+        res = Response(status=304)
+        res.headers["ETag"] = f'"{etag}"'
+        res.headers["Cache-Control"] = "no-cache"
+        return res
+    res = jsonify(data)
+    res.headers["ETag"] = f'"{etag}"'
+    res.headers["Cache-Control"] = "no-cache"
+    return res
+
+_sse_subscribers = []
+_sse_lock = threading.Lock()
+
+def notify_notice_change():
+    """Broadcast notice change to all active SSE listeners."""
+    with _sse_lock:
+        for q in list(_sse_subscribers):
+            try:
+                q.put_nowait("update")
+            except Exception:
+                pass
+
+def sse_event_stream():
+    """Generator for Server-Sent Events with keep-alive pings."""
+    q = queue.Queue(maxsize=10)
+    with _sse_lock:
+        _sse_subscribers.append(q)
+    try:
+        yield "event: connected\ndata: ok\n\n"
+        while True:
+            try:
+                msg = q.get(timeout=15)
+                yield f"event: notice_update\ndata: {msg}\n\n"
+            except queue.Empty:
+                yield ": keepalive\n\n"
+    except GeneratorExit:
+        pass
+    finally:
+        with _sse_lock:
+            if q in _sse_subscribers:
+                _sse_subscribers.remove(q)
+
 def get_system_weather():
     import config
     weather_enabled = getattr(config, "WEATHER_ENABLED", True)
@@ -77,6 +136,8 @@ def get_system_weather():
             "display_port": DISPLAY_PORT,
             "public_base_url": public_base_url,
             "urgent_chime": urgent_chime,
+            "poll_interval_seconds": getattr(config, "POLL_INTERVAL_SECONDS", 5),
+            "sse_enabled": getattr(config, "SSE_ENABLED", False),
         }
 
     now = time.time()
@@ -86,6 +147,8 @@ def get_system_weather():
         data["city"] = city.upper()
         data["public_base_url"] = public_base_url
         data["urgent_chime"] = urgent_chime
+        data["poll_interval_seconds"] = getattr(config, "POLL_INTERVAL_SECONDS", 5)
+        data["sse_enabled"] = getattr(config, "SSE_ENABLED", False)
         return data
 
     temp = "30°C"
@@ -126,6 +189,8 @@ def get_system_weather():
             data["city"] = city.upper()
             data["public_base_url"] = public_base_url
             data["urgent_chime"] = urgent_chime
+            data["poll_interval_seconds"] = getattr(config, "POLL_INTERVAL_SECONDS", 5)
+            data["sse_enabled"] = getattr(config, "SSE_ENABLED", False)
             return data
 
     result = {
@@ -137,6 +202,8 @@ def get_system_weather():
         "display_port": DISPLAY_PORT,
         "public_base_url": public_base_url,
         "urgent_chime": urgent_chime,
+        "poll_interval_seconds": getattr(config, "POLL_INTERVAL_SECONDS", 5),
+        "sse_enabled": getattr(config, "SSE_ENABLED", False),
     }
     _weather_cache["data"] = result
     _weather_cache["timestamp"] = now
@@ -296,7 +363,23 @@ def create_display_app():
     def get_active_notices():
         screen = request.args.get("screen") or request.args.get("screen_id")
         active = storage.get_active(screen_id=screen)
-        return jsonify([sanitize_public_notice(n) for n in active])
+        data = [sanitize_public_notice(n) for n in active]
+        return make_etag_response(data)
+
+    @app.route("/api/events")
+    def sse_events():
+        import config
+        if not getattr(config, "SSE_ENABLED", False):
+            return jsonify({"error": "SSE is disabled; use conditional polling with ETag"}), 404
+        return Response(
+            sse_event_stream(),
+            mimetype="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "X-Accel-Buffering": "no",
+                "Connection": "keep-alive",
+            }
+        )
 
     @app.route("/api/screens", methods=["GET"])
     def get_screens():
@@ -444,7 +527,7 @@ def create_admin_app():
     def get_all_notices():
         screen = request.args.get("screen") or request.args.get("screen_id")
         notices = storage.get_all(screen_id=screen)
-        return jsonify(notices)
+        return make_etag_response(notices)
 
     @app.route("/api/audit-logs", methods=["GET"])
     @read_admin_required
@@ -508,6 +591,7 @@ def create_admin_app():
     @mutation_admin_required
     def delete_notice(notice_id):
         success = storage.delete(notice_id, actor="admin")
+        notify_notice_change()
         if success:
             return jsonify({"success": True, "id": notice_id})
         return jsonify({"error": "Notice not found"}), 404
@@ -615,10 +699,25 @@ def create_unified_app():
     def get_notices():
         screen = request.args.get("screen") or request.args.get("screen_id")
         if check_admin_auth():
-            return jsonify(storage.get_all(screen_id=screen))
+            return make_etag_response(storage.get_all(screen_id=screen))
         # Public kiosk view: active notices only with admin fields stripped
         active = storage.get_active(screen_id=screen)
-        return jsonify([sanitize_public_notice(n) for n in active])
+        return make_etag_response([sanitize_public_notice(n) for n in active])
+
+    @app.route("/api/events")
+    def sse_events_unified():
+        import config
+        if not getattr(config, "SSE_ENABLED", False):
+            return jsonify({"error": "SSE is disabled; use conditional polling with ETag"}), 404
+        return Response(
+            sse_event_stream(),
+            mimetype="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "X-Accel-Buffering": "no",
+                "Connection": "keep-alive",
+            }
+        )
 
     @app.route("/api/audit-logs", methods=["GET"])
     @read_admin_required
@@ -682,6 +781,7 @@ def create_unified_app():
     @mutation_admin_required
     def delete_notice(notice_id):
         success = storage.delete(notice_id, actor="admin")
+        notify_notice_change()
         if success:
             return jsonify({"success": True, "id": notice_id})
         return jsonify({"error": "Notice not found"}), 404

@@ -139,6 +139,8 @@ All settings use safe defaults and can be customized via `.env` or container env
 | `PUBLIC_BASE_URL` | *empty* | Public URL (e.g. `https://v-notice.onrender.com`) for scan-to-phone QR codes. |
 | `URGENT_CHIME` | `false` | Enable client-side synthetic two-tone audio chime when urgent notices activate. |
 | `MAX_UPLOAD_MB` | `200` | Maximum file upload size in Megabytes (default 200MB). |
+| `POLL_INTERVAL_SECONDS` | `5` | Base polling interval for kiosk display and admin feed sync. |
+| `SSE_ENABLED` | `false` | Enable Server-Sent Events stream (`/api/events`). Disabled by default to protect Gunicorn sync workers from thread starvation. |
 
 ---
 
@@ -231,3 +233,10 @@ X-GNOME-Autostart-enabled=true
 - **Graceful Weather Degradation**: Weather queries time out after 3 seconds. Cached weather is shown for up to 60 minutes; if unavailable, the weather widget hides silently without ugly error boxes.
 - **Pure Client-Side QR Generation**: Uses vendored `qrcode.min.js` to render crisp high-DPI QR codes locally without external API dependencies.
 - **Audio Chime & Video Protection**: Gentle synthetic two-tone chime via Web Audio API (default disabled via `URGENT_CHIME=false`), wrapped in safe autoplay catch blocks. All `<video>` elements remain strictly muted (`muted=true, volume=0`).
+
+
+### ⚡ 7. High-Efficiency Sync Engine
+- **Conditional HTTP Polling with ETag**: Server attaches a deterministic 16-character SHA-256 `ETag` to `/api/notices`. Kiosk and Admin send `If-None-Match`. When notices have not changed, server returns HTTP `304 Not Modified` with zero payload body—consuming negligible bandwidth and CPU.
+- **Adaptive Backoff with Random Jitter**: If connection drops or server errors occur, polling frequency scales down via exponential backoff (up to 60s) with 0–500ms random jitter, preventing "thundering herd" reconnect storms on campus networks.
+- **Gunicorn Thread Protection**: Server-Sent Events (SSE) `/api/events` is optional (`SSE_ENABLED=false` by default) to prevent long-lived connections from exhausting synchronous WSGI worker threads on Raspberry Pi 3B+ hardware.
+- **Tab Visibility Throttling**: The Admin portal throttles polling when the browser tab is hidden in the background, waking immediately via `visibilitychange` when focused.

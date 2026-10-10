@@ -88,3 +88,29 @@
 - **Status:** Accepted (Phase 3)
 - **Context:** Displaying emergency notices can optionally notify nearby students via audio, but audio file loading fails offline and unmuted video playback disrupts corridors.
 - **Decision:** Generate a synthetic two-tone chime (880Hz / 1046.5Hz) using the native `AudioContext` oscillator. Wrap playback in a silent exception handler to prevent browser autoplay policy rejections from breaking the rotation loop. Ensure all `<video>` notice elements have `muted = true` and `volume = 0`.
+
+
+## Decision 14: Conditional HTTP Polling with ETag & 304 Not Modified
+- **Date:** 2026-10-11
+- **Status:** Accepted (Phase 4)
+- **Context:** Frequent notice polling (every 3–5 seconds) across multiple wall kiosks wastes server CPU, generates duplicate JSON parsing overhead, and burns network bandwidth on college Wi-Fi.
+- **Decision:** Hash the JSON output of `/api/notices` with SHA-256 (truncated to 16 hex chars) and attach an `ETag` header. Compare against client `If-None-Match` headers. If identical, return HTTP `304 Not Modified` with an empty response body. Both `display.js` and `admin.js` skip DOM updates on 304.
+- **Consequences:** Eliminates unnecessary JSON parsing and DOM redraws on kiosks; drops idle network payload to a few bytes per poll.
+
+## Decision 15: Adaptive Exponential Backoff with Reconnect Jitter
+- **Date:** 2026-10-11
+- **Status:** Accepted (Phase 4)
+- **Context:** Repeated fixed-interval retries during network outages cause CPU spikes on low-spec hardware and create synchronized "thundering herd" reconnection storms when the network recovers.
+- **Decision:** On network errors or HTTP 5xx responses, increase polling interval by 1.5x up to a maximum cap of 60 seconds, and add a random 0–500ms jitter offset. Reset interval immediately to base interval (`POLL_INTERVAL_SECONDS`) upon successful HTTP 200/304 or native `online` window event.
+
+## Decision 16: SSE Optional Mode & Gunicorn Sync Worker Thread Protection
+- **Date:** 2026-10-11
+- **Status:** Accepted (Phase 4)
+- **Context:** Server-Sent Events (`/api/events`) keep connections open indefinitely. In standard Gunicorn deployments with synchronous workers (`sync` model), a handful of open SSE connections permanently locks all worker processes, starving incoming HTTP requests.
+- **Decision:** Default `SSE_ENABLED` to `false`, relying on lightweight, non-blocking conditional HTTP polling (ETag / 304). Provide `/api/events` as a fully compliant SSE endpoint when `SSE_ENABLED=true` (e.g. on gevent or multi-threaded setups), with automatic client fallback to conditional polling if SSE disconnects or is disabled.
+
+## Decision 17: Visibility-Aware Sync Throttling
+- **Date:** 2026-10-11
+- **Status:** Accepted (Phase 4)
+- **Context:** Faculty admin dashboards left open in background browser tabs continuously consume network bandwidth and server CPU.
+- **Decision:** Check `document.hidden` during periodic admin sync. Pause background polling while tab is hidden, and trigger an immediate conditional refresh upon the `visibilitychange` event when the tab returns to foreground.

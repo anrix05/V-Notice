@@ -100,3 +100,8 @@ PUBLIC_BASE_URL = os.environ.get('PUBLIC_BASE_URL', '').rstrip('/')
 
 # Urgent notice audio chime (default disabled; purely client-side synthetic audio when enabled)
 URGENT_CHIME = os.environ.get('URGENT_CHIME', 'false').lower() in ('true', '1', 'yes')
+
+
+# Sync & Polling Efficiency (Phase 4)
+POLL_INTERVAL_SECONDS = int(os.environ.get('POLL_INTERVAL_SECONDS', 5))
+SSE_ENABLED = os.environ.get('SSE_ENABLED', 'false').lower() in ('true', '1', 'yes')
