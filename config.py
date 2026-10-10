@@ -18,23 +18,29 @@ if ENV_FILE.exists():
 # Environment & Production detection
 IS_RENDER = os.environ.get('RENDER') is not None
 IS_RAILWAY = os.environ.get('RAILWAY_ENVIRONMENT') is not None
-IS_PRODUCTION = (
-    IS_RENDER or 
-    IS_RAILWAY or 
+STRICT_PRODUCTION = (
     os.environ.get('FLASK_ENV') == 'production' or 
     os.environ.get('PRODUCTION', '').lower() in ('true', '1')
 )
+IS_PRODUCTION = STRICT_PRODUCTION or IS_RENDER or IS_RAILWAY
 
-# SECRET_KEY Configuration (Requirement: Required in production, refuse to start if default/missing)
+# SECRET_KEY Configuration
+# 1. If explicitly set, use it.
+# 2. In strict production (FLASK_ENV=production or PRODUCTION=true), refuse to start if missing or insecure default.
+# 3. Otherwise (e.g. initial Render/Railway deployment, development), generate a secure random key and log a clear warning.
 SECRET_KEY = os.environ.get('SECRET_KEY')
-if IS_PRODUCTION:
+if STRICT_PRODUCTION:
     if not SECRET_KEY or SECRET_KEY in ('default', 'vnotice-default-secret', 'changeme'):
-        print('FATAL SECURITY ERROR: SECRET_KEY environment variable is required in production.', file=sys.stderr)
+        print('FATAL SECURITY ERROR: SECRET_KEY environment variable is required when FLASK_ENV=production or PRODUCTION=true.', file=sys.stderr)
         print('Set a secure random string (e.g. openssl rand -hex 32) in your environment variables.', file=sys.stderr)
         sys.exit(1)
-else:
-    if not SECRET_KEY:
-        SECRET_KEY = os.environ.get('DEV_SECRET_KEY') or secrets.token_hex(32)
+elif not SECRET_KEY or SECRET_KEY in ('default', 'vnotice-default-secret', 'changeme'):
+    SECRET_KEY = os.environ.get('DEV_SECRET_KEY') or secrets.token_hex(32)
+    print('!' * 72, file=sys.stderr)
+    print('WARNING: SECRET_KEY environment variable is not set or using insecure default.', file=sys.stderr)
+    print('Generated an ephemeral secure random key for this session. Admin sessions will invalidate on process restart.', file=sys.stderr)
+    print('For production persistence, set SECRET_KEY in your environment variables.', file=sys.stderr)
+    print('!' * 72, file=sys.stderr)
 
 # Storage directory (supports optional STORAGE_DIR volume on Railway / Docker / Render)
 STORAGE_DIR = Path(os.environ.get('STORAGE_DIR', BASE_DIR))
