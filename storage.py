@@ -408,21 +408,27 @@ class NoticeStorage:
                     WHERE screen_id = 'default' OR screen_id = 'DEFAULT';
                 """)
 
-                # Clean up any legacy corrupted screen_codes containing brackets or quotes
-                conn.execute("""
-                    UPDATE notices
-                    SET screen_id = REPLACE(REPLACE(REPLACE(REPLACE(screen_id, '[', ''), ']', ''), '"', ''), "'", '')
-                    WHERE screen_id LIKE '%[%' OR screen_id LIKE '%"%';
-                """)
-                conn.execute("""
-                    UPDATE OR IGNORE notice_screens
-                    SET screen_code = REPLACE(REPLACE(REPLACE(REPLACE(screen_code, '[', ''), ']', ''), '"', ''), "'", '')
-                    WHERE screen_code LIKE '%[%' OR screen_code LIKE '%"%';
-                """)
-                conn.execute("""
-                    DELETE FROM notice_screens
-                    WHERE screen_code LIKE '%[%' OR screen_code LIKE '%"%';
-                """)
+                # Clean up any legacy corrupted screen_codes or notices containing brackets, quotes, commas, or JSON
+                all_notices = conn.execute("SELECT id, screen_id FROM notices;").fetchall()
+                for r in all_notices:
+                    nid = r[0]
+                    raw_sid = str(r[1] or "")
+                    if any(ch in raw_sid for ch in ['[', ']', '"', "'", ',', '\\']):
+                        clean_codes = sanitize_screen_codes(raw_sid)
+                        primary = clean_codes[0] if clean_codes else "ALL"
+                        conn.execute("UPDATE notices SET screen_id = ? WHERE id = ?;", (primary, nid))
+                        conn.execute("DELETE FROM notice_screens WHERE notice_id = ?;", (nid,))
+                        for sc in clean_codes:
+                            conn.execute("INSERT OR IGNORE INTO notice_screens (notice_id, screen_code) VALUES (?, ?);", (nid, sc))
+
+                all_screens = conn.execute("SELECT notice_id, screen_code FROM notice_screens;").fetchall()
+                for r in all_screens:
+                    nid = r[0]
+                    raw_sc = str(r[1] or "")
+                    if any(ch in raw_sc for ch in ['[', ']', '"', "'", ',', '\\']):
+                        conn.execute("DELETE FROM notice_screens WHERE notice_id = ? AND screen_code = ?;", (nid, raw_sc))
+                        for sc in sanitize_screen_codes(raw_sc):
+                            conn.execute("INSERT OR IGNORE INTO notice_screens (notice_id, screen_code) VALUES (?, ?);", (nid, sc))
 
                 # Populate notice_screens for any existing notices missing join entries
                 unlinked = conn.execute("""
@@ -453,6 +459,10 @@ class NoticeStorage:
             return None
         d = dict(row)
         d["status"] = compute_status(d, now_ms)
+        raw_sid = str(d.get("screen_id") or "ALL")
+        if any(ch in raw_sid for ch in ['[', ']', '"', "'", ',', '\\']):
+            clean = sanitize_screen_codes(raw_sid)
+            d["screen_id"] = clean[0] if clean else "ALL"
         return d
 
     def _enrich_notices(self, notices, conn=None):
@@ -484,10 +494,15 @@ class NoticeStorage:
             for n in notices:
                 screens = mapping.get(n["id"])
                 if screens:
-                    n["screens"] = screens
+                    clean_s = sanitize_screen_codes(screens)
+                    n["screens"] = clean_s
+                    if not n.get("screen_id") or any(ch in str(n.get("screen_id")) for ch in ['[', ']', '"', "'", ',', '\\']):
+                        n["screen_id"] = clean_s[0] if clean_s else "ALL"
                 else:
-                    fallback = n.get("screen_id") or "ALL"
-                    n["screens"] = [fallback]
+                    fallback = sanitize_screen_codes(n.get("screen_id") or "ALL")
+                    n["screens"] = fallback
+                    if not n.get("screen_id") or any(ch in str(n.get("screen_id")) for ch in ['[', ']', '"', "'", ',', '\\']):
+                        n["screen_id"] = fallback[0] if fallback else "ALL"
             return notices
         finally:
             if need_close:

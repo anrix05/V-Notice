@@ -260,6 +260,33 @@
   let availableScreens = [...DEFAULT_DEPARTMENTS];
   let selectedScreenCodes = new Set(['ALL']);
 
+  function sanitizeScreenCodes(raw) {
+    if (!raw) return ['ALL'];
+    let items = [];
+    if (Array.isArray(raw)) {
+      raw.forEach(item => {
+        items = items.concat(sanitizeScreenCodes(item));
+      });
+    } else if (typeof raw === 'string') {
+      let trimmed = raw.trim();
+      if (trimmed.startsWith('[') && trimmed.endsWith(']')) {
+        try {
+          const parsed = JSON.parse(trimmed);
+          if (Array.isArray(parsed)) return sanitizeScreenCodes(parsed);
+        } catch (e) {}
+      }
+      const cleaned = trimmed.replace(/[\[\]"'\\]/g, '');
+      cleaned.split(',').forEach(p => {
+        const up = p.trim().toUpperCase();
+        if (up && up !== 'DEFAULT') items.push(up);
+        else if (up === 'DEFAULT') items.push('ALL');
+      });
+    }
+    const deduped = Array.from(new Set(items));
+    if (deduped.includes('ALL')) return ['ALL'];
+    return deduped.length > 0 ? deduped : ['ALL'];
+  }
+
   async function loadScreens() {
     try {
       const res = await fetch('/api/screens');
@@ -652,7 +679,7 @@
               <span>${typeLabel}</span>${durationText}
             </span>
             ${(() => {
-              const targetCodes = (notice.screens && notice.screens.length) ? notice.screens : [notice.screen_id || 'ALL'];
+              const targetCodes = sanitizeScreenCodes(notice.screens || notice.screen_id);
               if (targetCodes.includes('ALL')) {
                 return '<span class="badge-dept-chip badge-all" title="All Departments (college-wide)">ALL</span>';
               }
@@ -864,11 +891,7 @@
     }
 
     inputBody.value = notice.body || '';
-    selectedScreenCodes = new Set(notice.screens || [notice.screen_id || 'ALL']);
-    if (selectedScreenCodes.has('default')) {
-      selectedScreenCodes.delete('default');
-      selectedScreenCodes.add('ALL');
-    }
+    selectedScreenCodes = new Set(sanitizeScreenCodes(notice.screens || notice.screen_id));
     renderChipPicker(availableScreens.length > 1 ? availableScreens : DEFAULT_DEPARTMENTS);
     const spErr2 = document.getElementById('screen-picker-error');
     if (spErr2) spErr2.classList.add('hidden');
@@ -1235,7 +1258,7 @@
 
     const formData = new FormData();
     formData.append('title', title);
-    const screensArr = Array.from(selectedScreenCodes);
+    const screensArr = sanitizeScreenCodes(Array.from(selectedScreenCodes));
     screensArr.forEach(s => formData.append('screens[]', s));
     formData.append('screen_id', screensArr[0] || 'ALL');
     if (noticeCreatedBy) formData.append('created_by', noticeCreatedBy.value || 'admin');
