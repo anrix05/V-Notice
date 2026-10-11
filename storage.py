@@ -160,7 +160,80 @@ class LocalMediaStorage(MediaStorageBackend):
     def url(self, filename: str) -> str:
         return f"/media/{filename}"
 
-media_storage = LocalMediaStorage()
+
+class CloudinaryMediaStorage(MediaStorageBackend):
+    def __init__(self, cloudinary_url: str = None):
+        self.is_cloud = True
+        import cloudinary
+        import cloudinary.uploader
+        self.cloudinary = cloudinary
+        self.uploader = cloudinary.uploader
+        if cloudinary_url:
+            os.environ["CLOUDINARY_URL"] = cloudinary_url
+        cloudinary.reset_config()
+
+    def save(self, file_obj, filename: str) -> str:
+        try:
+            target = file_obj
+            if isinstance(file_obj, (str, Path)):
+                target = str(file_obj)
+            else:
+                target = getattr(file_obj, "stream", file_obj)
+            res = self.uploader.upload(
+                target,
+                folder="vnotice",
+                resource_type="auto",
+                use_filename=True,
+                unique_filename=True
+            )
+            return res.get("secure_url") or res.get("url") or filename
+        except Exception as e:
+            logger.error("Cloudinary upload failed: %s", e)
+            raise
+
+    def delete(self, filename: str) -> bool:
+        if not filename:
+            return False
+        try:
+            if "res.cloudinary.com" in filename:
+                parts = filename.split("/upload/")
+                if len(parts) > 1:
+                    path_after = parts[1]
+                    if path_after.startswith("v") and "/" in path_after:
+                        path_after = path_after.split("/", 1)[1]
+                    public_id = path_after.rsplit(".", 1)[0]
+                    self.uploader.destroy(public_id, resource_type="image")
+                    self.uploader.destroy(public_id, resource_type="video")
+                    return True
+            return False
+        except Exception as e:
+            logger.warning("Cloudinary delete failed: %s", e)
+            return False
+
+    def exists(self, filename: str) -> bool:
+        return bool(filename and ("res.cloudinary.com" in filename or filename.startswith("http")))
+
+    def get_path(self, filename: str) -> Path:
+        return None
+
+    def url(self, filename: str) -> str:
+        return filename if filename.startswith("http") else f"/media/{filename}"
+
+
+try:
+    from config import CLOUDINARY_URL
+except ImportError:
+    CLOUDINARY_URL = os.environ.get("CLOUDINARY_URL")
+
+if CLOUDINARY_URL:
+    try:
+        media_storage = CloudinaryMediaStorage(CLOUDINARY_URL)
+        logger.info("Initialized Cloudinary media storage backend.")
+    except Exception as e:
+        logger.warning("Failed to initialize Cloudinary storage, falling back to local: %s", e)
+        media_storage = LocalMediaStorage()
+else:
+    media_storage = LocalMediaStorage()
 
 # ==============================================================================
 # SQLite Notice Storage with Multi-Screen Departments and Audit Logs
@@ -814,6 +887,18 @@ class NoticeStorage:
             dest_temp.rename(final_path)
             media_type = category
 
+            if getattr(self.media_storage, "is_cloud", False):
+                try:
+                    cloud_url = self.media_storage.save(final_path, media_filename)
+                    if cloud_url:
+                        media_filename = cloud_url
+                        try:
+                            final_path.unlink()
+                        except Exception:
+                            pass
+                except Exception as e:
+                    logger.error("Cloud upload error, falling back to local file: %s", e)
+
         try:
             duration = int(data.get("duration", 10))
             if duration <= 0:
@@ -919,6 +1004,18 @@ class NoticeStorage:
             final_path = self.media_folder / media_filename
             dest_temp.rename(final_path)
             media_type = category
+
+            if getattr(self.media_storage, "is_cloud", False):
+                try:
+                    cloud_url = self.media_storage.save(final_path, media_filename)
+                    if cloud_url:
+                        media_filename = cloud_url
+                        try:
+                            final_path.unlink()
+                        except Exception:
+                            pass
+                except Exception as e:
+                    logger.error("Cloud upload error, falling back to local file: %s", e)
             
             if old_media and old_media != media_filename:
                 self.media_storage.delete(old_media)

@@ -749,7 +749,7 @@
 
   function renderImageNotice(notice) {
     isVideoPlaying = false;
-    const mediaUrl = `/media/${encodeURIComponent(notice.media)}`;
+    const mediaUrl = (notice.media && notice.media.startsWith('http')) ? notice.media : `/media/${encodeURIComponent(notice.media)}`;
     imageElement.src = mediaUrl;
     imageHeadline.textContent = notice.title || '';
     imageBody.textContent = notice.body || '';
@@ -773,8 +773,8 @@
       videoAmbient.style.background = 'radial-gradient(circle at center, rgba(47, 107, 255, 0.28) 0%, rgba(22, 34, 56, 0.95) 75%)';
     }
 
-    const mediaSrc = `/media/${encodeURIComponent(notice.media)}`;
-    if (videoElement.src !== window.location.origin + mediaSrc) {
+    const mediaSrc = (notice.media && notice.media.startsWith('http')) ? notice.media : `/media/${encodeURIComponent(notice.media)}`;
+    if (videoElement.src !== mediaSrc && videoElement.src !== window.location.origin + mediaSrc) {
       videoElement.src = mediaSrc;
     }
 

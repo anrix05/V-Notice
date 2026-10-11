@@ -1482,8 +1482,10 @@ def create_unified_app():
             return jsonify({"error": "Notice not found"}), 404
 
         if notice.get("media"):
-            media_path = storage.media_storage.get_path(notice["media"])
-            if media_path.exists():
+            if str(notice["media"]).startswith("http://") or str(notice["media"]).startswith("https://"):
+                return redirect(notice["media"])
+            media_path = storage.media_storage.get_path(notice["media"]) if hasattr(storage.media_storage, "get_path") else None
+            if media_path and media_path.exists():
                 return send_from_directory(
                     MEDIA_FOLDER,
                     notice["media"],
@@ -1517,9 +1519,14 @@ def create_unified_app():
 
     @app.route("/media/<path:filename>")
     def serve_media(filename):
-        response = send_from_directory(MEDIA_FOLDER, filename)
-        response.headers["Cache-Control"] = "public, max-age=86400"
-        return response
+        if filename.startswith("http://") or filename.startswith("https://"):
+            return redirect(filename)
+        file_path = MEDIA_FOLDER / filename
+        if file_path.exists():
+            response = send_from_directory(MEDIA_FOLDER, filename)
+            response.headers["Cache-Control"] = "public, max-age=86400"
+            return response
+        return jsonify({"error": "Media file not found"}), 404
 
     @app.route("/api/health")
     def health():

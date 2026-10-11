@@ -193,9 +193,9 @@
     {% if notice.media %}
       <div class="media-wrap">
         {% if notice.type == 'video' %}
-          <video src="/media/{{ notice.media }}" controls playsinline autoplay muted></video>
+          <video src="{{ notice.media if notice.media.startswith('http') else '/media/' + notice.media }}" controls playsinline autoplay muted></video>
         {% else %}
-          <img src="/media/{{ notice.media }}" alt="{{ notice.title }}">
+          <img src="{{ notice.media if notice.media.startswith('http') else '/media/' + notice.media }}" alt="{{ notice.title }}">
         {% endif %}
       </div>
     {% endif %}

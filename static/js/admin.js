@@ -636,10 +636,10 @@
       // 1. Left Thumbnail Anatomy: Image, Video Poster, or Gradient Initial Tile
       let tileHtml = '';
       if (ntype === 'image' && notice.media) {
-        const mediaUrl = `/media/${encodeURIComponent(notice.media)}`;
+        const mediaUrl = notice.media.startsWith('http') ? notice.media : `/media/${encodeURIComponent(notice.media)}`;
         tileHtml = `<div class="notice-media-tile"><img src="${mediaUrl}" alt="" class="notice-thumb-img" loading="lazy"></div>`;
       } else if (ntype === 'video' && notice.media) {
-        const mediaUrl = `/media/${encodeURIComponent(notice.media)}`;
+        const mediaUrl = notice.media.startsWith('http') ? notice.media : `/media/${encodeURIComponent(notice.media)}`;
         tileHtml = `
           <div class="notice-media-tile video-tile" data-video-url="${mediaUrl}">
             <img class="notice-thumb-img video-poster-img hidden" alt="">
@@ -710,7 +710,8 @@
         const vTile = card.querySelector('.video-tile');
         const vImg = card.querySelector('.video-poster-img');
         if (vTile && vImg) {
-          requestVideoPoster(`/media/${encodeURIComponent(notice.media)}`, (posterUrl) => {
+          const vUrl = notice.media.startsWith('http') ? notice.media : `/media/${encodeURIComponent(notice.media)}`;
+          requestVideoPoster(vUrl, (posterUrl) => {
             if (posterUrl) {
               vImg.src = posterUrl;
               vImg.classList.remove('hidden');
@@ -931,7 +932,8 @@
       fileSize.textContent = 'Current media';
       dropPrompt.classList.add('hidden');
       dropSelected.classList.remove('hidden');
-      renderMediaPreviewFromUrl(`/media/${encodeURIComponent(notice.media)}`, type);
+      const previewUrl = notice.media.startsWith('http') ? notice.media : `/media/${encodeURIComponent(notice.media)}`;
+      renderMediaPreviewFromUrl(previewUrl, type);
     }
 
     noticeModal.classList.remove('hidden');

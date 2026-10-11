@@ -49,6 +49,9 @@ STORAGE_DIR = Path(os.environ.get('STORAGE_DIR', BASE_DIR))
 MEDIA_DIR = Path(os.environ.get('MEDIA_DIR', STORAGE_DIR / 'media'))
 MEDIA_FOLDER = MEDIA_DIR  # Backwards compatibility alias
 
+# Cloudinary Storage Configuration
+CLOUDINARY_URL = os.environ.get('CLOUDINARY_URL')
+
 # Database file (SQLite in WAL mode)
 DB_FILE = Path(os.environ.get('DB_FILE', STORAGE_DIR / 'notices.db'))
 DATA_FILE = STORAGE_DIR / 'notices.json'  # Used for migration
