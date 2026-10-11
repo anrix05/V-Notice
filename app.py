@@ -383,9 +383,9 @@ def apply_security_headers(app):
             "default-src 'self'; "
             "script-src 'self' 'unsafe-inline'; "
             "style-src 'self' 'unsafe-inline'; "
-            "img-src 'self' data: blob:; "
-            "media-src 'self' blob:; "
-            "connect-src 'self'; "
+            "img-src 'self' data: blob: https://res.cloudinary.com https://*.cloudinary.com; "
+            "media-src 'self' blob: https://res.cloudinary.com https://*.cloudinary.com; "
+            "connect-src 'self' https://res.cloudinary.com https://*.cloudinary.com; "
             "font-src 'self'; "
             "frame-ancestors 'none';"
         )

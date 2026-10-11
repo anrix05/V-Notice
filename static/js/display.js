@@ -499,9 +499,11 @@
     const nextIdx = (currentIndex + 1) % displayQueue.length;
     const nextNotice = displayQueue[nextIdx];
     if (nextNotice && nextNotice.media) {
-      const nextSrc = `/media/${encodeURIComponent(nextNotice.media)}`;
+      const nextSrc = (nextNotice.media && nextNotice.media.startsWith('http'))
+        ? nextNotice.media
+        : `/media/${encodeURIComponent(nextNotice.media)}`;
       const mediaType = (nextNotice.media_type || '').toLowerCase();
-      if (mediaType.startsWith('video') || nextNotice.media.endsWith('.mp4') || nextNotice.media.endsWith('.webm')) {
+      if (mediaType.startsWith('video') || nextNotice.media.endsWith('.mp4') || nextNotice.media.endsWith('.webm') || nextNotice.type === 'video') {
         const preloader = document.createElement('video');
         preloader.preload = 'auto';
         preloader.src = nextSrc;
@@ -776,6 +778,7 @@
     const mediaSrc = (notice.media && notice.media.startsWith('http')) ? notice.media : `/media/${encodeURIComponent(notice.media)}`;
     if (videoElement.src !== mediaSrc && videoElement.src !== window.location.origin + mediaSrc) {
       videoElement.src = mediaSrc;
+      videoElement.load();
     }
 
     videoElement.muted = true;
@@ -804,10 +807,11 @@
       advanceNotice();
     };
 
-    videoElement.onerror = () => {
-      console.warn('Video failed to load');
+    videoElement.onerror = (err) => {
+      console.warn('Video failed to load:', err);
       isVideoPlaying = false;
-      advanceNotice();
+      const durationSec = notice.duration || 10;
+      rotationTimer = setTimeout(advanceNotice, durationSec * 1000);
     };
   }
 
