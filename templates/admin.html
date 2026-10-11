@@ -33,13 +33,13 @@
 
       <form id="login-form" class="auth-form" onsubmit="return false;">
         <div class="form-group">
-          <label for="admin-username-input" class="form-label">Username <span style="font-weight: normal; opacity: 0.65; font-size: 0.85em;">(Optional for Super Admin)</span></label>
-          <input type="text" id="admin-username-input" class="form-control" placeholder="admin or dept username (e.g. excs_staff)" autocomplete="username">
+          <label for="admin-username-input" class="form-label">Username</label>
+          <input type="text" id="admin-username-input" class="form-control" value="admin" placeholder="admin" autocomplete="username">
         </div>
         <div class="form-group">
           <label for="admin-password-input" class="form-label">Password</label>
           <div class="input-password-wrap">
-            <input type="password" id="admin-password-input" class="form-control" placeholder="Enter admin password" required autofocus autocomplete="current-password">
+            <input type="password" id="admin-password-input" class="form-control" placeholder="Enter password" required autofocus autocomplete="current-password">
             <button type="button" id="btn-toggle-password" class="btn-toggle-pw">Show</button>
           </div>
           <div id="login-error" class="inline-error hidden">Incorrect password.</div>
