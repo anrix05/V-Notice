@@ -4,6 +4,12 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>V Notice — Portal Admin</title>
+  <link rel="manifest" href="/manifest.json">
+  <meta name="theme-color" content="#2563EB">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="V Notice Admin">
   <link rel="icon" type="image/svg+xml" href="/static/brand/logo.svg">
   <link rel="icon" type="image/png" sizes="32x32" href="/static/favicon.png">
   <link rel="apple-touch-icon" sizes="180x180" href="/static/apple-touch-icon.png">
@@ -75,6 +81,14 @@
         </div>
 
         <div class="nav-actions">
+          <button id="btn-install-app" class="btn btn-outline btn-sm hidden" style="margin-right: 8px; border-radius: 9999px; padding: 5px 12px; font-size: 13px; display: inline-flex; align-items: center; gap: 6px; border-color: rgba(59, 130, 246, 0.4); color: #93c5fd;" title="Install Android App">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+              <polyline points="7 10 12 15 17 10"></polyline>
+              <line x1="12" y1="15" x2="12" y2="3"></line>
+            </svg>
+            <span>Install App</span>
+          </button>
           <span id="auth-user-badge" class="badge badge-dept-chip" style="margin-right: 8px; font-weight: 600; text-transform: none;">admin</span>
           <button id="btn-logout" class="btn-icon btn-logout" aria-label="Log out" title="Log out">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75">
@@ -500,5 +514,43 @@
     </div>
   </div>
 
+  <script>
+    // Service Worker Registration for PWA / Android App
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('/sw.js', { scope: '/' })
+          .then((reg) => console.log('V Notice ServiceWorker registered:', reg.scope))
+          .catch((err) => console.warn('V Notice ServiceWorker registration failed:', err));
+      });
+    }
+
+    // Capture Android install prompt
+    let deferredPrompt = null;
+    const btnInstall = document.getElementById('btn-install-app');
+
+    window.addEventListener('beforeinstallprompt', (e) => {
+      e.preventDefault();
+      deferredPrompt = e;
+      if (btnInstall && !window.matchMedia('(display-mode: standalone)').matches) {
+        btnInstall.classList.remove('hidden');
+      }
+    });
+
+    if (btnInstall) {
+      btnInstall.addEventListener('click', async () => {
+        if (!deferredPrompt) return;
+        deferredPrompt.prompt();
+        const { outcome } = await deferredPrompt.userChoice;
+        console.log('User response to install prompt:', outcome);
+        deferredPrompt = null;
+        btnInstall.classList.add('hidden');
+      });
+    }
+
+    window.addEventListener('appinstalled', () => {
+      console.log('V Notice Admin app installed successfully');
+      if (btnInstall) btnInstall.classList.add('hidden');
+    });
+  </script>
 </body>
 </html>

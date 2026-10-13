@@ -387,6 +387,8 @@ def apply_security_headers(app):
             "media-src 'self' blob: https://res.cloudinary.com https://*.cloudinary.com; "
             "connect-src 'self' https://res.cloudinary.com https://*.cloudinary.com; "
             "font-src 'self'; "
+            "manifest-src 'self'; "
+            "worker-src 'self'; "
             "frame-ancestors 'none';"
         )
         if request.path.startswith("/admin") or request.path == "/" or request.path.startswith("/api"):
@@ -520,6 +522,16 @@ def create_display_app():
             mimetype="application/javascript",
         )
         response.headers["Service-Worker-Allowed"] = "/"
+        response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+        return response
+
+    @app.route("/manifest.json")
+    def manifest():
+        response = send_from_directory(
+            os.path.join(app.root_path, "static"),
+            "manifest.json",
+            mimetype="application/manifest+json",
+        )
         response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
         return response
 
@@ -693,6 +705,27 @@ def create_admin_app():
     @app.teardown_appcontext
     def teardown_db(exception=None):
         storage.close_connection()
+
+    @app.route("/sw.js")
+    def service_worker():
+        response = send_from_directory(
+            os.path.join(app.root_path, "static"),
+            "sw.js",
+            mimetype="application/javascript",
+        )
+        response.headers["Service-Worker-Allowed"] = "/"
+        response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+        return response
+
+    @app.route("/manifest.json")
+    def manifest():
+        response = send_from_directory(
+            os.path.join(app.root_path, "static"),
+            "manifest.json",
+            mimetype="application/manifest+json",
+        )
+        response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+        return response
 
     @app.route("/")
     def index():
@@ -1088,6 +1121,16 @@ def create_unified_app():
             mimetype="application/javascript",
         )
         response.headers["Service-Worker-Allowed"] = "/"
+        response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+        return response
+
+    @app.route("/manifest.json")
+    def manifest():
+        response = send_from_directory(
+            os.path.join(app.root_path, "static"),
+            "manifest.json",
+            mimetype="application/manifest+json",
+        )
         response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
         return response
 

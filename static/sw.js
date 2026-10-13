@@ -13,10 +13,16 @@ const MAX_MEDIA_ITEMS = 50;
 
 const SHELL_ASSETS = [
   '/',
+  '/admin',
   '/display',
+  '/static/manifest.json',
+  '/static/css/admin.css?v=5',
+  '/static/js/admin.js',
   '/static/css/display.css',
   '/static/js/display.js',
   '/static/js/qrcode.min.js',
+  '/static/icons/icon-192.png',
+  '/static/icons/icon-512.png',
   '/static/images/logo.svg',
   '/static/favicon.png',
   '/static/fonts/Inter-Regular.woff2',
@@ -163,7 +169,7 @@ self.addEventListener('fetch', (event) => {
   }
 
   // 3. Navigation / Shell / Static assets: Network-first with cache fallback
-  if (req.mode === 'navigate' || url.pathname.startsWith('/static/') || url.pathname === '/' || url.pathname === '/display') {
+  if (req.mode === 'navigate' || url.pathname.startsWith('/static/') || url.pathname === '/' || url.pathname === '/display' || url.pathname.startsWith('/admin')) {
     event.respondWith(
       fetch(req).then(async (networkRes) => {
         if (networkRes && networkRes.ok) {
@@ -176,6 +182,9 @@ self.addEventListener('fetch', (event) => {
         const match = await cache.match(req);
         if (match) return match;
         if (req.mode === 'navigate') {
+          if (url.pathname.startsWith('/admin')) {
+            return (await cache.match('/admin')) || (await cache.match('/'));
+          }
           return (await cache.match('/display')) || (await cache.match('/'));
         }
         return new Response('Offline', { status: 503, statusText: 'Offline' });
