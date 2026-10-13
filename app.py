@@ -526,10 +526,12 @@ def create_display_app():
         return response
 
     @app.route("/manifest.json")
+    @app.route("/manifest.webmanifest")
     def manifest():
+        filename = "manifest.webmanifest" if request.path.endswith(".webmanifest") else "manifest.json"
         response = send_from_directory(
             os.path.join(app.root_path, "static"),
-            "manifest.json",
+            filename,
             mimetype="application/manifest+json",
         )
         response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
@@ -718,10 +720,12 @@ def create_admin_app():
         return response
 
     @app.route("/manifest.json")
+    @app.route("/manifest.webmanifest")
     def manifest():
+        filename = "manifest.webmanifest" if request.path.endswith(".webmanifest") else "manifest.json"
         response = send_from_directory(
             os.path.join(app.root_path, "static"),
-            "manifest.json",
+            filename,
             mimetype="application/manifest+json",
         )
         response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
@@ -1125,10 +1129,12 @@ def create_unified_app():
         return response
 
     @app.route("/manifest.json")
+    @app.route("/manifest.webmanifest")
     def manifest():
+        filename = "manifest.webmanifest" if request.path.endswith(".webmanifest") else "manifest.json"
         response = send_from_directory(
             os.path.join(app.root_path, "static"),
-            "manifest.json",
+            filename,
             mimetype="application/manifest+json",
         )
         response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"

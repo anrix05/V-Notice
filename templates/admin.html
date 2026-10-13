@@ -2,10 +2,10 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>V Notice — Portal Admin</title>
-  <link rel="manifest" href="/manifest.json">
-  <meta name="theme-color" content="#2563EB">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <meta name="theme-color" content="#0F172A">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -13,18 +13,62 @@
   <link rel="icon" type="image/svg+xml" href="/static/brand/logo.svg">
   <link rel="icon" type="image/png" sizes="32x32" href="/static/favicon.png">
   <link rel="apple-touch-icon" sizes="180x180" href="/static/apple-touch-icon.png">
-  <link rel="stylesheet" href="/static/css/admin.css?v=5">
+  <link rel="stylesheet" href="/static/css/admin.css?v=9">
 </head>
 <body class="admin-body">
 
   <!-- ========================================================================
-       Login Card (If not authenticated)
+       Offline Banner
+       ======================================================================== -->
+  <div id="offline-banner" class="offline-banner hidden" role="alert" aria-live="assertive">
+    <div class="offline-content">
+      <span class="offline-icon" aria-hidden="true">⚡</span>
+      <span class="offline-text">You're offline. Publishing and editing are disabled until network is restored.</span>
+    </div>
+  </div>
+
+  <!-- ========================================================================
+       PWA Install Prompts (Android & iOS Safari)
+       ======================================================================== -->
+  <div id="pwa-install-banner" class="pwa-install-banner hidden" role="dialog" aria-label="Install App">
+    <div class="pwa-content">
+      <div class="pwa-icon">
+        <img src="/static/icons/icon-192.png" width="38" height="38" alt="V Notice">
+      </div>
+      <div class="pwa-copy">
+        <strong class="pwa-title">Install V Notice Admin</strong>
+        <p class="pwa-desc">Get a full-screen app on your phone with instant access.</p>
+      </div>
+    </div>
+    <div class="pwa-btns">
+      <button type="button" id="btn-pwa-dismiss" class="btn btn-text btn-sm">Not now</button>
+      <button type="button" id="btn-pwa-install" class="btn btn-primary btn-sm">Install</button>
+    </div>
+  </div>
+
+  <div id="ios-pwa-banner" class="pwa-install-banner hidden" role="dialog" aria-label="Add to Home Screen">
+    <div class="pwa-content">
+      <div class="pwa-icon">
+        <img src="/static/icons/icon-192.png" width="38" height="38" alt="V Notice">
+      </div>
+      <div class="pwa-copy">
+        <strong class="pwa-title">Install on iPhone / iPad</strong>
+        <p class="pwa-desc">Tap <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="display:inline;vertical-align:-2px"><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/><polyline points="16 6 12 2 8 6"/><line x1="12" y1="2" x2="12" y2="15"/></svg> Share below, then tap <strong>"Add to Home Screen"</strong>.</p>
+      </div>
+    </div>
+    <div class="pwa-btns">
+      <button type="button" id="btn-ios-dismiss" class="btn btn-text btn-sm">Got it</button>
+    </div>
+  </div>
+
+  <!-- ========================================================================
+       Login Card (Fullscreen on phones, Centered on large screens)
        ======================================================================== -->
   <div id="login-modal" class="auth-wrapper hidden">
     <div class="auth-card">
       <div class="auth-header">
         <div class="logo-mark" aria-hidden="true">
-          <svg viewBox="0 0 100 100" width="44" height="44" aria-hidden="true">
+          <svg viewBox="0 0 100 100" width="48" height="48" aria-hidden="true">
             <rect x="4" y="4" width="92" height="92" rx="24" fill="#2563EB"/>
             <rect x="4" y="4" width="92" height="92" rx="24" fill="none" stroke="rgba(255, 255, 255, 0.25)" stroke-width="1.5"/>
             <path d="M 26 27 L 50 73 L 74 27" fill="none" stroke="#FFFFFF" stroke-width="13" stroke-linecap="round" stroke-linejoin="round"/>
@@ -33,22 +77,22 @@
             <circle cx="77" cy="23" r="7.5" fill="#F59E0B" class="vnotice-badge-dot"/>
           </svg>
         </div>
-        <h1 class="auth-title">Sign in</h1>
-        <p class="auth-subtitle">V Notice admin</p>
+        <h1 class="auth-title">V Notice</h1>
+        <p class="auth-subtitle">Campus Digital Noticeboard Admin</p>
       </div>
 
       <form id="login-form" class="auth-form" onsubmit="return false;">
         <div class="form-group">
           <label for="admin-username-input" class="form-label">Username</label>
-          <input type="text" id="admin-username-input" class="form-control" value="admin" placeholder="admin" autocomplete="username">
+          <input type="text" id="admin-username-input" class="form-control" value="admin" placeholder="admin" autocomplete="username" inputmode="text" enterkeyhint="next">
         </div>
         <div class="form-group">
           <label for="admin-password-input" class="form-label">Password</label>
           <div class="input-password-wrap">
-            <input type="password" id="admin-password-input" class="form-control" placeholder="Enter password" required autofocus autocomplete="current-password">
-            <button type="button" id="btn-toggle-password" class="btn-toggle-pw">Show</button>
+            <input type="password" id="admin-password-input" class="form-control" placeholder="Enter password" required autofocus autocomplete="current-password" enterkeyhint="go">
+            <button type="button" id="btn-toggle-password" class="btn-toggle-pw" aria-label="Toggle password visibility">Show</button>
           </div>
-          <div id="login-error" class="inline-error hidden">Incorrect password.</div>
+          <div id="login-error" class="inline-error hidden" role="alert" aria-live="assertive">Incorrect password.</div>
         </div>
 
         <button type="submit" id="btn-login" class="btn btn-primary btn-block btn-lg">
@@ -59,39 +103,68 @@
   </div>
 
   <!-- ========================================================================
-       Main Admin App (Centered 720px Column)
+       Main App Shell (Left Sidebar on Desktop, Bottom Tab Bar on Phones)
        ======================================================================== -->
-  <div class="admin-app" id="admin-app">
+  <div class="admin-app-shell" id="admin-app">
     
-    <!-- Top Navigation Bar (Aligned to 720px column) -->
-    <header class="admin-navbar">
-      <div class="nav-content">
-        <div class="nav-brand">
+    <!-- Left Navigation Rail for Desktop (>= 1024px) -->
+    <aside class="desktop-sidebar" id="desktop-sidebar" aria-label="Desktop Navigation">
+      <div class="sidebar-top">
+        <div class="sidebar-brand">
           <div class="logo-mark logo-mark-sm" aria-hidden="true">
-            <svg viewBox="0 0 100 100" width="30" height="30" aria-hidden="true">
+            <svg viewBox="0 0 100 100" width="32" height="32" aria-hidden="true">
               <rect x="4" y="4" width="92" height="92" rx="24" fill="#2563EB"/>
-              <rect x="4" y="4" width="92" height="92" rx="24" fill="none" stroke="rgba(255, 255, 255, 0.25)" stroke-width="1.5"/>
               <path d="M 26 27 L 50 73 L 74 27" fill="none" stroke="#FFFFFF" stroke-width="13" stroke-linecap="round" stroke-linejoin="round"/>
-              <line x1="22" y1="27" x2="30" y2="27" stroke="#FFFFFF" stroke-width="4" stroke-linecap="round"/>
               <circle cx="77" cy="23" r="10" fill="#2563EB"/>
-              <circle cx="77" cy="23" r="7.5" fill="#F59E0B" class="vnotice-badge-dot"/>
+              <circle cx="77" cy="23" r="7.5" fill="#F59E0B"/>
             </svg>
           </div>
-          <span class="nav-brand-title"><span class="brand-v">V</span> <span class="brand-name">Notice</span></span>
+          <span class="sidebar-brand-name"><span class="brand-v">V</span> Notice</span>
         </div>
 
-        <div class="nav-actions">
-          <button id="btn-install-app" class="btn btn-outline btn-sm hidden" style="margin-right: 8px; border-radius: 9999px; padding: 5px 12px; font-size: 13px; display: inline-flex; align-items: center; gap: 6px; border-color: rgba(59, 130, 246, 0.4); color: #93c5fd;" title="Install Android App">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-              <polyline points="7 10 12 15 17 10"></polyline>
-              <line x1="12" y1="15" x2="12" y2="3"></line>
+        <nav class="sidebar-menu" role="tablist">
+          <a href="#notices" class="sidebar-item active" data-tab="notices" id="sidebar-tab-notices" role="tab" aria-selected="true">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+              <rect x="3" y="3" width="18" height="18" rx="2"></rect>
+              <line x1="8" y1="8" x2="16" y2="8"></line>
+              <line x1="8" y1="12" x2="16" y2="12"></line>
+              <line x1="8" y1="16" x2="13" y2="16"></line>
             </svg>
-            <span>Install App</span>
-          </button>
-          <span id="auth-user-badge" class="badge badge-dept-chip" style="margin-right: 8px; font-weight: 600; text-transform: none;">admin</span>
-          <button id="btn-logout" class="btn-icon btn-logout" aria-label="Log out" title="Log out">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75">
+            <span class="sidebar-label">Notices</span>
+          </a>
+          <a href="#screens" class="sidebar-item" data-tab="screens" id="btn-view-screens" role="tab" aria-selected="false">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+              <rect x="2" y="3" width="20" height="14" rx="2"></rect>
+              <line x1="8" y1="21" x2="16" y2="21"></line>
+              <line x1="12" y1="17" x2="12" y2="21"></line>
+            </svg>
+            <span class="sidebar-label">Screens</span>
+          </a>
+          <a href="#audit" class="sidebar-item" data-tab="audit" id="btn-view-audit" role="tab" aria-selected="false">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+              <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
+            </svg>
+            <span class="sidebar-label">Audit Logs</span>
+          </a>
+          <a href="#settings" class="sidebar-item" data-tab="settings" id="sidebar-tab-settings" role="tab" aria-selected="false">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+              <circle cx="12" cy="12" r="3"></circle>
+              <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+            </svg>
+            <span class="sidebar-label">Settings</span>
+          </a>
+        </nav>
+      </div>
+
+      <div class="sidebar-bottom">
+        <div class="sidebar-user-card">
+          <div class="user-avatar" id="sidebar-user-avatar">A</div>
+          <div class="user-meta">
+            <span class="user-name" id="sidebar-username">admin</span>
+            <span class="user-role" id="sidebar-role">Super Admin</span>
+          </div>
+          <button id="sidebar-btn-logout" class="btn-icon" aria-label="Log out" title="Log out">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path>
               <polyline points="16 17 21 12 16 7"></polyline>
               <line x1="21" y1="12" x2="9" y2="12"></line>
@@ -99,191 +172,502 @@
           </button>
         </div>
       </div>
-    </header>
+    </aside>
 
-    <!-- Main Content Container -->
-    <main class="admin-main">
+    <!-- Main Content Stage -->
+    <div class="admin-main-stage">
       
-      <!-- Page Top Header -->
-      <section class="page-top">
-        <div class="page-top-header">
-          <div class="page-top-titles">
-            <h1 class="page-title">Notices</h1>
-            <p class="page-subtitle">Publish and schedule what appears on the board.</p>
+      <!-- Compact Sticky Top App Bar (56px) - Hides on scroll down, returns on scroll up -->
+      <header class="admin-navbar" id="admin-navbar">
+        <div class="nav-content">
+          <div class="nav-brand">
+            <div class="logo-mark logo-mark-sm" aria-hidden="true">
+              <svg viewBox="0 0 100 100" width="28" height="28" aria-hidden="true">
+                <rect x="4" y="4" width="92" height="92" rx="24" fill="#2563EB"/>
+                <path d="M 26 27 L 50 73 L 74 27" fill="none" stroke="#FFFFFF" stroke-width="13" stroke-linecap="round" stroke-linejoin="round"/>
+                <circle cx="77" cy="23" r="10" fill="#2563EB"/>
+                <circle cx="77" cy="23" r="7.5" fill="#F59E0B"/>
+              </svg>
+            </div>
+            <h1 class="nav-screen-title" id="app-bar-title">Notices</h1>
           </div>
-          <div class="header-toolbar-group">
-            <button id="btn-view-screens" class="btn btn-secondary btn-toolbar hidden" style="display: none !important;" aria-label="Department Screens" title="Manage department display screens">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
-                <rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect>
-                <line x1="8" y1="21" x2="16" y2="21"></line>
-                <line x1="12" y1="17" x2="12" y2="21"></line>
+
+          <div class="nav-actions">
+            <!-- Desktop New Notice Button (Hidden on phones where bottom tab '+' takes over) -->
+            <button id="btn-open-create" class="btn btn-primary btn-sm btn-new-desktop" aria-label="Create new notice">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true">
+                <line x1="12" y1="5" x2="12" y2="19"></line>
+                <line x1="5" y1="12" x2="19" y2="12"></line>
               </svg>
-              <span>Screens</span>
+              <span>New notice</span>
             </button>
-            <button id="btn-view-audit" class="btn btn-secondary btn-toolbar" aria-label="Security Audit Logs" title="View security audit logs">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
-                <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
-              </svg>
-              <span>Audit Logs</span>
-            </button>
-            <button id="btn-refresh" class="btn btn-secondary btn-icon btn-toolbar btn-refresh" aria-label="Refresh notices" title="Refresh notices list">
+
+            <button id="btn-refresh" class="btn-icon btn-refresh" aria-label="Refresh notices" title="Refresh">
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
                 <path d="M23 4v6h-6"></path>
                 <path d="M1 20v-6h6"></path>
                 <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
               </svg>
             </button>
+
+            <!-- Overflow / Account Trigger -->
+            <div class="nav-account-wrap">
+              <span id="auth-user-badge" class="badge badge-dept-chip">admin</span>
+              <button id="btn-logout" class="btn-icon btn-logout" aria-label="Log out" title="Log out">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path>
+                  <polyline points="16 17 21 12 16 7"></polyline>
+                  <line x1="21" y1="12" x2="9" y2="12"></line>
+                </svg>
+              </button>
+            </div>
           </div>
         </div>
-        <button id="btn-open-create" class="btn btn-primary btn-new-notice">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true">
-            <line x1="12" y1="5" x2="12" y2="19"></line>
-            <line x1="5" y1="12" x2="19" y2="12"></line>
+      </header>
+
+      <!-- Scrollable Main Container with Pull-to-Refresh on touch -->
+      <main class="admin-scroll-container" id="admin-scroll-container">
+        
+        <!-- Pull to Refresh Spinner Indicator -->
+        <div class="pull-refresh-indicator" id="pull-refresh-indicator" aria-hidden="true">
+          <div class="pull-spinner"></div>
+          <span class="pull-label" id="pull-refresh-label">Pull to refresh</span>
+        </div>
+
+        <!-- ==================================================================
+             VIEW 1: NOTICES VIEW
+             ================================================================== -->
+        <section class="tab-view-panel active" id="view-notices">
+          
+          <!-- Sticky Horizontally Scrollable Filter Chips Row -->
+          <div class="sticky-filter-bar">
+            <div class="chip-scroll-row" role="tablist" aria-label="Filter notices by status">
+              <button class="segment-tab active" data-filter="all" role="tab" aria-selected="true">
+                All <span class="tab-count-pill" id="count-all">0</span>
+              </button>
+              <button class="segment-tab" data-filter="live" role="tab" aria-selected="false">
+                Live <span class="tab-count-pill" id="count-live">0</span>
+              </button>
+              <button class="segment-tab" data-filter="scheduled" role="tab" aria-selected="false">
+                Scheduled <span class="tab-count-pill" id="count-scheduled">0</span>
+              </button>
+              <button class="segment-tab" data-filter="expired" role="tab" aria-selected="false">
+                Expired <span class="tab-count-pill" id="count-expired">0</span>
+              </button>
+            </div>
+
+            <!-- Screen Dropdown / Filter -->
+            <div class="screen-select-wrap">
+              <label for="feed-screen-filter" class="screen-filter-label">Screen:</label>
+              <select id="feed-screen-filter" class="form-control screen-select" aria-label="Filter notices by screen">
+                <option value="all_screens">All Screens</option>
+                <option value="ALL">All Departments (college-wide)</option>
+                <option value="CMPN">CMPN - Computer Engineering</option>
+                <option value="INFT">INFT - Information Technology</option>
+                <option value="EXTC">EXTC - Electronics &amp; Telecommunication</option>
+                <option value="EXCS">EXCS - Electronics &amp; Computer Science</option>
+                <option value="BIOM">BIOM - Biomedical Engineering</option>
+              </select>
+            </div>
+          </div>
+
+          <!-- Notices List Container (Card Grid) -->
+          <div class="notices-list-wrapper">
+            <div class="notices-list" id="notices-container" aria-live="polite">
+              <div class="notices-loading" id="notices-loading">
+                <div class="skeleton-card"></div>
+                <div class="skeleton-card"></div>
+                <div class="skeleton-card"></div>
+              </div>
+            </div>
+          </div>
+
+        </section>
+
+        <!-- ==================================================================
+             VIEW 2: SCREENS VIEW (Tab 2 on mobile, Sidebar item 2)
+             ================================================================== -->
+        <section class="tab-view-panel hidden" id="view-screens">
+          <div class="view-inner-container">
+            <div class="view-header-row">
+              <div>
+                <h2 class="view-heading">Department Screens</h2>
+                <p class="view-subheading">Live kiosk heartbeats and department board links.</p>
+              </div>
+              <button id="btn-open-add-dept" class="btn btn-secondary btn-sm">
+                <span>+ Add Screen</span>
+              </button>
+            </div>
+
+            <!-- Inline Screen Creator Form (Collapsible) -->
+            <div class="card-add-dept hidden" id="card-add-dept-inline">
+              <h3 class="section-title">New Department Display</h3>
+              <form id="add-dept-form-inline" class="dept-form-grid">
+                <div class="form-group">
+                  <label for="dept-code-input-inline" class="form-label">Code <span class="required">*</span></label>
+                  <input type="text" id="dept-code-input-inline" class="form-control" placeholder="e.g. AIDS" maxlength="10" required>
+                </div>
+                <div class="form-group form-group-grow">
+                  <label for="dept-name-input-inline" class="form-label">Full Department Name <span class="required">*</span></label>
+                  <input type="text" id="dept-name-input-inline" class="form-control" placeholder="e.g. Artificial Intelligence & Data Science" required>
+                </div>
+                <div class="form-group form-group-color">
+                  <label for="dept-color-input-inline" class="form-label">Accent</label>
+                  <input type="color" id="dept-color-input-inline" class="form-control form-control-color" value="#3B82F6">
+                </div>
+                <div class="form-group form-group-btn">
+                  <label class="form-label">&nbsp;</label>
+                  <button type="submit" id="btn-save-dept-inline" class="btn btn-primary">Save Screen</button>
+                </div>
+              </form>
+              <div class="inline-error hidden" id="dept-form-error-inline"></div>
+            </div>
+
+            <!-- Screens Cards Grid / Table -->
+            <div class="screens-cards-grid" id="screens-cards-grid">
+              <!-- Rendered dynamically -->
+            </div>
+          </div>
+        </section>
+
+        <!-- ==================================================================
+             VIEW 3: AUDIT LOGS VIEW
+             ================================================================== -->
+        <section class="tab-view-panel hidden" id="view-audit">
+          <div class="view-inner-container">
+            <div class="view-header-row">
+              <div>
+                <h2 class="view-heading">Audit &amp; Security Activity</h2>
+                <p class="view-subheading">Recent administrative events, logins, and notice operations.</p>
+              </div>
+              <button id="btn-refresh-audit" class="btn btn-secondary btn-sm">Refresh Logs</button>
+            </div>
+
+            <div class="audit-table-card">
+              <div class="audit-mobile-cards" id="audit-mobile-cards">
+                <!-- Compact cards on phones -->
+              </div>
+              <div class="audit-table-wrapper desktop-audit-table">
+                <table class="audit-table">
+                  <thead>
+                    <tr>
+                      <th>Timestamp</th>
+                      <th>Action</th>
+                      <th>Actor</th>
+                      <th>Target ID</th>
+                      <th>IP Address</th>
+                    </tr>
+                  </thead>
+                  <tbody id="audit-tbody-page">
+                    <!-- Populated dynamically -->
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- ==================================================================
+             VIEW 4: SETTINGS VIEW (Tab 4 on mobile, Sidebar item 4)
+             ================================================================== -->
+        <section class="tab-view-panel hidden" id="view-settings">
+          <div class="view-inner-container">
+            <h2 class="view-heading">Settings &amp; Account</h2>
+            <p class="view-subheading">Device settings, display configuration, and account.</p>
+
+            <div class="settings-group-card">
+              <h3 class="settings-group-title">User Account</h3>
+              <div class="settings-row">
+                <div class="settings-label-wrap">
+                  <span class="settings-label">Signed in as</span>
+                  <span class="settings-sublabel" id="settings-user-dept">Department: ALL</span>
+                </div>
+                <span class="badge badge-dept-chip" id="settings-user-role">Super Admin</span>
+              </div>
+              <div class="settings-row">
+                <span class="settings-label">Session Status</span>
+                <span class="status-indicator online">Active &amp; Secure</span>
+              </div>
+            </div>
+
+            <div class="settings-group-card">
+              <h3 class="settings-group-title">Appearance &amp; App</h3>
+              <div class="settings-row">
+                <div class="settings-label-wrap">
+                  <span class="settings-label">Theme Mode</span>
+                  <span class="settings-sublabel">Optimized for high-contrast visibility</span>
+                </div>
+                <div class="theme-segmented" id="theme-segmented">
+                  <button type="button" class="theme-btn active" data-theme="dark">Dark</button>
+                  <button type="button" class="theme-btn" data-theme="light">Light</button>
+                  <button type="button" class="theme-btn" data-theme="auto">Auto</button>
+                </div>
+              </div>
+              <div class="settings-row" id="row-install-app">
+                <div class="settings-label-wrap">
+                  <span class="settings-label">Install Mobile App</span>
+                  <span class="settings-sublabel">Add to home screen for native experience</span>
+                </div>
+                <button type="button" id="btn-settings-install" class="btn btn-secondary btn-sm">Install</button>
+              </div>
+            </div>
+
+            <div class="settings-group-card">
+              <h3 class="settings-group-title">Display Screen Preview</h3>
+              <p class="settings-sublabel">Preview how notices appear on campus digital displays across different hardware viewports:</p>
+              <div class="settings-preview-grid">
+                <button type="button" class="btn btn-secondary btn-sm btn-preview-size" data-width="800" data-height="480">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"></rect><line x1="8" y1="21" x2="16" y2="21"></line><line x1="12" y1="17" x2="12" y2="21"></line></svg>
+                  <span>Pi Kiosk (800×480)</span>
+                </button>
+                <button type="button" class="btn btn-secondary btn-sm btn-preview-size" data-width="1366" data-height="768">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"></rect><line x1="8" y1="21" x2="16" y2="21"></line><line x1="12" y1="17" x2="12" y2="21"></line></svg>
+                  <span>Standard HD (1366×768)</span>
+                </button>
+                <button type="button" class="btn btn-secondary btn-sm btn-preview-size" data-width="1920" data-height="1080">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"></rect><line x1="8" y1="21" x2="16" y2="21"></line><line x1="12" y1="17" x2="12" y2="21"></line></svg>
+                  <span>Full HD 1080p (1920×1080)</span>
+                </button>
+                <button type="button" class="btn btn-secondary btn-sm btn-preview-size" data-width="3840" data-height="2160">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"></rect><line x1="8" y1="21" x2="16" y2="21"></line><line x1="12" y1="17" x2="12" y2="21"></line></svg>
+                  <span>4K Signage (3840×2160)</span>
+                </button>
+                <button type="button" class="btn btn-secondary btn-sm btn-preview-size" data-width="1080" data-height="1920">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="5" y="2" width="14" height="20" rx="2"></rect><line x1="12" y1="18" x2="12.01" y2="18"></line></svg>
+                  <span>Portrait Poster (1080×1920)</span>
+                </button>
+              </div>
+            </div>
+
+            <div class="settings-group-card">
+              <h3 class="settings-group-title">System &amp; About</h3>
+              <div class="settings-row">
+                <span class="settings-label">Platform Version</span>
+                <span class="settings-val">V Notice 2.0.0 (PWA)</span>
+              </div>
+              <div class="settings-row">
+                <span class="settings-label">Cloud Sync &amp; Storage</span>
+                <span class="settings-val">Cloudinary + Render Active</span>
+              </div>
+            </div>
+
+            <div class="settings-danger-card">
+              <button type="button" id="btn-settings-logout" class="btn btn-danger btn-block">
+                <span>Sign out from this device</span>
+              </button>
+            </div>
+          </div>
+        </section>
+
+      </main>
+
+      <!-- ==================================================================
+           Fixed Bottom Tab Bar on Phones (< 768px)
+           ================================================================== -->
+      <nav class="bottom-tab-bar" id="bottom-tab-bar" aria-label="Mobile Navigation">
+        <a href="#notices" class="tab-item active" data-tab="notices" id="tab-notices" aria-label="Notices">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+            <rect x="3" y="3" width="18" height="18" rx="2"></rect>
+            <line x1="8" y1="8" x2="16" y2="8"></line>
+            <line x1="8" y1="12" x2="16" y2="12"></line>
+            <line x1="8" y1="16" x2="13" y2="16"></line>
           </svg>
-          <span>New notice</span>
+          <span class="tab-label">Notices</span>
+        </a>
+
+        <!-- Raised Center Action Button for '+' New Notice -->
+        <button type="button" class="tab-item-raised" id="tab-btn-new" aria-label="Create new notice" title="New notice">
+          <span class="raised-icon" aria-hidden="true">+</span>
         </button>
-      </section>
 
-      <!-- Segmented Summary & Filters -->
-      <section class="controls-row">
-        <div class="segmented-control" role="tablist">
-          <button class="segment-tab active" data-filter="all" role="tab">All <span id="count-all">0</span></button>
-          <button class="segment-tab" data-filter="live" role="tab">Live <span id="count-live">0</span></button>
-          <button class="segment-tab" data-filter="scheduled" role="tab">Scheduled <span id="count-scheduled">0</span></button>
-          <button class="segment-tab" data-filter="expired" role="tab">Expired <span id="count-expired">0</span></button>
-        </div>
-      </section>
-      <div class="screen-filter-row">
-        <label for="feed-screen-filter" class="screen-filter-label">Screen:</label>
-        <select id="feed-screen-filter" class="form-control screen-select" aria-label="Filter notices by screen">
-          <option value="all_screens">All Screens</option>
-          <option value="ALL">All Departments (college-wide)</option>
-          <option value="CMPN">CMPN - Computer Engineering</option>
-          <option value="INFT">INFT - Information Technology</option>
-          <option value="EXTC">EXTC - Electronics &amp; Telecommunication</option>
-          <option value="EXCS">EXCS - Electronics &amp; Computer Science</option>
-          <option value="BIOM">BIOM - Biomedical Engineering</option>
-        </select>
-      </div>
+        <a href="#screens" class="tab-item" data-tab="screens" id="tab-screens" aria-label="Screens">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+            <rect x="2" y="3" width="20" height="14" rx="2"></rect>
+            <line x1="8" y1="21" x2="16" y2="21"></line>
+            <line x1="12" y1="17" x2="12" y2="21"></line>
+          </svg>
+          <span class="tab-label">Screens</span>
+        </a>
 
-      <!-- Notices List -->
-      <section class="notices-list" id="notices-container" aria-live="polite">
-        <div class="notices-loading" id="notices-loading">
-          <span>Loading notices…</span>
-        </div>
-      </section>
+        <a href="#settings" class="tab-item" data-tab="settings" id="tab-settings" aria-label="Settings">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+            <circle cx="12" cy="12" r="3"></circle>
+            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+          </svg>
+          <span class="tab-label">Settings</span>
+        </a>
+      </nav>
 
-    </main>
-
+    </div>
   </div>
 
   <!-- ========================================================================
-       Create Notice Modal / Bottom Sheet
+       NOTICE FORM: BOTTOM SHEET ON MOBILE / CENTERED DIALOG ON DESKTOP
        ======================================================================== -->
   <div id="notice-modal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="modal-heading">
-    <div class="modal-dialog">
+    <div class="modal-dialog modal-bottom-sheet" id="notice-sheet-dialog">
       
+      <!-- Grab Handle for Swipe-Down Dismiss Gesture -->
+      <div class="sheet-grab-area" id="sheet-grab-handle" aria-hidden="true">
+        <div class="sheet-grab-bar"></div>
+      </div>
+
       <!-- Upload Progress Bar (4px blue line under header) -->
       <div class="upload-progress-track hidden" id="upload-progress-track">
         <div class="upload-progress-fill" id="upload-progress-fill"></div>
       </div>
 
+      <!-- Sheet Header (Fixed) -->
       <div class="modal-header">
         <h2 class="modal-heading" id="modal-heading">New notice</h2>
-        <button id="btn-close-modal" class="btn-icon" aria-label="Close dialog">&times;</button>
+        <button type="button" id="btn-close-modal" class="btn-icon" aria-label="Close dialog">&times;</button>
       </div>
 
+      <!-- Form Wrapper -->
       <form id="create-notice-form" class="modal-form-wrapper" enctype="multipart/form-data">
         
-        <div class="modal-body-scroll">
-          <!-- Target Screens Multi-Select Chip Picker (Phase 4) -->
-          <div class="form-group screen-picker-group">
+        <!-- Sheet Body (Single Scroll Area Only - No Nested Scrollbars) -->
+        <div class="modal-body-scroll" id="sheet-body-scroll">
+          
+          <!-- =================== SECTION 1: WHERE =================== -->
+          <div class="form-section-card">
+            <div class="form-section-header">
+              <span class="section-step-badge">1</span>
+              <h3 class="form-section-title">Where to broadcast</h3>
+            </div>
+            
+            <div class="form-group screen-picker-group">
+              <div class="label-row">
+                <label class="form-label" id="screen-picker-label">Target Screens <span class="required">*</span></label>
+                <span class="field-hint" id="screen-picker-hint">Select at least one</span>
+              </div>
+              <input type="hidden" id="notice-screen" name="screen_id" value="ALL">
+              <div class="chip-picker" id="screen-chip-picker" role="group" aria-labelledby="screen-picker-label" tabindex="0">
+                <!-- Rendered dynamically -->
+              </div>
+              <div class="inline-error hidden" id="screen-picker-error">Please select at least one target screen.</div>
+            </div>
+
+            <div class="form-group" style="margin-top: 12px;">
+              <label for="notice-created-by" class="form-label">Posted by</label>
+              <input type="text" id="notice-created-by" name="created_by" class="form-control" placeholder="admin" value="admin" autocomplete="name" enterkeyhint="next">
+            </div>
+          </div>
+
+          <!-- =================== SECTION 2: WHAT =================== -->
+          <div class="form-section-card">
+            <div class="form-section-header">
+              <span class="section-step-badge">2</span>
+              <h3 class="form-section-title">What to say</h3>
+            </div>
+
+            <!-- Headline -->
+            <div class="form-group">
+              <div class="label-row">
+                <label for="notice-title" class="form-label">Headline <span class="required">*</span></label>
+                <span class="char-counter hidden" id="title-counter">0 / 120</span>
+              </div>
+              <input type="text" id="notice-title" name="title" class="form-control" placeholder="Brief announcement headline" required maxlength="120" enterkeyhint="next" autocomplete="off">
+              <div class="inline-error hidden" id="err-title"></div>
+            </div>
+
+            <!-- Details -->
+            <div class="form-group">
+              <label for="notice-body" class="form-label">Details <span class="label-opt">(optional)</span></label>
+              <textarea id="notice-body" name="body" class="form-control" rows="3" placeholder="Additional details, room number, or instructions" enterkeyhint="next"></textarea>
+            </div>
+
+            <!-- Priority Segmented Control (Color + Icon Indicators) -->
+            <div class="form-group">
+              <label class="form-label">Priority</label>
+              <div class="priority-segmented" id="priority-segmented">
+                <label class="prio-opt prio-normal-opt">
+                  <input type="radio" name="priority" value="normal" checked>
+                  <span class="prio-btn">
+                    <span class="prio-icon">🔵</span>
+                    <span>Normal</span>
+                  </span>
+                </label>
+                <label class="prio-opt prio-info-opt">
+                  <input type="radio" name="priority" value="info">
+                  <span class="prio-btn">
+                    <span class="prio-icon">🔷</span>
+                    <span>Info</span>
+                  </span>
+                </label>
+                <label class="prio-opt prio-urgent-opt">
+                  <input type="radio" name="priority" value="urgent">
+                  <span class="prio-btn">
+                    <span class="prio-icon">🔴</span>
+                    <span>Urgent</span>
+                  </span>
+                </label>
+              </div>
+            </div>
+
+            <!-- Content Type Segmented Control -->
+            <div class="form-group">
+              <label class="form-label">Content format</label>
+              <div class="type-segmented" id="type-segmented">
+                <label class="type-opt">
+                  <input type="radio" name="type" value="text" checked>
+                  <span class="type-btn">
+                    <span class="type-icon">📝</span>
+                    <span>Text</span>
+                  </span>
+                </label>
+                <label class="type-opt">
+                  <input type="radio" name="type" value="image">
+                  <span class="type-btn">
+                    <span class="type-icon">🖼️</span>
+                    <span>Image</span>
+                  </span>
+                </label>
+                <label class="type-opt">
+                  <input type="radio" name="type" value="video">
+                  <span class="type-btn">
+                    <span class="type-icon">🎬</span>
+                    <span>Video</span>
+                  </span>
+                </label>
+              </div>
+            </div>
+
+          </div>
+
+          <!-- =================== SECTION 3: MEDIA =================== -->
+          <div class="form-section-card hidden" id="media-upload-group">
+            <div class="form-section-header">
+              <span class="section-step-badge">3</span>
+              <h3 class="form-section-title">Media asset</h3>
+            </div>
+
             <div class="label-row">
-              <label class="form-label" id="screen-picker-label">Target Screens <span class="required">*</span></label>
-              <span class="field-hint" id="screen-picker-hint">Select at least one</span>
+              <label class="form-label">Upload notice image or video</label>
+              <span class="aspect-recommend-label" id="aspect-recommend-label">Best: 16:9 Landscape</span>
             </div>
-            <input type="hidden" id="notice-screen" name="screen_id" value="ALL">
-            <div class="chip-picker" id="screen-chip-picker" role="group" aria-labelledby="screen-picker-label" tabindex="0">
-              <!-- Rendered dynamically -->
-            </div>
-            <div class="inline-error hidden" id="screen-picker-error">Please select at least one target screen.</div>
-          </div>
 
-          <div class="form-group">
-            <label for="notice-created-by" class="form-label">Posted by</label>
-            <input type="text" id="notice-created-by" name="created_by" class="form-control" placeholder="admin" value="admin">
-          </div>
-
-          <!-- 1. Headline (Counter appears after 80 chars) -->
-          <div class="form-group">
-            <div class="label-row">
-              <label for="notice-title" class="form-label">Headline</label>
-              <span class="char-counter hidden" id="title-counter">0 / 120</span>
-            </div>
-            <input type="text" id="notice-title" name="title" class="form-control" placeholder="Brief announcement headline" required maxlength="120">
-            <div class="inline-error hidden" id="err-title"></div>
-          </div>
-
-          <!-- 2. Details (Optional textarea, 3 rows) -->
-          <div class="form-group">
-            <label for="notice-body" class="form-label">Details <span class="label-opt">(optional)</span></label>
-            <textarea id="notice-body" name="body" class="form-control" rows="3" placeholder="Additional details, room number, or instructions"></textarea>
-          </div>
-
-          <!-- 3. Priority Segmented Control -->
-          <div class="form-group">
-            <label class="form-label">Priority</label>
-            <div class="priority-segmented" id="priority-segmented">
-              <label class="prio-opt">
-                <input type="radio" name="priority" value="normal" checked>
-                <span class="prio-btn">Normal</span>
-              </label>
-              <label class="prio-opt">
-                <input type="radio" name="priority" value="info">
-                <span class="prio-btn">Info</span>
-              </label>
-              <label class="prio-opt prio-urgent-opt">
-                <input type="radio" name="priority" value="urgent">
-                <span class="prio-btn">Urgent</span>
-              </label>
-            </div>
-          </div>
-
-          <!-- 4. Content Type Segmented Control -->
-          <div class="form-group">
-            <label class="form-label">Content</label>
-            <div class="type-segmented" id="type-segmented">
-              <label class="type-opt">
-                <input type="radio" name="type" value="text" checked>
-                <span class="type-btn">Text</span>
-              </label>
-              <label class="type-opt">
-                <input type="radio" name="type" value="image">
-                <span class="type-btn">Image</span>
-              </label>
-              <label class="type-opt">
-                <input type="radio" name="type" value="video">
-                <span class="type-btn">Video</span>
-              </label>
-            </div>
-          </div>
-
-          <!-- 5. File Upload (Only when Image or Video) -->
-          <div class="form-group hidden" id="media-upload-group">
-            <div class="label-row">
-              <label class="form-label">File</label>
-              <span class="aspect-recommend-label" id="aspect-recommend-label">Best: 16:9 or 3:4 / 4:3</span>
-            </div>
+            <!-- Mobile-Friendly Tap Drop Area with Distinct Buttons -->
             <div class="file-drop-area" id="file-drop-area">
               <input type="file" id="media-file-input" name="media_file" class="file-input-hidden" accept="image/*,video/*">
+              <input type="file" id="media-camera-input" class="file-input-hidden" accept="image/*,video/*" capture="environment">
+
               <div class="drop-prompt" id="drop-prompt">
-                <span class="drop-action-text">Choose a file</span>
+                <div class="mobile-media-action-row">
+                  <button type="button" id="btn-pick-gallery" class="btn btn-secondary btn-mobile-picker">
+                    <span>📷 Take photo / Gallery</span>
+                  </button>
+                  <button type="button" id="btn-pick-files" class="btn btn-secondary btn-mobile-picker">
+                    <span>📁 Choose file</span>
+                  </button>
+                </div>
                 <span class="drop-hint-text">JPG, PNG, WEBP, GIF, MP4, WEBM · up to 200 MB</span>
                 <div class="drop-aspect-badge" id="drop-aspect-hint">
                   <span class="badge-icon">🎯</span>
                   <span class="badge-text">Recommended: 16:9 Landscape or 3:4 / 4:3 Poster</span>
                 </div>
               </div>
+
               <div class="drop-selected hidden" id="drop-selected">
                 <div class="file-info-text">
                   <span class="file-name" id="file-name">filename.jpg</span>
@@ -307,82 +691,87 @@
             <div class="inline-error hidden" id="err-media"></div>
           </div>
 
-          <!-- 6. Schedule (Show From & Show Until) -->
-          <div class="schedule-block">
-            
-            <!-- Show From -->
-            <div class="schedule-col">
-              <div class="label-row">
-                <label class="form-label">Show from</label>
-                <button type="button" id="btn-set-start-now" class="btn-text-pill" title="Set start to current date & time">Now</button>
-              </div>
-              <div class="picker-dual-row">
-                <div class="picker-input-wrap">
-                  <span class="picker-badge-icon" aria-hidden="true">📅</span>
-                  <input type="date" id="notice-start-date" class="form-control picker-control" required>
-                </div>
-                <div class="picker-input-wrap">
-                  <span class="picker-badge-icon" aria-hidden="true">🕒</span>
-                  <input type="time" id="notice-start-time" class="form-control picker-control" required>
-                </div>
-              </div>
-              <div class="inline-error hidden" id="err-start"></div>
+          <!-- =================== SECTION 4: WHEN =================== -->
+          <div class="form-section-card">
+            <div class="form-section-header">
+              <span class="section-step-badge">4</span>
+              <h3 class="form-section-title">Broadcast schedule</h3>
             </div>
 
-            <!-- Show Until -->
-            <div class="schedule-col">
-              <div class="label-row">
-                <label class="form-label">Show until</label>
-                <span class="schedule-hint-badge" id="schedule-diff-badge">7 days</span>
-              </div>
-              <div class="picker-dual-row">
-                <div class="picker-input-wrap">
-                  <span class="picker-badge-icon" aria-hidden="true">📅</span>
-                  <input type="date" id="notice-end-date" class="form-control picker-control" required>
+            <div class="schedule-block">
+              <!-- Show From -->
+              <div class="schedule-col">
+                <div class="label-row">
+                  <label class="form-label">Show from</label>
+                  <button type="button" id="btn-set-start-now" class="btn-text-pill" title="Set start to current date & time">Now</button>
                 </div>
-                <div class="picker-input-wrap">
-                  <span class="picker-badge-icon" aria-hidden="true">🕒</span>
-                  <input type="time" id="notice-end-time" class="form-control picker-control" required>
+                <div class="picker-dual-row">
+                  <div class="picker-input-wrap">
+                    <span class="picker-badge-icon" aria-hidden="true">📅</span>
+                    <input type="date" id="notice-start-date" class="form-control picker-control" required>
+                  </div>
+                  <div class="picker-input-wrap">
+                    <span class="picker-badge-icon" aria-hidden="true">🕒</span>
+                    <input type="time" id="notice-start-time" class="form-control picker-control" required>
+                  </div>
                 </div>
+                <div class="inline-error hidden" id="err-start"></div>
               </div>
-              <div class="inline-error hidden" id="err-end"></div>
+
+              <!-- Show Until -->
+              <div class="schedule-col">
+                <div class="label-row">
+                  <label class="form-label">Show until</label>
+                  <span class="schedule-hint-badge" id="schedule-diff-badge">7 days</span>
+                </div>
+                <div class="picker-dual-row">
+                  <div class="picker-input-wrap">
+                    <span class="picker-badge-icon" aria-hidden="true">📅</span>
+                    <input type="date" id="notice-end-date" class="form-control picker-control" required>
+                  </div>
+                  <div class="picker-input-wrap">
+                    <span class="picker-badge-icon" aria-hidden="true">🕒</span>
+                    <input type="time" id="notice-end-time" class="form-control picker-control" required>
+                  </div>
+                </div>
+                <div class="inline-error hidden" id="err-end"></div>
+              </div>
+
+              <!-- Quick Presets -->
+              <div class="quick-set-row">
+                <span class="quick-set-label">Presets:</span>
+                <button type="button" class="btn-quick-set" data-preset="today">End of Today</button>
+                <button type="button" class="btn-quick-set" data-preset="3days">3 Days</button>
+                <button type="button" class="btn-quick-set" data-preset="7days">1 Week</button>
+                <button type="button" class="btn-quick-set" data-preset="14days">2 Weeks</button>
+                <button type="button" class="btn-quick-set" data-preset="30days">1 Month</button>
+              </div>
+
+              <!-- Live Plain-Language Summary -->
+              <div class="schedule-summary-bar" id="schedule-summary-bar">
+                <span class="summary-dot" id="schedule-summary-dot"></span>
+                <span class="summary-text" id="schedule-summary-text">Active immediately · Ends in 7 days</span>
+              </div>
             </div>
 
-            <!-- Quick Presets -->
-            <div class="quick-set-row">
-              <span class="quick-set-label">Presets:</span>
-              <button type="button" class="btn-quick-set" data-preset="today">End of Today</button>
-              <button type="button" class="btn-quick-set" data-preset="3days">3 Days</button>
-              <button type="button" class="btn-quick-set" data-preset="7days">1 Week</button>
-              <button type="button" class="btn-quick-set" data-preset="14days">2 Weeks</button>
-              <button type="button" class="btn-quick-set" data-preset="30days">1 Month</button>
-            </div>
-
-            <!-- Live Summary -->
-            <div class="schedule-summary-bar" id="schedule-summary-bar">
-              <span class="summary-dot" id="schedule-summary-dot"></span>
-              <span class="summary-text" id="schedule-summary-text">Active immediately · Ends in 7 days</span>
-            </div>
-
-          </div>
-
-          <!-- 7. Duration (Hidden when Video) -->
-          <div class="form-group" id="duration-group">
-            <label for="notice-duration" class="form-label">Slide duration</label>
-            <div class="input-suffix-wrap">
-              <input type="number" id="notice-duration" name="duration" class="form-control" value="10" min="3" max="120">
-              <span class="input-suffix">seconds</span>
+            <!-- Slide Duration -->
+            <div class="form-group" id="duration-group" style="margin-top: 14px;">
+              <label for="notice-duration" class="form-label">Slide on-screen duration</label>
+              <div class="input-suffix-wrap">
+                <input type="number" id="notice-duration" name="duration" class="form-control" value="10" min="3" max="120" inputmode="numeric">
+                <span class="input-suffix">seconds</span>
+              </div>
             </div>
           </div>
 
           <div class="inline-error hidden" id="create-notice-error"></div>
         </div>
 
-        <!-- Fixed Modal Footer (Never overlaps content, always visible at bottom) -->
-        <div class="modal-footer">
-          <button type="button" id="btn-preview-display" class="btn btn-secondary btn-preview-display" title="Preview on selected department display">
+        <!-- Sticky Sheet Footer (Floats dynamically above keyboard via visualViewport) -->
+        <div class="modal-footer sheet-sticky-footer" id="sheet-sticky-footer">
+          <button type="button" id="btn-preview-display" class="btn btn-secondary btn-preview-display" title="Preview on display">
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>
-            <span>Preview on display</span>
+            <span>Preview</span>
           </button>
           <button type="button" id="btn-cancel-create" class="btn btn-text">Cancel</button>
           <button type="submit" id="btn-submit-create" class="btn btn-primary">
@@ -395,13 +784,65 @@
   </div>
 
   <!-- ========================================================================
-       Delete Confirm Dialog
+       DISCARD UNSAVED CHANGES CONFIRMATION DIALOG
+       ======================================================================== -->
+  <div id="discard-modal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="discard-heading">
+    <div class="modal-dialog modal-dialog-sm">
+      <div class="modal-header">
+        <h2 class="modal-heading" id="discard-heading">Discard changes?</h2>
+        <button type="button" id="btn-close-discard-modal" class="btn-icon" aria-label="Close dialog">&times;</button>
+      </div>
+      <p class="delete-confirm-text">
+        You have unsaved changes in this notice. Closing will discard everything you typed.
+      </p>
+      <div class="modal-footer">
+        <button type="button" id="btn-continue-editing" class="btn btn-secondary">Keep editing</button>
+        <button type="button" id="btn-confirm-discard" class="btn btn-danger">Discard</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ========================================================================
+       BOTTOM ACTION SHEET (Overflow options: Edit, Duplicate, Preview, Delete)
+       ======================================================================== -->
+  <div id="action-sheet-modal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="action-sheet-title">
+    <div class="modal-dialog action-sheet-dialog">
+      <div class="sheet-grab-area">
+        <div class="sheet-grab-bar"></div>
+      </div>
+      <div class="action-sheet-header">
+        <h3 class="action-sheet-title" id="action-sheet-title">Notice Options</h3>
+        <button type="button" id="btn-close-action-sheet" class="btn-icon" aria-label="Close menu">&times;</button>
+      </div>
+      <div class="action-sheet-body">
+        <button type="button" class="action-sheet-item" id="action-btn-edit">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
+          <span>Edit notice</span>
+        </button>
+        <button type="button" class="action-sheet-item" id="action-btn-duplicate">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+          <span>Duplicate notice</span>
+        </button>
+        <button type="button" class="action-sheet-item" id="action-btn-preview">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>
+          <span>Preview on display</span>
+        </button>
+        <button type="button" class="action-sheet-item action-sheet-danger" id="action-btn-delete">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+          <span>Delete notice</span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ========================================================================
+       DELETE CONFIRMATION DIALOG
        ======================================================================== -->
   <div id="delete-modal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="delete-heading">
     <div class="modal-dialog modal-dialog-sm">
       <div class="modal-header">
         <h2 class="modal-heading" id="delete-heading">Delete notice?</h2>
-        <button id="btn-close-delete-modal" class="btn-icon" aria-label="Close dialog">&times;</button>
+        <button type="button" id="btn-close-delete-modal" class="btn-icon" aria-label="Close dialog">&times;</button>
       </div>
       <p class="delete-confirm-text">
         <strong id="delete-notice-title">Notice Title</strong> will be removed from all screens immediately.
@@ -413,13 +854,12 @@
     </div>
   </div>
 
-
-  <!-- Security Audit Logs Modal -->
+  <!-- Legacy Modals for screens & audit compatibility -->
   <div class="modal-backdrop hidden" id="audit-modal" role="dialog" aria-modal="true" aria-labelledby="audit-heading">
     <div class="modal-dialog modal-dialog-wide">
       <div class="modal-header">
         <div>
-          <h2 class="modal-heading" id="audit-heading">Audit & Security Activity</h2>
+          <h2 class="modal-heading" id="audit-heading">Audit &amp; Security Activity</h2>
           <p class="modal-subhead">Recent administrative events, logins, and notice operations.</p>
         </div>
         <button type="button" class="btn-icon" id="btn-close-audit" aria-label="Close audit logs">&times;</button>
@@ -437,22 +877,13 @@
                 <th>IP Address</th>
               </tr>
             </thead>
-            <tbody id="audit-tbody">
-              <!-- Dynamically populated -->
-            </tbody>
+            <tbody id="audit-tbody"></tbody>
           </table>
         </div>
       </div>
     </div>
   </div>
 
-  <!-- Toast Notification Container -->
-  <div class="toast-container" id="toast-container" aria-live="polite"></div>
-
-  <script src="/static/js/admin.js?v=4"></script>
-  <!-- ========================================================================
-       Screens Management Modal (Phase 4)
-       ======================================================================== -->
   <div id="screens-modal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="screens-heading">
     <div class="modal-dialog modal-dialog-lg">
       <div class="modal-header">
@@ -460,18 +891,15 @@
           <h2 class="modal-heading" id="screens-heading">Department Screens</h2>
           <p class="modal-subtitle">Manage campus display screens, kiosk links, and live heartbeats.</p>
         </div>
-        <button id="btn-close-screens-modal" class="btn-icon" aria-label="Close dialog">&times;</button>
+        <button type="button" id="btn-close-screens-modal" class="btn-icon" aria-label="Close dialog">&times;</button>
       </div>
-      
       <div class="modal-body-scroll">
-        <!-- Add Department Inline Form -->
         <div class="card-add-dept">
           <h3 class="section-title">Add Department Screen</h3>
           <form id="add-dept-form" class="dept-form-grid">
             <div class="form-group">
               <label for="dept-code-input" class="form-label">Code <span class="required">*</span></label>
               <input type="text" id="dept-code-input" class="form-control" placeholder="e.g. AIDS" maxlength="10" required>
-              <span class="field-hint">2-10 uppercase [A-Z0-9_-]</span>
             </div>
             <div class="form-group form-group-grow">
               <label for="dept-name-input" class="form-label">Full Department Name <span class="required">*</span></label>
@@ -479,7 +907,7 @@
             </div>
             <div class="form-group form-group-color">
               <label for="dept-color-input" class="form-label">Accent</label>
-              <input type="color" id="dept-color-input" class="form-control form-control-color" value="#3B82F6" title="Department accent color">
+              <input type="color" id="dept-color-input" class="form-control form-control-color" value="#3B82F6">
             </div>
             <div class="form-group form-group-btn">
               <label class="form-label">&nbsp;</label>
@@ -488,8 +916,6 @@
           </form>
           <div class="inline-error hidden" id="dept-form-error"></div>
         </div>
-
-        <!-- Screens List Table -->
         <div class="dept-list-section">
           <h3 class="section-title">Campus Screens</h3>
           <div class="dept-table-wrapper">
@@ -504,9 +930,7 @@
                   <th>Actions</th>
                 </tr>
               </thead>
-              <tbody id="dept-table-body">
-                <!-- Populated dynamically -->
-              </tbody>
+              <tbody id="dept-table-body"></tbody>
             </table>
           </div>
         </div>
@@ -514,43 +938,10 @@
     </div>
   </div>
 
-  <script>
-    // Service Worker Registration for PWA / Android App
-    if ('serviceWorker' in navigator) {
-      window.addEventListener('load', () => {
-        navigator.serviceWorker.register('/sw.js', { scope: '/' })
-          .then((reg) => console.log('V Notice ServiceWorker registered:', reg.scope))
-          .catch((err) => console.warn('V Notice ServiceWorker registration failed:', err));
-      });
-    }
+  <!-- Toast Notification Container (Positioned safely above bottom tab bar on mobile) -->
+  <div class="toast-container" id="toast-container" aria-live="polite"></div>
 
-    // Capture Android install prompt
-    let deferredPrompt = null;
-    const btnInstall = document.getElementById('btn-install-app');
-
-    window.addEventListener('beforeinstallprompt', (e) => {
-      e.preventDefault();
-      deferredPrompt = e;
-      if (btnInstall && !window.matchMedia('(display-mode: standalone)').matches) {
-        btnInstall.classList.remove('hidden');
-      }
-    });
-
-    if (btnInstall) {
-      btnInstall.addEventListener('click', async () => {
-        if (!deferredPrompt) return;
-        deferredPrompt.prompt();
-        const { outcome } = await deferredPrompt.userChoice;
-        console.log('User response to install prompt:', outcome);
-        deferredPrompt = null;
-        btnInstall.classList.add('hidden');
-      });
-    }
-
-    window.addEventListener('appinstalled', () => {
-      console.log('V Notice Admin app installed successfully');
-      if (btnInstall) btnInstall.classList.add('hidden');
-    });
-  </script>
+  <!-- Main JavaScript Bundle -->
+  <script src="/static/js/admin.js?v=9"></script>
 </body>
 </html>

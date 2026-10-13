@@ -7,7 +7,7 @@
   <link rel="icon" type="image/svg+xml" href="/static/brand/logo.svg">
   <link rel="icon" type="image/png" sizes="32x32" href="/static/favicon.png">
   <link rel="apple-touch-icon" sizes="180x180" href="/static/apple-touch-icon.png">
-  <link rel="stylesheet" href="/static/css/display.css?v=7">
+  <link rel="stylesheet" href="/static/css/display.css?v=8">
 </head>
 <body class="display-screen">
 
@@ -128,12 +128,14 @@
 
       <!-- Up Next Rail (min(26rem, 36%)) -->
       <aside class="rail-panel" id="rail-panel">
-        <div class="rail-header">
-          <span class="rail-title" id="rail-title">Up next</span>
-          <span class="rail-count-pill" id="up-next-count">0</span>
-        </div>
-        <div class="rail-list" id="up-next-list">
-          <!-- Populated dynamically -->
+        <div class="rail-left-wrap">
+          <div class="rail-header">
+            <span class="rail-title" id="rail-title">Up next</span>
+            <span class="rail-count-pill" id="up-next-count">0</span>
+          </div>
+          <div class="rail-list" id="up-next-list">
+            <!-- Populated dynamically -->
+          </div>
         </div>
 
         <!-- Dedicated QR Card at bottom of rail (Decent, Minimal, No stage overlap) -->
@@ -142,7 +144,6 @@
           <div class="qr-label-box">
             <span class="qr-label-head">Scan to Save</span>
             <span class="qr-label-sub">Download notice to phone</span>
-            
           </div>
         </div>
       </aside>
@@ -162,7 +163,7 @@
   </div>
 
   <script src="/static/js/qrcode.min.js"></script>
-  <script src="/static/js/display.js?v=7"></script>
+  <script src="/static/js/display.js?v=8"></script>
   <script>
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', function () {

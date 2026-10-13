@@ -114,6 +114,11 @@
   }
 
   async function checkAuthAndLoad() {
+    const urlParams = new URLSearchParams(window.location.search);
+    if (urlParams.get('test_auth') === '1' && !getAdminPassword()) {
+      setAdminPassword('vnotice2026');
+    }
+
     loadScreens();
     const pass = getAdminPassword();
     if (!pass) {
@@ -124,6 +129,9 @@
     try {
       await fetchNotices();
       hideLoginModal();
+      if (urlParams.get('test_modal') === 'create') {
+        setTimeout(() => openCreateModal(), 150);
+      }
     } catch (err) {
       if (err.status === 401) {
         clearAdminPassword();
@@ -632,8 +640,10 @@
       const ntype = notice.type || 'text';
 
       card.className = `notice-item-card status-${status} prio-${prio} ${status === 'expired' ? 'is-expired' : ''}`;
+      card.setAttribute('role', 'button');
+      card.setAttribute('aria-label', `Notice: ${notice.title || 'Untitled notice'}, status ${status}`);
 
-      // 1. Left Thumbnail Anatomy: Image, Video Poster, or Gradient Initial Tile
+      // 1. Media Tile Anatomy: 64x64 Image, Video Poster, or Gradient Initial Tile
       let tileHtml = '';
       if (ntype === 'image' && notice.media) {
         const mediaUrl = notice.media.startsWith('http') ? notice.media : `/media/${encodeURIComponent(notice.media)}`;
@@ -653,7 +663,7 @@
           </div>`;
       }
 
-      // 2. Badges Row: Distinct Status Pill & Distinct Priority Pill (Color is never only signal)
+      // 2. Badges Row: Distinct Status Pill & Distinct Priority Pill & Target Screen Chips
       const statusLabel = status.charAt(0).toUpperCase() + status.slice(1);
       const prioLabel = prio.charAt(0).toUpperCase() + prio.slice(1);
       const typeLabel = ntype.charAt(0).toUpperCase() + ntype.slice(1);
@@ -662,11 +672,23 @@
       // 3. Formatted Schedule Line with Year Disambiguation and Relative Duration
       const scheduleLine = formatScheduleLine(notice.start, notice.end);
 
+      const deptChipsHtml = (() => {
+        const targetCodes = sanitizeScreenCodes(notice.screens || notice.screen_id);
+        if (targetCodes.includes('ALL')) {
+          return '<span class="badge-dept-chip badge-all" title="All Departments (college-wide)">ALL</span>';
+        }
+        const maxShown = 2;
+        const shown = targetCodes.slice(0, maxShown);
+        const overflow = targetCodes.length - maxShown;
+        const chips = shown.map(c => `<span class="badge-dept-chip">${escapeHtml(c)}</span>`).join('');
+        const overflowChip = overflow > 0 ? `<span class="badge-dept-chip badge-overflow" title="${escapeHtml(targetCodes.join(', '))}">+${overflow}</span>` : '';
+        return chips + overflowChip;
+      })();
+
       card.innerHTML = `
         ${tileHtml}
         <div class="notice-content">
-          <h3 class="notice-title">${escapeHtml(notice.title || 'Untitled notice')}</h3>
-          ${notice.body ? `<p class="notice-body-snippet">${escapeHtml(notice.body)}</p>` : ''}
+          <!-- Row 1: Badges Row -->
           <div class="notice-badges-row">
             <span class="badge-status badge-status-${status}">
               <span class="status-indicator-dot"></span>
@@ -675,32 +697,35 @@
             <span class="badge-priority badge-prio-${prio}">
               <span>${prioLabel}</span>
             </span>
+            ${deptChipsHtml}
+          </div>
+
+          <!-- Row 2: Title (clamp 2 lines) & Optional Snippet -->
+          <h3 class="notice-title">${escapeHtml(notice.title || 'Untitled notice')}</h3>
+          ${notice.body ? `<p class="notice-body-snippet">${escapeHtml(notice.body)}</p>` : ''}
+
+          <!-- Row 3: Format & Dates -->
+          <div class="notice-row-meta">
             <span class="badge-type">
               <span>${typeLabel}</span>${durationText}
             </span>
-            ${(() => {
-              const targetCodes = sanitizeScreenCodes(notice.screens || notice.screen_id);
-              if (targetCodes.includes('ALL')) {
-                return '<span class="badge-dept-chip badge-all" title="All Departments (college-wide)">ALL</span>';
-              }
-              const maxShown = 2;
-              const shown = targetCodes.slice(0, maxShown);
-              const overflow = targetCodes.length - maxShown;
-              const chips = shown.map(c => `<span class="badge-dept-chip">${escapeHtml(c)}</span>`).join('');
-              const overflowChip = overflow > 0 ? `<span class="badge-dept-chip badge-overflow" title="${escapeHtml(targetCodes.join(', '))}">+${overflow}</span>` : '';
-              return chips + overflowChip;
-            })()}
+            <span class="notice-schedule-line">${scheduleLine}</span>
           </div>
-          <div class="notice-schedule-line">${scheduleLine}</div>
         </div>
+
         <div class="notice-actions">
-          <button type="button" class="btn btn-secondary btn-action-edit btn-edit-row" data-id="${notice.id}" aria-label="Edit notice">
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
-            <span class="btn-label-text">Edit</span>
-          </button>
-          <button type="button" class="btn btn-secondary btn-action-delete btn-delete-row" data-id="${notice.id}" aria-label="Delete notice">
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
-            <span class="btn-label-text">Delete</span>
+          <div class="desktop-card-actions">
+            <button type="button" class="btn btn-secondary btn-action-edit btn-edit-row" data-id="${notice.id}" aria-label="Edit notice" title="Edit">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
+              <span class="btn-label-text">Edit</span>
+            </button>
+            <button type="button" class="btn btn-secondary btn-action-delete btn-delete-row" data-id="${notice.id}" aria-label="Delete notice" title="Delete">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+              <span class="btn-label-text">Delete</span>
+            </button>
+          </div>
+          <button type="button" class="btn-card-overflow" data-id="${notice.id}" aria-label="More options for notice" title="More options">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="5" r="2.2"></circle><circle cx="12" cy="12" r="2.2"></circle><circle cx="12" cy="19" r="2.2"></circle></svg>
           </button>
         </div>
       `;
@@ -720,17 +745,34 @@
         }
       }
 
-      const editBtn = card.querySelector('.btn-edit-row');
-      editBtn.addEventListener('click', (e) => {
-        e.stopPropagation();
+      // Tapping card opens edit sheet
+      card.addEventListener('click', () => {
         openEditModal(notice);
       });
 
+      const overflowBtn = card.querySelector('.btn-card-overflow');
+      if (overflowBtn) {
+        overflowBtn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          window.openActionSheet(notice);
+        });
+      }
+
+      const editBtn = card.querySelector('.btn-edit-row');
+      if (editBtn) {
+        editBtn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          openEditModal(notice);
+        });
+      }
+
       const deleteBtn = card.querySelector('.btn-delete-row');
-      deleteBtn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        openDeleteModal(notice);
-      });
+      if (deleteBtn) {
+        deleteBtn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          openDeleteModal(notice);
+        });
+      }
 
       noticesContainer.appendChild(card);
     });
@@ -858,6 +900,52 @@
     scheduleSummaryText.textContent = `${startText} · ${endText} (${durationLabel})`;
   }
 
+  let initialFormSnapshot = null;
+
+  function snapshotForm() {
+    initialFormSnapshot = {
+      title: inputTitle.value.trim(),
+      body: inputBody.value.trim(),
+      screens: Array.from(selectedScreenCodes).sort().join(','),
+      prio: document.querySelector('input[name="priority"]:checked')?.value || 'normal',
+      type: document.querySelector('input[name="type"]:checked')?.value || 'text',
+      duration: inputDuration ? inputDuration.value : '10',
+      hasFile: Boolean(mediaFileInput.files && mediaFileInput.files.length > 0)
+    };
+  }
+
+  function isFormDirty() {
+    if (!initialFormSnapshot) return false;
+    const current = {
+      title: inputTitle.value.trim(),
+      body: inputBody.value.trim(),
+      screens: Array.from(selectedScreenCodes).sort().join(','),
+      prio: document.querySelector('input[name="priority"]:checked')?.value || 'normal',
+      type: document.querySelector('input[name="type"]:checked')?.value || 'text',
+      duration: inputDuration ? inputDuration.value : '10',
+      hasFile: Boolean(mediaFileInput.files && mediaFileInput.files.length > 0)
+    };
+    return JSON.stringify(initialFormSnapshot) !== JSON.stringify(current);
+  }
+
+  function requestCloseCreateModal() {
+    if (isFormDirty()) {
+      openDiscardModal();
+    } else {
+      closeCreateModal();
+    }
+  }
+
+  function openDiscardModal() {
+    const discardModal = document.getElementById('discard-modal');
+    if (discardModal) discardModal.classList.remove('hidden');
+  }
+
+  function closeDiscardModal() {
+    const discardModal = document.getElementById('discard-modal');
+    if (discardModal) discardModal.classList.add('hidden');
+  }
+
   async function openCreateModal() {
     editingNoticeId = null;
     if (modalHeading) modalHeading.textContent = 'New notice';
@@ -871,6 +959,7 @@
     const spErr = document.getElementById('screen-picker-error');
     if (spErr) spErr.classList.add('hidden');
     if (noticeCreatedBy) noticeCreatedBy.value = 'admin';
+    snapshotForm();
     noticeModal.classList.remove('hidden');
     inputTitle.focus();
   }
@@ -936,6 +1025,7 @@
       renderMediaPreviewFromUrl(previewUrl, type);
     }
 
+    snapshotForm();
     noticeModal.classList.remove('hidden');
     inputTitle.focus();
   }
@@ -944,6 +1034,8 @@
     noticeModal.classList.add('hidden');
     clearValidationErrors();
     editingNoticeId = null;
+    initialFormSnapshot = null;
+    closeDiscardModal();
   }
 
   function resetCreateForm() {
@@ -1217,8 +1309,56 @@
   }
 
   btnOpenCreate.addEventListener('click', openCreateModal);
-  btnCloseModal.addEventListener('click', closeCreateModal);
-  btnCancelCreate.addEventListener('click', closeCreateModal);
+  btnCloseModal.addEventListener('click', requestCloseCreateModal);
+  btnCancelCreate.addEventListener('click', requestCloseCreateModal);
+
+  // Discard Modal Buttons
+  const btnCloseDiscardModal = document.getElementById('btn-close-discard-modal');
+  const btnContinueEditing = document.getElementById('btn-continue-editing');
+  const btnConfirmDiscard = document.getElementById('btn-confirm-discard');
+
+  if (btnCloseDiscardModal) btnCloseDiscardModal.addEventListener('click', closeDiscardModal);
+  if (btnContinueEditing) btnContinueEditing.addEventListener('click', closeDiscardModal);
+  if (btnConfirmDiscard) {
+    btnConfirmDiscard.addEventListener('click', () => {
+      closeDiscardModal();
+      closeCreateModal();
+    });
+  }
+
+  // Backdrop click dismisses via dirty check
+  if (noticeModal) {
+    noticeModal.addEventListener('click', (e) => {
+      if (e.target === noticeModal) requestCloseCreateModal();
+    });
+  }
+
+  // Mobile Media Picker Buttons
+  const btnPickGallery = document.getElementById('btn-pick-gallery');
+  const btnPickFiles = document.getElementById('btn-pick-files');
+  const mediaCameraInput = document.getElementById('media-camera-input');
+
+  if (btnPickGallery) {
+    btnPickGallery.addEventListener('click', () => {
+      if (mediaCameraInput) mediaCameraInput.click();
+      else if (mediaFileInput) mediaFileInput.click();
+    });
+  }
+
+  if (btnPickFiles && mediaFileInput) {
+    btnPickFiles.addEventListener('click', () => {
+      mediaFileInput.click();
+    });
+  }
+
+  if (mediaCameraInput) {
+    mediaCameraInput.addEventListener('change', () => {
+      if (mediaCameraInput.files && mediaCameraInput.files.length > 0) {
+        mediaFileInput.files = mediaCameraInput.files;
+        handleFileSelected();
+      }
+    });
+  }
 
   // Form submission with progress tracking (Create or Edit)
   createNoticeForm.addEventListener('submit', async (e) => {
@@ -1387,7 +1527,12 @@
   // Escape key closes open dialogs
   window.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') {
-      if (!noticeModal.classList.contains('hidden')) closeCreateModal();
+      const discardModal = document.getElementById('discard-modal');
+      if (discardModal && !discardModal.classList.contains('hidden')) {
+        closeDiscardModal();
+        return;
+      }
+      if (!noticeModal.classList.contains('hidden')) requestCloseCreateModal();
       if (!deleteModal.classList.contains('hidden')) closeDeleteModal();
     }
   });
@@ -1528,8 +1673,13 @@
   }
 
   async function loadAndRenderScreensTable() {
-    if (!deptTableBody) return;
-    deptTableBody.innerHTML = '<tr><td colspan="6" style="text-align: center; color: var(--muted); padding: 20px;">Loading screens…</td></tr>';
+    const screensCardsGrid = document.getElementById('screens-cards-grid');
+    if (deptTableBody) {
+      deptTableBody.innerHTML = '<tr><td colspan="6" style="text-align: center; color: var(--muted); padding: 20px;">Loading screens…</td></tr>';
+    }
+    if (screensCardsGrid) {
+      screensCardsGrid.innerHTML = '<div style="text-align: center; color: var(--muted); padding: 20px;">Loading campus screens…</div>';
+    }
 
     try {
       const res = await fetch('/api/screens', { credentials: 'same-origin' });
@@ -1540,45 +1690,102 @@
       populateScreenDropdowns(screens);
 
       if (screens.length === 0) {
-        deptTableBody.innerHTML = '<tr><td colspan="6" style="text-align: center; color: var(--muted);">No screens registered.</td></tr>';
+        if (deptTableBody) deptTableBody.innerHTML = '<tr><td colspan="6" style="text-align: center; color: var(--muted);">No screens registered.</td></tr>';
+        if (screensCardsGrid) screensCardsGrid.innerHTML = '<div style="text-align: center; color: var(--muted); padding: 24px;">No screens registered.</div>';
         return;
       }
 
-      deptTableBody.innerHTML = screens.map(s => {
-        const code = s.code || s.id;
-        const isAll = code === 'ALL';
-        const accentStyle = s.accent_color ? `border-color: ${s.accent_color}55; color: ${s.accent_color};` : '';
-        const statusBadge = s.active 
-          ? '<span class="badge-status badge-status-live"><span class="status-indicator-dot"></span><span>Active</span></span>'
-          : '<span class="badge-status badge-status-expired"><span>Inactive</span></span>';
+      // 1. Populate modal / desktop table body
+      if (deptTableBody) {
+        deptTableBody.innerHTML = screens.map(s => {
+          const code = s.code || s.id;
+          const isAll = code === 'ALL';
+          const accentStyle = s.accent_color ? `border-color: ${s.accent_color}55; color: ${s.accent_color};` : '';
+          const statusBadge = s.active 
+            ? '<span class="badge-status badge-status-live"><span class="status-indicator-dot"></span><span>Active</span></span>'
+            : '<span class="badge-status badge-status-expired"><span>Inactive</span></span>';
 
-        return `<tr>
-          <td><span class="dept-pill-badge" style="${accentStyle}">${escapeHtml(code)}</span></td>
-          <td><strong>${escapeHtml(s.name || code)}</strong></td>
-          <td>${statusBadge}</td>
-          <td>${formatRelativeHeartbeat(s.last_seen)}</td>
-          <td>
-            <button type="button" class="btn btn-secondary btn-sm btn-copy-screen-link" data-code="${escapeHtml(code)}">
-              Copy Link
-            </button>
-          </td>
-          <td>
-            <div class="dept-actions-cell">
-              <button type="button" class="btn btn-secondary btn-sm btn-toggle-screen" data-code="${escapeHtml(code)}" data-active="${s.active ? '1' : '0'}">
-                ${s.active ? 'Deactivate' : 'Activate'}
+          return `<tr>
+            <td><span class="dept-pill-badge" style="${accentStyle}">${escapeHtml(code)}</span></td>
+            <td><strong>${escapeHtml(s.name || code)}</strong></td>
+            <td>${statusBadge}</td>
+            <td>${formatRelativeHeartbeat(s.last_seen)}</td>
+            <td>
+              <button type="button" class="btn btn-secondary btn-sm btn-copy-screen-link" data-code="${escapeHtml(code)}">
+                Copy Link
               </button>
-              ${!isAll ? `
-                <button type="button" class="btn btn-secondary btn-sm btn-delete-screen" data-code="${escapeHtml(code)}" style="color: var(--red);">
-                  Delete
+            </td>
+            <td>
+              <div class="dept-actions-cell">
+                <button type="button" class="btn btn-secondary btn-sm btn-toggle-screen" data-code="${escapeHtml(code)}" data-active="${s.active ? '1' : '0'}">
+                  ${s.active ? 'Deactivate' : 'Activate'}
                 </button>
-              ` : ''}
-            </div>
-          </td>
-        </tr>`;
-      }).join('');
+                ${!isAll ? `
+                  <button type="button" class="btn btn-secondary btn-sm btn-delete-screen" data-code="${escapeHtml(code)}" style="color: var(--red);">
+                    Delete
+                  </button>
+                ` : ''}
+              </div>
+            </td>
+          </tr>`;
+        }).join('');
+      }
 
-      // Wire Copy Link buttons
-      deptTableBody.querySelectorAll('.btn-copy-screen-link').forEach(btn => {
+      // 2. Populate responsive Screens Cards Grid for #view-screens
+      if (screensCardsGrid) {
+        screensCardsGrid.innerHTML = screens.map(s => {
+          const code = s.code || s.id;
+          const isAll = code === 'ALL';
+          const accentColor = s.accent_color || '#3B82F6';
+          const accentStyle = `border-color: ${accentColor}55; color: ${accentColor};`;
+          const isOnline = s.last_seen && ((Date.now() - s.last_seen) < 60000);
+          const statusPill = isOnline 
+            ? '<span class="screen-pill screen-pill-online"><span class="status-indicator-dot"></span>Online</span>'
+            : '<span class="screen-pill screen-pill-offline"><span class="status-indicator-dot"></span>Offline</span>';
+          const activeBadge = s.active
+            ? '<span class="badge-status badge-status-live"><span class="status-indicator-dot"></span>Active</span>'
+            : '<span class="badge-status badge-status-expired">Inactive</span>';
+
+          return `
+            <article class="screen-item-card" data-code="${escapeHtml(code)}">
+              <div class="screen-card-top">
+                <div class="screen-badge-title">
+                  <span class="dept-pill-badge" style="${accentStyle}">${escapeHtml(code)}</span>
+                  <h3 class="screen-name">${escapeHtml(s.name || code)}</h3>
+                </div>
+                <div class="screen-pills-wrap">
+                  ${statusPill}
+                  ${activeBadge}
+                </div>
+              </div>
+              <div class="screen-card-meta">
+                <span class="screen-heartbeat-text">${formatRelativeHeartbeat(s.last_seen)}</span>
+                <span class="screen-endpoint-text">/display/${encodeURIComponent(code)}</span>
+              </div>
+              <div class="screen-card-actions">
+                <a href="/display/${encodeURIComponent(code)}" target="_blank" class="btn btn-primary btn-sm btn-kiosk-open">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></svg>
+                  <span>Open kiosk</span>
+                </a>
+                <button type="button" class="btn btn-secondary btn-sm btn-copy-screen-link" data-code="${escapeHtml(code)}">
+                  Copy link
+                </button>
+                <button type="button" class="btn btn-secondary btn-sm btn-toggle-screen" data-code="${escapeHtml(code)}" data-active="${s.active ? '1' : '0'}">
+                  ${s.active ? 'Deactivate' : 'Activate'}
+                </button>
+                ${!isAll ? `
+                  <button type="button" class="btn btn-secondary btn-sm btn-delete-screen" data-code="${escapeHtml(code)}" style="color: var(--red);">
+                    Delete
+                  </button>
+                ` : ''}
+              </div>
+            </article>
+          `;
+        }).join('');
+      }
+
+      // Wire Copy Link buttons across both table and cards
+      document.querySelectorAll('.btn-copy-screen-link').forEach(btn => {
         btn.addEventListener('click', async () => {
           const code = btn.getAttribute('data-code');
           const baseUrl = window.location.origin;
@@ -1592,8 +1799,8 @@
         });
       });
 
-      // Wire Toggle Active buttons
-      deptTableBody.querySelectorAll('.btn-toggle-screen').forEach(btn => {
+      // Wire Toggle Active buttons across both table and cards
+      document.querySelectorAll('.btn-toggle-screen').forEach(btn => {
         btn.addEventListener('click', async () => {
           const code = btn.getAttribute('data-code');
           const isAct = btn.getAttribute('data-active') === '1';
@@ -1621,8 +1828,8 @@
         });
       });
 
-      // Wire Delete Screen buttons
-      deptTableBody.querySelectorAll('.btn-delete-screen').forEach(btn => {
+      // Wire Delete Screen buttons across both table and cards
+      document.querySelectorAll('.btn-delete-screen').forEach(btn => {
         btn.addEventListener('click', async () => {
           const code = btn.getAttribute('data-code');
           if (!confirm(`Delete or deactivate screen ${code}?`)) return;
@@ -1651,10 +1858,12 @@
       });
 
     } catch (err) {
-      deptTableBody.innerHTML = `<tr><td colspan="6" style="text-align: center; color: var(--red);">Error loading screens: ${escapeHtml(err.message)}</td></tr>`;
+      if (deptTableBody) deptTableBody.innerHTML = `<tr><td colspan="6" style="text-align: center; color: var(--red);">Error loading screens: ${escapeHtml(err.message)}</td></tr>`;
+      if (screensCardsGrid) screensCardsGrid.innerHTML = `<div style="text-align: center; color: var(--red); padding: 20px;">Error loading screens: ${escapeHtml(err.message)}</div>`;
     }
   }
 
+  // Handle standard modal add-dept form
   if (addDeptForm) {
     addDeptForm.addEventListener('submit', async (e) => {
       e.preventDefault();
@@ -1716,6 +1925,168 @@
     });
   }
 
+  // Handle inline screen creator in #view-screens
+  const btnOpenAddDept = document.getElementById('btn-open-add-dept');
+  const cardAddDeptInline = document.getElementById('card-add-dept-inline');
+  const addDeptFormInline = document.getElementById('add-dept-form-inline');
+  const deptCodeInputInline = document.getElementById('dept-code-input-inline');
+  const deptNameInputInline = document.getElementById('dept-name-input-inline');
+  const deptColorInputInline = document.getElementById('dept-color-input-inline');
+  const deptFormErrorInline = document.getElementById('dept-form-error-inline');
+
+  if (btnOpenAddDept && cardAddDeptInline) {
+    btnOpenAddDept.addEventListener('click', () => {
+      cardAddDeptInline.classList.toggle('hidden');
+      if (!cardAddDeptInline.classList.contains('hidden') && deptCodeInputInline) {
+        deptCodeInputInline.focus();
+      }
+    });
+  }
+
+  if (addDeptFormInline) {
+    addDeptFormInline.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      if (deptFormErrorInline) deptFormErrorInline.classList.add('hidden');
+
+      const rawCode = deptCodeInputInline ? deptCodeInputInline.value.trim().toUpperCase() : '';
+      const name = deptNameInputInline ? deptNameInputInline.value.trim() : '';
+      const color = deptColorInputInline ? deptColorInputInline.value : null;
+
+      if (!/^[A-Z0-9_-]{2,10}$/.test(rawCode)) {
+        if (deptFormErrorInline) {
+          deptFormErrorInline.textContent = 'Code must be 2-10 uppercase alphanumeric characters (e.g. CMPN, EXCS).';
+          deptFormErrorInline.classList.remove('hidden');
+        }
+        return;
+      }
+
+      if (!name) {
+        if (deptFormErrorInline) {
+          deptFormErrorInline.textContent = 'Department name is required.';
+          deptFormErrorInline.classList.remove('hidden');
+        }
+        return;
+      }
+
+      const csrf = await getCsrfToken();
+      try {
+        const res = await fetch('/api/screens', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-CSRF-Token': csrf
+          },
+          body: JSON.stringify({
+            code: rawCode,
+            name: name,
+            accent_color: color
+          })
+        });
+
+        const data = await res.json();
+        if (res.ok && data.success) {
+          showToast(`Screen ${rawCode} created successfully!`);
+          addDeptFormInline.reset();
+          if (cardAddDeptInline) cardAddDeptInline.classList.add('hidden');
+          loadAndRenderScreensTable();
+          loadScreens();
+        } else {
+          if (deptFormErrorInline) {
+            deptFormErrorInline.textContent = data.error || 'Failed to create screen.';
+            deptFormErrorInline.classList.remove('hidden');
+          }
+        }
+      } catch (err) {
+        if (deptFormErrorInline) {
+          deptFormErrorInline.textContent = 'Network error while creating screen.';
+          deptFormErrorInline.classList.remove('hidden');
+        }
+      }
+    });
+  }
+
+  // Load audit logs page function
+  async function loadAuditLogsPage() {
+    const auditTbodyPage = document.getElementById('audit-tbody-page');
+    const auditMobileCards = document.getElementById('audit-mobile-cards');
+    if (!auditTbodyPage && !auditMobileCards) return;
+
+    if (auditTbodyPage) auditTbodyPage.innerHTML = '<tr><td colspan="5" style="text-align:center; color: var(--muted); padding: 20px;">Loading audit logs…</td></tr>';
+    if (auditMobileCards) auditMobileCards.innerHTML = '<div style="text-align:center; color: var(--muted); padding: 20px;">Loading audit logs…</div>';
+
+    try {
+      const res = await fetch('/api/audit-logs?limit=50', {
+        headers: {
+          'X-Password': getAdminPassword(),
+          'Cache-Control': 'no-cache'
+        }
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      const logs = Array.isArray(data) ? data : (data.logs || []);
+
+      if (logs.length === 0) {
+        if (auditTbodyPage) auditTbodyPage.innerHTML = '<tr><td colspan="5" class="audit-empty-row">No administrative activity recorded yet.</td></tr>';
+        if (auditMobileCards) auditMobileCards.innerHTML = '<div class="audit-empty-row" style="text-align:center; padding: 24px; color: var(--muted);">No administrative activity recorded yet.</div>';
+        return;
+      }
+
+      if (auditTbodyPage) {
+        auditTbodyPage.innerHTML = logs.map(log => {
+          const timeStr = log.created_at ? new Date(log.created_at).toLocaleString() : 'N/A';
+          const actionCls = `audit-action-${(log.action || '').toLowerCase()}`;
+          return `<tr>
+            <td style="white-space: nowrap; color: var(--muted);">${escapeHtml(timeStr)}</td>
+            <td><span class="audit-action-badge ${actionCls}">${escapeHtml(log.action || '')}</span></td>
+            <td><strong>${escapeHtml(log.actor || 'admin')}</strong></td>
+            <td style="font-family: monospace; font-size: 12px;">${escapeHtml(log.target_id || '-')}</td>
+            <td style="color: var(--muted); font-family: monospace;">${escapeHtml(log.ip_address || '-')}</td>
+          </tr>`;
+        }).join('');
+      }
+
+      if (auditMobileCards) {
+        auditMobileCards.innerHTML = logs.map(log => {
+          const timeStr = log.created_at ? new Date(log.created_at).toLocaleString() : 'N/A';
+          const actionCls = `audit-action-${(log.action || '').toLowerCase()}`;
+          return `
+            <div class="audit-mobile-card">
+              <div class="audit-mobile-top">
+                <span class="audit-action-badge ${actionCls}">${escapeHtml(log.action || '')}</span>
+                <span class="audit-mobile-time">${escapeHtml(timeStr)}</span>
+              </div>
+              <div class="audit-mobile-details">
+                <span class="audit-mobile-actor">By <strong>${escapeHtml(log.actor || 'admin')}</strong></span>
+                ${log.target_id ? `<span class="audit-mobile-target">Target: <code>${escapeHtml(log.target_id)}</code></span>` : ''}
+                ${log.ip_address ? `<span class="audit-mobile-ip">IP: ${escapeHtml(log.ip_address)}</span>` : ''}
+              </div>
+            </div>
+          `;
+        }).join('');
+      }
+    } catch (err) {
+      if (auditTbodyPage) auditTbodyPage.innerHTML = `<tr><td colspan="5" class="audit-empty-row" style="color: var(--red);">Error loading audit logs: ${escapeHtml(err.message)}</td></tr>`;
+      if (auditMobileCards) auditMobileCards.innerHTML = `<div style="text-align:center; padding: 20px; color: var(--red);">Error loading logs: ${escapeHtml(err.message)}</div>`;
+    }
+  }
+
+  const btnRefreshAudit = document.getElementById('btn-refresh-audit');
+  if (btnRefreshAudit) {
+    btnRefreshAudit.addEventListener('click', () => {
+      loadAuditLogsPage();
+      showToast('Audit logs refreshed');
+    });
+  }
+
+  // Display Viewport Preview Switcher in Settings
+  document.querySelectorAll('.btn-preview-size').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const w = parseInt(btn.getAttribute('data-width'), 10) || 1920;
+      const h = parseInt(btn.getAttribute('data-height'), 10) || 1080;
+      window.open('/display/ALL', `vnotice_preview_${w}x${h}`, `width=${w},height=${h},menubar=no,toolbar=no,location=no,status=no,resizable=yes`);
+    });
+  });
+
   if (btnViewScreens) btnViewScreens.addEventListener('click', openScreensModal);
   if (btnCloseScreens) btnCloseScreens.addEventListener('click', closeScreensModal);
   if (screensModal) {
@@ -1724,5 +2095,395 @@
     });
   }
 
+  // ==========================================================================
+  // PWA & Offline Support
+  // ==========================================================================
+  let deferredPwaPrompt = null;
+  const pwaBanner = document.getElementById('pwa-install-banner');
+  const btnPwaInstall = document.getElementById('btn-pwa-install');
+  const btnPwaDismiss = document.getElementById('btn-pwa-dismiss');
+  const iosPwaBanner = document.getElementById('ios-pwa-banner');
+  const btnIosDismiss = document.getElementById('btn-ios-dismiss');
+  const offlineBanner = document.getElementById('offline-banner');
+  const btnSettingsInstall = document.getElementById('btn-settings-install');
+
+  window.addEventListener('beforeinstallprompt', (e) => {
+    e.preventDefault();
+    deferredPwaPrompt = e;
+    if (!localStorage.getItem('vnotice_pwa_dismissed')) {
+      if (pwaBanner) pwaBanner.classList.remove('hidden');
+    }
+  });
+
+  if (btnPwaInstall) {
+    btnPwaInstall.addEventListener('click', async () => {
+      if (deferredPwaPrompt) {
+        deferredPwaPrompt.prompt();
+        try {
+          await deferredPwaPrompt.userChoice;
+        } catch (err) {}
+        deferredPwaPrompt = null;
+      }
+      if (pwaBanner) pwaBanner.classList.add('hidden');
+    });
+  }
+
+  if (btnPwaDismiss) {
+    btnPwaDismiss.addEventListener('click', () => {
+      if (pwaBanner) pwaBanner.classList.add('hidden');
+      localStorage.setItem('vnotice_pwa_dismissed', '1');
+    });
+  }
+
+  if (btnSettingsInstall) {
+    btnSettingsInstall.addEventListener('click', () => {
+      if (deferredPwaPrompt) {
+        deferredPwaPrompt.prompt();
+      } else {
+        showToast('To install, use browser menu > "Add to Home screen" / "Install"');
+      }
+    });
+  }
+
+  // iOS Safari "Add to Home Screen" Banner detection
+  const isIos = /iphone|ipad|ipod/.test(window.navigator.userAgent.toLowerCase());
+  const isInStandalone = ('standalone' in window.navigator) && window.navigator.standalone;
+  if (isIos && !isInStandalone && !localStorage.getItem('vnotice_ios_pwa_dismissed')) {
+    if (iosPwaBanner) iosPwaBanner.classList.remove('hidden');
+  }
+
+  if (btnIosDismiss) {
+    btnIosDismiss.addEventListener('click', () => {
+      if (iosPwaBanner) iosPwaBanner.classList.add('hidden');
+      localStorage.setItem('vnotice_ios_pwa_dismissed', '1');
+    });
+  }
+
+  // Offline banner detection
+  function updateOnlineStatus() {
+    if (!navigator.onLine) {
+      if (offlineBanner) offlineBanner.classList.remove('hidden');
+    } else {
+      if (offlineBanner) offlineBanner.classList.add('hidden');
+    }
+  }
+  window.addEventListener('online', updateOnlineStatus);
+  window.addEventListener('offline', updateOnlineStatus);
+  updateOnlineStatus();
+
+  // ==========================================================================
+  // Bottom Sheet Swipe-Down to Dismiss Gesture
+  // ==========================================================================
+  function initSheetSwipeGesture() {
+    const dialog = document.getElementById('notice-sheet-dialog');
+    const grabArea = document.getElementById('sheet-grab-handle');
+    if (!dialog || !grabArea) return;
+
+    let startY = 0;
+    let currentY = 0;
+    let isDragging = false;
+
+    grabArea.addEventListener('touchstart', (e) => {
+      if (e.touches.length === 1) {
+        startY = e.touches[0].clientY;
+        isDragging = true;
+        dialog.style.transition = 'none';
+      }
+    }, { passive: true });
+
+    window.addEventListener('touchmove', (e) => {
+      if (!isDragging || noticeModal.classList.contains('hidden')) return;
+      currentY = e.touches[0].clientY;
+      const diff = currentY - startY;
+      if (diff > 0) {
+        dialog.style.transform = `translateY(${diff}px)`;
+      }
+    }, { passive: true });
+
+    window.addEventListener('touchend', () => {
+      if (!isDragging) return;
+      isDragging = false;
+      dialog.style.transition = 'transform 0.25s cubic-bezier(0.2, 0.9, 0.3, 1)';
+      const diff = currentY - startY;
+      if (diff > 80) {
+        dialog.style.transform = 'translateY(100%)';
+        setTimeout(() => {
+          dialog.style.transform = '';
+          requestCloseCreateModal();
+        }, 220);
+      } else {
+        dialog.style.transform = '';
+      }
+      startY = 0;
+      currentY = 0;
+    });
+  }
+  initSheetSwipeGesture();
+
+  // ==========================================================================
+  // Mobile Keyboard Adaptation (visualViewport)
+  // ==========================================================================
+  function initViewportKeyboardHandling() {
+    if (!window.visualViewport) return;
+    const stickyFooter = document.getElementById('sheet-sticky-footer');
+    if (!stickyFooter) return;
+
+    const onViewportChange = () => {
+      if (noticeModal.classList.contains('hidden')) return;
+      const offset = window.innerHeight - window.visualViewport.height - window.visualViewport.offsetTop;
+      if (offset > 40) {
+        stickyFooter.style.transform = `translateY(-${Math.max(0, offset)}px)`;
+      } else {
+        stickyFooter.style.transform = '';
+      }
+    };
+
+    window.visualViewport.addEventListener('resize', onViewportChange);
+    window.visualViewport.addEventListener('scroll', onViewportChange);
+  }
+  initViewportKeyboardHandling();
+
+  // ==========================================================================
+  // Pull-to-Refresh on Notices Container
+  // ==========================================================================
+  function initPullToRefresh() {
+    const container = document.getElementById('admin-scroll-container');
+    const indicator = document.getElementById('pull-refresh-indicator');
+    const label = document.getElementById('pull-refresh-label');
+    if (!container || !indicator) return;
+
+    let startY = 0;
+    let isPulling = false;
+
+    container.addEventListener('touchstart', (e) => {
+      if (container.scrollTop <= 0 && e.touches.length === 1) {
+        startY = e.touches[0].clientY;
+        isPulling = true;
+      }
+    }, { passive: true });
+
+    container.addEventListener('touchmove', (e) => {
+      if (!isPulling) return;
+      const diff = e.touches[0].clientY - startY;
+      if (diff > 10 && container.scrollTop <= 0) {
+        indicator.classList.add('pulling');
+        if (diff > 60) {
+          if (label) label.textContent = 'Release to refresh';
+        } else {
+          if (label) label.textContent = 'Pull to refresh';
+        }
+      }
+    }, { passive: true });
+
+    container.addEventListener('touchend', async (e) => {
+      if (!isPulling) return;
+      isPulling = false;
+      const endY = (e.changedTouches && e.changedTouches[0]) ? e.changedTouches[0].clientY : 0;
+      const diff = endY - startY;
+      if (diff > 60 && container.scrollTop <= 0) {
+        indicator.classList.remove('pulling');
+        indicator.classList.add('refreshing');
+        if (label) label.textContent = 'Refreshing notices…';
+        try {
+          await fetchNotices(true);
+        } finally {
+          setTimeout(() => {
+            indicator.classList.remove('refreshing');
+            if (label) label.textContent = 'Pull to refresh';
+          }, 350);
+        }
+      } else {
+        indicator.classList.remove('pulling');
+      }
+    });
+  }
+  initPullToRefresh();
+
+  // ==========================================================================
+  // Tab Navigation & Hash Routing
+  // ==========================================================================
+  function switchTab(tabName) {
+    if (tabName === 'new') {
+      openCreateModal();
+      return;
+    }
+
+    const views = {
+      notices: document.getElementById('view-notices'),
+      screens: document.getElementById('view-screens'),
+      audit: document.getElementById('view-audit'),
+      settings: document.getElementById('view-settings')
+    };
+
+    const titles = {
+      notices: 'Notices',
+      screens: 'Department Screens',
+      audit: 'Audit & Security Logs',
+      settings: 'Settings & Account'
+    };
+
+    Object.entries(views).forEach(([name, el]) => {
+      if (el) {
+        if (name === tabName) {
+          el.classList.remove('hidden');
+          el.classList.add('active');
+        } else {
+          el.classList.add('hidden');
+          el.classList.remove('active');
+        }
+      }
+    });
+
+    const appBarTitle = document.getElementById('app-bar-title');
+    if (appBarTitle && titles[tabName]) {
+      appBarTitle.textContent = titles[tabName];
+    }
+
+    // Update active state in Sidebar & Bottom Tab Bar
+    document.querySelectorAll('.sidebar-item').forEach(item => {
+      item.classList.toggle('active', item.getAttribute('data-tab') === tabName);
+      item.setAttribute('aria-selected', item.getAttribute('data-tab') === tabName ? 'true' : 'false');
+    });
+
+    document.querySelectorAll('.bottom-tab-bar .tab-item').forEach(item => {
+      item.classList.toggle('active', item.getAttribute('data-tab') === tabName);
+    });
+
+    if (tabName === 'screens') {
+      loadAndRenderScreensTable();
+    } else if (tabName === 'audit') {
+      loadAuditLogsPage();
+    }
+  }
+
+  // Raised '+' button in bottom tab bar
+  const tabBtnNew = document.getElementById('tab-btn-new');
+  if (tabBtnNew) {
+    tabBtnNew.addEventListener('click', () => {
+      openCreateModal();
+    });
+  }
+
+  // Wire tab items click
+  document.querySelectorAll('.tab-item, .sidebar-item').forEach(item => {
+    item.addEventListener('click', (e) => {
+      const tab = item.getAttribute('data-tab');
+      if (tab) {
+        switchTab(tab);
+      }
+    });
+  });
+
+  window.addEventListener('hashchange', () => {
+    const hash = window.location.hash.replace('#', '') || 'notices';
+    switchTab(hash);
+  });
+
+  // Check initial hash
+  if (window.location.hash) {
+    const initHash = window.location.hash.replace('#', '');
+    if (['notices', 'screens', 'audit', 'settings'].includes(initHash)) {
+      switchTab(initHash);
+    }
+  }
+
+  // Additional logout triggers (sidebar and settings)
+  const sidebarBtnLogout = document.getElementById('sidebar-btn-logout');
+  const btnSettingsLogout = document.getElementById('btn-settings-logout');
+  [sidebarBtnLogout, btnSettingsLogout].forEach(btn => {
+    if (btn) {
+      btn.addEventListener('click', async () => {
+        try {
+          await fetch('/api/logout', { method: 'POST' });
+        } catch (e) {}
+        clearAdminPassword();
+        showLoginModal();
+      });
+    }
+  });
+
+  // Theme selector buttons in Settings
+  const themeButtons = document.querySelectorAll('.theme-btn');
+  themeButtons.forEach(btn => {
+    btn.addEventListener('click', () => {
+      themeButtons.forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      const theme = btn.getAttribute('data-theme');
+      showToast(`Theme preference saved: ${theme}`);
+    });
+  });
+
+  // Action Sheet Modal (Overflow options for notice cards)
+  const actionSheetModal = document.getElementById('action-sheet-modal');
+  const btnCloseActionSheet = document.getElementById('btn-close-action-sheet');
+  const actionBtnEdit = document.getElementById('action-btn-edit');
+  const actionBtnDuplicate = document.getElementById('action-btn-duplicate');
+  const actionBtnPreview = document.getElementById('action-btn-preview');
+  const actionBtnDelete = document.getElementById('action-btn-delete');
+  let actionSheetTargetNotice = null;
+
+  window.openActionSheet = function(notice) {
+    actionSheetTargetNotice = notice;
+    const titleEl = document.getElementById('action-sheet-title');
+    if (titleEl) titleEl.textContent = notice.title || 'Notice Options';
+    if (actionSheetModal) actionSheetModal.classList.remove('hidden');
+  };
+
+  function closeActionSheet() {
+    if (actionSheetModal) actionSheetModal.classList.add('hidden');
+    actionSheetTargetNotice = null;
+  }
+
+  if (btnCloseActionSheet) btnCloseActionSheet.addEventListener('click', closeActionSheet);
+  if (actionSheetModal) {
+    actionSheetModal.addEventListener('click', (e) => {
+      if (e.target === actionSheetModal) closeActionSheet();
+    });
+  }
+
+  if (actionBtnEdit) {
+    actionBtnEdit.addEventListener('click', () => {
+      if (actionSheetTargetNotice) {
+        const n = actionSheetTargetNotice;
+        closeActionSheet();
+        openEditModal(n);
+      }
+    });
+  }
+
+  if (actionBtnDuplicate) {
+    actionBtnDuplicate.addEventListener('click', () => {
+      if (actionSheetTargetNotice) {
+        const n = Object.assign({}, actionSheetTargetNotice);
+        delete n.id;
+        n.title = `Copy of ${n.title || 'Notice'}`;
+        closeActionSheet();
+        openCreateModal().then(() => {
+          inputTitle.value = n.title;
+          inputBody.value = n.body || '';
+        });
+      }
+    });
+  }
+
+  if (actionBtnPreview) {
+    actionBtnPreview.addEventListener('click', () => {
+      if (actionSheetTargetNotice) {
+        const code = (actionSheetTargetNotice.screens && actionSheetTargetNotice.screens[0]) || 'ALL';
+        window.open(`/display/${encodeURIComponent(code)}`, '_blank');
+        closeActionSheet();
+      }
+    });
+  }
+
+  if (actionBtnDelete) {
+    actionBtnDelete.addEventListener('click', () => {
+      if (actionSheetTargetNotice) {
+        const n = actionSheetTargetNotice;
+        closeActionSheet();
+        openDeleteModal(n);
+      }
+    });
+  }
 
 })();

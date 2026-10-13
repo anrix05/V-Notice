@@ -1571,3 +1571,336 @@ body.show-cursor {
   margin-left: 6px;
   vertical-align: middle;
 }
+
+/* ==========================================================================
+   4K Displays (3840x2160 Large Hall / Campus Auditorium Monitors)
+   ========================================================================== */
+@media (min-width: 2500px) {
+  .display-frame {
+    padding: 0 48px;
+  }
+
+  .display-header {
+    height: 110px;
+    min-height: 110px;
+  }
+
+  .logo-mark {
+    width: 60px;
+    height: 60px;
+  }
+
+  .logo-text {
+    font-size: 34px;
+  }
+
+  .dept-header-pill {
+    padding: 8px 20px;
+    font-size: 20px;
+  }
+
+  .dept-code {
+    font-size: 24px;
+  }
+
+  .dept-name {
+    font-size: 20px;
+    max-width: 600px;
+  }
+
+  .header-weather {
+    padding: 12px 26px;
+    font-size: 26px;
+    gap: 14px;
+    border-radius: var(--radius-panel);
+  }
+
+  .weather-icon {
+    font-size: 34px;
+  }
+
+  .weather-temp {
+    font-size: 28px;
+  }
+
+  .weather-city {
+    font-size: 20px;
+  }
+
+  .clock-time {
+    font-size: 64px;
+  }
+
+  .clock-period {
+    font-size: 28px;
+  }
+
+  .clock-date {
+    font-size: 24px;
+  }
+
+  .clock-sync-dot {
+    width: 10px;
+    height: 10px;
+  }
+
+  .display-main {
+    gap: 32px;
+    padding: 28px 0;
+  }
+
+  .stage-meta {
+    padding: 32px 48px 0 48px;
+  }
+
+  .pill-urgent {
+    font-size: 22px;
+    padding: 8px 24px;
+  }
+
+  .stage-audience,
+  .stage-type,
+  .stage-counter {
+    font-size: 24px;
+  }
+
+  .stage-viewport {
+    padding: 28px 48px;
+  }
+
+  .notice-text .notice-headline {
+    font-size: clamp(4.5rem, 6vw, 9rem);
+    padding-left: 48px;
+    margin-bottom: 36px;
+    border-left-width: 10px;
+  }
+
+  .notice-text .notice-body {
+    font-size: clamp(2.2rem, 3vw, 3.8rem);
+    padding-left: 56px;
+    line-height: 1.45;
+  }
+
+  .rail-panel {
+    padding: 32px;
+    flex: 0 0 min(38rem, 30%);
+  }
+
+  .rail-title {
+    font-size: 28px;
+  }
+
+  .rail-count-pill {
+    font-size: 20px;
+    padding: 4px 16px;
+  }
+
+  .rail-item-title {
+    font-size: 24px;
+  }
+
+  .rail-item-meta {
+    font-size: 20px;
+  }
+
+  .rail-qr-card {
+    padding: 20px 24px;
+    gap: 20px;
+    border-radius: var(--radius-panel);
+  }
+
+  .qr-canvas-box {
+    width: 160px;
+    height: 160px;
+    padding: 10px;
+    border-radius: 14px;
+  }
+
+  .qr-label-head {
+    font-size: 26px;
+  }
+
+  .qr-label-sub {
+    font-size: 20px;
+  }
+
+  .display-ticker {
+    height: 80px;
+    min-height: 80px;
+  }
+
+  .ticker-label {
+    font-size: 26px;
+    padding-right: 32px;
+    margin-right: 32px;
+  }
+
+  .ticker-content {
+    font-size: 28px;
+  }
+
+  .stage-dots {
+    height: 56px;
+  }
+
+  .stage-dots .dot {
+    width: 14px;
+    height: 14px;
+  }
+
+  .stage-dots .dot.active {
+    width: 52px;
+    height: 14px;
+  }
+}
+
+/* ==========================================================================
+   Portrait Displays (1080x1920 Digital Poster / Totem Kiosks)
+   ========================================================================== */
+@media (orientation: portrait), (max-aspect-ratio: 1/1) {
+  .display-frame {
+    padding: 0 24px;
+    height: 100vh;
+    overflow: hidden;
+  }
+
+  .display-header {
+    height: 72px;
+    min-height: 72px;
+    flex-wrap: nowrap;
+    gap: 12px;
+  }
+
+  .header-left {
+    gap: 10px;
+    min-width: 0;
+  }
+
+  .dept-header-pill {
+    padding: 3px 10px;
+    font-size: 12px;
+    max-width: 320px;
+  }
+
+  .dept-name {
+    max-width: 160px;
+  }
+
+  .header-weather {
+    display: none; /* Hide weather on portrait header to preserve clean clock alignment */
+  }
+
+  .display-main {
+    flex-direction: column;
+    gap: 16px;
+    padding: 14px 0;
+    flex: 1;
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  /* Stage takes hero upper 62% */
+  .stage-panel {
+    flex: 1 1 62%;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  .stage-viewport {
+    padding: 20px 24px;
+    flex: 1;
+    min-height: 0;
+  }
+
+  .notice-text .notice-headline {
+    font-size: clamp(2.4rem, 4.8vw, 4.2rem);
+    line-height: 1.15;
+    padding-left: 20px;
+    margin-bottom: 18px;
+    border-left-width: 6px;
+  }
+
+  .notice-text .notice-body {
+    font-size: clamp(1.35rem, 2.6vw, 2.1rem);
+    line-height: 1.42;
+    padding-left: 26px;
+    max-width: 95%;
+  }
+
+  /* Rail takes lower 34% formatted horizontally with QR side-by-side */
+  .rail-panel {
+    flex: 0 0 32%;
+    max-height: 32%;
+    min-height: 0;
+    display: flex;
+    flex-direction: row;
+    align-items: stretch;
+    gap: 16px;
+    padding: 14px 18px;
+    overflow: hidden;
+  }
+
+  .rail-left-wrap {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  .rail-list {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    overflow: hidden;
+    margin-top: 8px;
+  }
+
+  .rail-item {
+    padding: 8px 12px;
+  }
+
+  .rail-item-title {
+    font-size: 15px;
+  }
+
+  .rail-item-meta {
+    font-size: 12px;
+  }
+
+  .rail-qr-card {
+    margin-top: 0;
+    flex: 0 0 auto;
+    align-self: center;
+    padding: 12px 14px;
+    flex-direction: column;
+    text-align: center;
+    gap: 8px;
+  }
+
+  .qr-canvas-box {
+    width: 96px;
+    height: 96px;
+  }
+
+  .qr-label-head {
+    font-size: 13px;
+  }
+
+  .qr-label-sub {
+    font-size: 11px;
+  }
+
+  .display-ticker {
+    height: 52px;
+    min-height: 52px;
+  }
+
+  .ticker-content {
+    font-size: 16px;
+  }
+}
+
