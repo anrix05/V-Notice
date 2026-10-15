@@ -873,6 +873,16 @@ button, input, textarea, select {
   align-items: flex-end;
   justify-content: center;
   z-index: 100;
+  overscroll-behavior: contain;
+}
+
+.modal-backdrop:not(.hidden) {
+  animation: modalFadeIn 220ms cubic-bezier(0.2, 0.8, 0.2, 1) forwards;
+}
+
+@keyframes modalFadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
 }
 
 @media (min-width: 768px) {
@@ -893,6 +903,22 @@ button, input, textarea, select {
   overflow: hidden;
   position: relative;
   box-shadow: 0 25px 60px -15px rgba(0, 0, 0, 0.75), 0 0 0 1px rgba(255, 255, 255, 0.08);
+  transform: translateY(0);
+}
+
+.modal-backdrop:not(.hidden) .modal-dialog {
+  animation: modalSlideIn 240ms cubic-bezier(0.2, 0.8, 0.2, 1) forwards;
+}
+
+@keyframes modalSlideIn {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 @media (min-width: 640px) {
@@ -1719,7 +1745,10 @@ input[type="datetime-local"] {
   border-radius: var(--radius-panel);
   padding: 16px;
   margin-bottom: 14px;
-  transition: all 150ms cubic-bezier(0.16, 1, 0.3, 1);
+  content-visibility: auto;
+  contain-intrinsic-size: 0 160px;
+  transition: transform 150ms cubic-bezier(0.2, 0.8, 0.2, 1), opacity 150ms ease;
+  touch-action: manipulation;
   outline: none;
 }
 
@@ -1728,6 +1757,11 @@ input[type="datetime-local"] {
   background-color: var(--panel-raised);
   border-color: rgba(59, 130, 246, 0.45);
   box-shadow: 0 10px 28px -6px rgba(0, 0, 0, 0.45);
+}
+
+.notice-item-card:active {
+  transform: scale(0.985);
+  transition: transform 60ms ease-out;
 }
 
 .notice-item-card:focus-visible {
@@ -3267,7 +3301,7 @@ body.admin-body {
    ========================================================================== */
 
 .modal-bottom-sheet {
-  transition: transform 0.28s cubic-bezier(0.2, 0.9, 0.3, 1);
+  transition: transform 0.24s cubic-bezier(0.2, 0.8, 0.2, 1);
 }
 
 @media (max-width: 768px) {
@@ -3279,11 +3313,24 @@ body.admin-body {
   .modal-bottom-sheet {
     max-height: 92dvh;
     border-radius: 20px 20px 0 0;
-    box-shadow: 0 -10px 40px rgba(0, 0, 0, 0.8);
+    box-shadow: 0 -2px 14px rgba(0, 0, 0, 0.45);
+    border-top: 1px solid rgba(255, 255, 255, 0.12);
     display: flex;
     flex-direction: column;
     margin: 0;
     width: 100%;
+    animation: sheetSlideUp 240ms cubic-bezier(0.2, 0.8, 0.2, 1) forwards;
+  }
+
+  @keyframes sheetSlideUp {
+    from {
+      opacity: 0;
+      transform: translateY(100%);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
   }
 
   .sheet-grab-area {
@@ -3505,6 +3552,15 @@ body.admin-body {
 /* View Panels (Tab Panels) */
 .tab-view-panel {
   display: block;
+}
+
+.tab-view-panel.active {
+  animation: tabCrossFade 150ms ease-out forwards;
+}
+
+@keyframes tabCrossFade {
+  from { opacity: 0; }
+  to { opacity: 1; }
 }
 
 .tab-view-panel.hidden {
@@ -4626,7 +4682,7 @@ textarea.form-control:focus-visible {
   font-variant-numeric: tabular-nums;
   min-width: 32px;
   font-size: 12px;
-  color: var(--muted);
+  color: var(--text-secondary);
 }
 
 .screen-sound-badge {
@@ -4649,6 +4705,20 @@ textarea.form-control:focus-visible {
   background: rgba(245, 158, 11, 0.15);
   color: #FBBF24;
   border: 1px solid rgba(245, 158, 11, 0.3);
+}
+
+[data-theme="light"] .screen-sound-badge.sound-ready,
+html.theme-light .screen-sound-badge.sound-ready {
+  background: #DCFCE7;
+  color: #166534;
+  border-color: #86EFAC;
+}
+
+[data-theme="light"] .screen-sound-badge.sound-blocked,
+html.theme-light .screen-sound-badge.sound-blocked {
+  background: #FEF3C7;
+  color: #92400E;
+  border-color: #FCD34D;
 }
 
 /* ==========================================================================
@@ -4786,4 +4856,137 @@ html[data-theme="dark"] .flag-next-run-badge {
   gap: 10px;
   margin-top: 10px;
 }
+
+/* ==========================================================================
+   Mobile Performance, Motion Quality & Touch Feedback Rules (Step 3)
+   ========================================================================== */
+
+/* 1. Touch delay elimination & manipulation */
+button,
+a,
+input,
+select,
+textarea,
+.btn,
+.tab-item,
+.tab-item-raised,
+.sidebar-item,
+.notice-item-card,
+.chip-item,
+.prio-btn,
+.type-btn,
+.btn-quick-set {
+  touch-action: manipulation;
+}
+
+/* 2. Immediate touch feedback (<100ms) */
+.btn:active,
+.tab-item:active,
+.tab-item-raised:active,
+.btn-icon:active,
+.btn-quick-set:active,
+.prio-btn:active,
+.type-btn:active,
+.chip-item:active {
+  transform: scale(0.98);
+  transition: transform 60ms ease-out;
+}
+
+/* 2b. Button loading spinner state on Save and Publish */
+.btn.btn-loading,
+.btn.is-loading {
+  position: relative;
+  pointer-events: none;
+  opacity: 0.85;
+}
+
+.btn.btn-loading::before,
+.btn.is-loading::before {
+  content: '';
+  display: inline-block;
+  width: 13px;
+  height: 13px;
+  margin-right: 8px;
+  border: 2px solid rgba(255, 255, 255, 0.35);
+  border-top-color: #FFFFFF;
+  border-radius: 50%;
+  animation: btnSpin 0.6s linear infinite;
+  vertical-align: -2px;
+}
+
+@keyframes btnSpin {
+  to { transform: rotate(360deg); }
+}
+
+/* 3. Scrolling: overscroll containment to prevent parent scroll chaining */
+#admin-scroll-container,
+.modal-body-scroll,
+.notices-list-wrapper,
+.screens-cards-grid,
+.admin-sidebar {
+  overscroll-behavior: contain;
+}
+
+/* 4. Mobile paint cost reduction (< 768px) */
+@media (max-width: 768px) {
+  /* Replace heavy backdrop blur on banners & badges with flat translucent surfaces */
+  .offline-banner,
+  .pwa-install-banner,
+  .poster-play-badge {
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+  }
+
+  .offline-banner {
+    background: rgba(220, 38, 38, 0.98) !important;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4) !important;
+  }
+
+  .pwa-install-banner {
+    background: rgba(22, 34, 56, 0.98) !important;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4) !important;
+  }
+
+  .poster-play-badge {
+    background: rgba(15, 23, 42, 0.92) !important;
+  }
+
+  /* Replace 40-60px blur shadows with subtle 10px shadows or borders */
+  .modal-dialog {
+    box-shadow: 0 -2px 14px rgba(0, 0, 0, 0.45) !important;
+  }
+
+  .modal-bottom-sheet {
+    box-shadow: 0 -2px 14px rgba(0, 0, 0, 0.45) !important;
+  }
+
+  .action-sheet-dialog {
+    box-shadow: 0 -2px 14px rgba(0, 0, 0, 0.45) !important;
+  }
+
+  .notice-item-card:hover {
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3) !important;
+  }
+
+  /* Minimum 44px tap targets for buttons and navigation items */
+  .btn,
+  .btn-icon,
+  .tab-item {
+    min-height: 44px;
+    min-width: 44px;
+  }
+}
+
+/* 5. Honor prefers-reduced-motion: instant transitions, zero layout shift */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
 

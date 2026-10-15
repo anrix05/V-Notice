@@ -499,7 +499,24 @@
     const data = await res.json();
     notices = Array.isArray(data) ? data : [];
     updateSummaryCounts();
+
+    const currentFp = computeNoticesFingerprint(notices, currentFilter, selectedScreen, noticesCurrentPage);
+    if (!forceRefresh && currentFp === lastRenderedNoticesHash) {
+      return;
+    }
+    lastRenderedNoticesHash = currentFp;
     renderNoticesList();
+  }
+  window.fetchNotices = fetchNotices;
+
+  let lastRenderedNoticesHash = '';
+  function computeNoticesFingerprint(list, filter, screen, page) {
+    let fp = `${filter}:${screen}:${page}:${list.length}:`;
+    for (let i = 0; i < list.length; i++) {
+      const n = list[i];
+      fp += `${n.id}_${n.updated_at || ''}_${n.status || ''}_${n.priority || ''},`;
+    }
+    return fp;
   }
 
   function updateSummaryCounts() {
@@ -525,19 +542,66 @@
   // Render Notices List (Sorted: Live first, Scheduled by start, Expired by end)
   // ==========================================================================
   
-  // Video poster cache and canvas generator
+  // Video poster cache and single-concurrency canvas generator
   const videoPosterCache = {};
-  function requestVideoPoster(mediaUrl, callback) {
+  const videoPosterQueue = [];
+  let isGeneratingVideoPoster = false;
+
+  function enqueueVideoPoster(mediaUrl, callback) {
+    if (!mediaUrl) {
+      callback(null);
+      return;
+    }
     if (videoPosterCache[mediaUrl]) {
       callback(videoPosterCache[mediaUrl]);
       return;
     }
+    // Prefer Cloudinary video thumbnail if applicable
+    if (mediaUrl.includes('res.cloudinary.com') && mediaUrl.includes('/video/upload/')) {
+      const posterUrl = mediaUrl.replace('/video/upload/', '/video/upload/so_0,w_160,h_90,c_fill,q_auto,f_jpg/');
+      videoPosterCache[mediaUrl] = posterUrl;
+      callback(posterUrl);
+      return;
+    }
+    videoPosterQueue.push({ mediaUrl, callback });
+    processVideoPosterQueue();
+  }
+
+  function processVideoPosterQueue() {
+    if (isGeneratingVideoPoster || videoPosterQueue.length === 0) return;
+    isGeneratingVideoPoster = true;
+    const { mediaUrl, callback } = videoPosterQueue.shift();
+
+    if (videoPosterCache[mediaUrl]) {
+      callback(videoPosterCache[mediaUrl]);
+      isGeneratingVideoPoster = false;
+      processVideoPosterQueue();
+      return;
+    }
+
     const video = document.createElement('video');
-    video.src = mediaUrl;
     video.crossOrigin = 'anonymous';
     video.muted = true;
     video.preload = 'metadata';
-    video.currentTime = 0.5;
+
+    let done = false;
+    const finish = (url) => {
+      if (done) return;
+      done = true;
+      try {
+        video.removeAttribute('src');
+        video.load();
+      } catch (e) {}
+      if (url) videoPosterCache[mediaUrl] = url;
+      try {
+        callback(url);
+      } catch (err) {}
+      isGeneratingVideoPoster = false;
+      setTimeout(processVideoPosterQueue, 25);
+    };
+
+    const timer = setTimeout(() => finish(null), 3500);
+
     video.addEventListener('loadeddata', () => {
       try {
         const canvas = document.createElement('canvas');
@@ -546,14 +610,46 @@
         const ctx = canvas.getContext('2d');
         ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
         const url = canvas.toDataURL('image/jpeg', 0.7);
-        videoPosterCache[mediaUrl] = url;
-        callback(url);
+        clearTimeout(timer);
+        finish(url);
       } catch (e) {
-        callback(null);
+        clearTimeout(timer);
+        finish(null);
       }
     });
-    video.addEventListener('error', () => callback(null));
+
+    video.addEventListener('error', () => {
+      clearTimeout(timer);
+      finish(null);
+    });
+
+    video.src = mediaUrl;
+    video.currentTime = 0.5;
   }
+
+  const requestVideoPoster = enqueueVideoPoster;
+
+  // Viewport IntersectionObserver to generate video posters lazily near viewport
+  const videoPosterObserver = ('IntersectionObserver' in window)
+    ? new IntersectionObserver((entries) => {
+        entries.forEach(entry => {
+          if (entry.isIntersecting) {
+            const vTile = entry.target;
+            videoPosterObserver.unobserve(vTile);
+            const vImg = vTile.querySelector('.video-poster-img');
+            const vUrl = vTile.getAttribute('data-video-url');
+            if (vImg && vUrl) {
+              enqueueVideoPoster(vUrl, (posterUrl) => {
+                if (posterUrl) {
+                  vImg.src = posterUrl;
+                  vImg.classList.remove('hidden');
+                }
+              });
+            }
+          }
+        });
+      }, { rootMargin: '250px 0px' })
+    : null;
 
   // Format schedule dates with relative duration (ends in 3 days)
   function formatScheduleLine(startMs, endMs) {
@@ -639,9 +735,176 @@
   let noticesCurrentPage = 1;
   let savedAdminScrollTop = 0;
 
-  function renderNoticesList() {
-    noticesContainer.innerHTML = '';
+  function getThumbnailUrl(media) {
+    if (!media) return '';
+    if (media.startsWith('http')) {
+      if (media.includes('res.cloudinary.com') && media.includes('/image/upload/')) {
+        return media.replace('/image/upload/', '/image/upload/w_140,h_140,c_fill,q_auto,f_auto/');
+      }
+      return media;
+    }
+    return `/media/${encodeURIComponent(media)}`;
+  }
 
+  function createNoticeCard(notice) {
+    const card = document.createElement('article');
+    card.tabIndex = 0;
+    const status = notice.status || 'live';
+    const prio = (notice.priority || 'normal').toLowerCase();
+    const ntype = notice.type || 'text';
+    const updatedAt = String(notice.updated_at || '');
+
+    card.className = `notice-item-card status-${status} prio-${prio} ${status === 'expired' ? 'is-expired' : ''}`;
+    card.setAttribute('role', 'button');
+    card.setAttribute('aria-label', `Notice: ${notice.title || 'Untitled notice'}, status ${status}`);
+    card.dataset.noticeId = String(notice.id);
+    card.dataset.updatedAt = updatedAt;
+    card.dataset.status = status;
+    card.dataset.prio = prio;
+
+    // Media Tile
+    let tileHtml = '';
+    if (ntype === 'image' && notice.media) {
+      const thumbUrl = getThumbnailUrl(notice.media);
+      tileHtml = `<div class="notice-media-tile"><img src="${thumbUrl}" alt="" class="notice-thumb-img" loading="lazy" decoding="async" width="68" height="68"></div>`;
+    } else if (ntype === 'video' && notice.media) {
+      const mediaUrl = notice.media.startsWith('http') ? notice.media : `/media/${encodeURIComponent(notice.media)}`;
+      tileHtml = `
+        <div class="notice-media-tile video-tile" data-video-url="${mediaUrl}">
+          <img class="notice-thumb-img video-poster-img hidden" alt="" loading="lazy" decoding="async" width="68" height="68">
+          <span class="poster-play-badge" aria-hidden="true">▶</span>
+        </div>`;
+    } else {
+      const initial = (notice.title || 'T').trim().charAt(0).toUpperCase() || 'T';
+      tileHtml = `
+        <div class="notice-media-tile text-tile" style="background: ${getNoticeTileBg(notice.id)}">
+          <span class="text-tile-initial">${escapeHtml(initial)}</span>
+        </div>`;
+    }
+
+    // Badges
+    const statusLabel = status.charAt(0).toUpperCase() + status.slice(1);
+    const prioLabel = prio.charAt(0).toUpperCase() + prio.slice(1);
+    const typeLabel = ntype.charAt(0).toUpperCase() + ntype.slice(1);
+    const durationText = ntype !== 'video' ? ` · ${notice.duration || 10}s` : '';
+    const scheduleLine = formatScheduleLine(notice.start, notice.end);
+
+    const deptChipsHtml = (() => {
+      const targetCodes = sanitizeScreenCodes(notice.screens || notice.screen_id);
+      if (targetCodes.includes('ALL')) {
+        return '<span class="badge-dept-chip badge-all" title="All Departments (college-wide)">ALL</span>';
+      }
+      const maxShown = 2;
+      const shown = targetCodes.slice(0, maxShown);
+      const overflow = targetCodes.length - maxShown;
+      const chips = shown.map(c => `<span class="badge-dept-chip">${escapeHtml(c)}</span>`).join('');
+      const overflowChip = overflow > 0 ? `<span class="badge-dept-chip badge-overflow" title="${escapeHtml(targetCodes.join(', '))}">+${overflow}</span>` : '';
+      return chips + overflowChip;
+    })();
+
+    card.innerHTML = `
+      ${tileHtml}
+      <div class="notice-content">
+        <h3 class="notice-title">${escapeHtml(notice.title || 'Untitled notice')}</h3>
+        ${notice.body ? `<p class="notice-body-snippet">${escapeHtml(notice.body)}</p>` : ''}
+        <div class="notice-badges-row">
+          <span class="badge-status badge-status-${status}">
+            <span class="status-indicator-dot"></span>
+            <span>${statusLabel}</span>
+          </span>
+          <span class="badge-priority badge-prio-${prio}">
+            <span>${prioLabel}</span>
+          </span>
+          ${deptChipsHtml}
+          <span class="badge-type">
+            <span>${typeLabel}</span>${durationText}
+          </span>
+        </div>
+        <div class="notice-schedule-line">${scheduleLine}</div>
+        <div class="notice-public-link-row">
+          <span class="public-link-tag">Public link:</span>
+          <button type="button" class="btn-link-action btn-copy-public-card" data-id="${notice.id}">Copy link</button>
+          <span class="dot-sep">·</span>
+          <a href="/n/${notice.id}" target="_blank" class="btn-link-action btn-open-public-card">Open page ↗</a>
+          <span class="dot-sep">·</span>
+          <span class="scan-count-badge">${notice.scan_count > 0 ? (notice.scan_count === 1 ? 'Scanned 1 time' : `Scanned ${notice.scan_count} times`) : '0 scans'}</span>
+        </div>
+      </div>
+
+      <div class="notice-actions">
+        <button type="button" class="btn-icon btn-action-edit btn-edit-row" data-id="${notice.id}" aria-label="Edit notice" title="Edit">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
+        </button>
+        <button type="button" class="btn-icon btn-card-overflow" data-id="${notice.id}" aria-label="More options for notice" title="More options">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="12" cy="5" r="2.2"></circle><circle cx="12" cy="12" r="2.2"></circle><circle cx="12" cy="19" r="2.2"></circle></svg>
+        </button>
+      </div>
+    `;
+
+    // Lazy video poster registration via IntersectionObserver
+    if (ntype === 'video' && notice.media) {
+      const vTile = card.querySelector('.video-tile');
+      if (vTile) {
+        if (videoPosterObserver) {
+          videoPosterObserver.observe(vTile);
+        } else {
+          const vUrl = notice.media.startsWith('http') ? notice.media : `/media/${encodeURIComponent(notice.media)}`;
+          const vImg = vTile.querySelector('.video-poster-img');
+          enqueueVideoPoster(vUrl, (posterUrl) => {
+            if (posterUrl && vImg) {
+              vImg.src = posterUrl;
+              vImg.classList.remove('hidden');
+            }
+          });
+        }
+      }
+    }
+
+    // Tapping card opens edit sheet
+    card.addEventListener('click', () => {
+      saveScrollAndOpenEdit(notice);
+    });
+
+    const copyPublicBtn = card.querySelector('.btn-copy-public-card');
+    if (copyPublicBtn) {
+      copyPublicBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const url = `${window.location.origin}/n/${notice.id}`;
+        navigator.clipboard.writeText(url).then(() => {
+          showToast('Link copied');
+        }).catch(() => {
+          showToast('Link copied');
+        });
+      });
+    }
+
+    const openPublicBtn = card.querySelector('.btn-open-public-card');
+    if (openPublicBtn) {
+      openPublicBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+      });
+    }
+
+    const overflowBtn = card.querySelector('.btn-card-overflow');
+    if (overflowBtn) {
+      overflowBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        window.openActionSheet(notice);
+      });
+    }
+
+    const editBtn = card.querySelector('.btn-edit-row');
+    if (editBtn) {
+      editBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        saveScrollAndOpenEdit(notice);
+      });
+    }
+
+    return card;
+  }
+
+  function renderNoticesList() {
     // 1. Screen Filter: filter notices by target screen
     const screenFilterVal = feedScreenFilter ? feedScreenFilter.value : 'all_screens';
     const screenFiltered = (screenFilterVal === 'all_screens')
@@ -715,184 +978,96 @@
       return;
     }
 
-    // 5. Pagination: 20 per batch
+    // Clean up empty view if previously present
+    const emptyView = noticesContainer.querySelector('.notices-empty-view');
+    if (emptyView) emptyView.remove();
+    const loadingView = noticesContainer.querySelector('.notices-loading');
+    if (loadingView) loadingView.remove();
+
+    // 5. Keyed incremental diffing (render initial 20 cards, load more on scroll)
     const visibleNotices = filtered.slice(0, noticesCurrentPage * noticesPageSize);
     if (countSummaryEl) {
       countSummaryEl.textContent = `Showing ${visibleNotices.length} of ${filtered.length}`;
     }
 
-    visibleNotices.forEach(notice => {
-      const card = document.createElement('article');
-      card.tabIndex = 0;
-      const status = notice.status || 'live';
-      const prio = (notice.priority || 'normal').toLowerCase();
-      const ntype = notice.type || 'text';
-
-      card.className = `notice-item-card status-${status} prio-${prio} ${status === 'expired' ? 'is-expired' : ''}`;
-      card.setAttribute('role', 'button');
-      card.setAttribute('aria-label', `Notice: ${notice.title || 'Untitled notice'}, status ${status}`);
-
-      // Media Tile
-      let tileHtml = '';
-      if (ntype === 'image' && notice.media) {
-        const mediaUrl = notice.media.startsWith('http') ? notice.media : `/media/${encodeURIComponent(notice.media)}`;
-        tileHtml = `<div class="notice-media-tile"><img src="${mediaUrl}" alt="" class="notice-thumb-img" loading="lazy"></div>`;
-      } else if (ntype === 'video' && notice.media) {
-        const mediaUrl = notice.media.startsWith('http') ? notice.media : `/media/${encodeURIComponent(notice.media)}`;
-        tileHtml = `
-          <div class="notice-media-tile video-tile" data-video-url="${mediaUrl}">
-            <img class="notice-thumb-img video-poster-img hidden" alt="">
-            <span class="poster-play-badge" aria-hidden="true">▶</span>
-          </div>`;
-      } else {
-        const initial = (notice.title || 'T').trim().charAt(0).toUpperCase() || 'T';
-        tileHtml = `
-          <div class="notice-media-tile text-tile" style="background: ${getNoticeTileBg(notice.id)}">
-            <span class="text-tile-initial">${escapeHtml(initial)}</span>
-          </div>`;
+    const existingCards = new Map();
+    noticesContainer.querySelectorAll('.notice-item-card').forEach(card => {
+      const nid = card.dataset.noticeId;
+      if (nid) {
+        existingCards.set(nid, card);
       }
-
-      // Badges
-      const statusLabel = status.charAt(0).toUpperCase() + status.slice(1);
-      const prioLabel = prio.charAt(0).toUpperCase() + prio.slice(1);
-      const typeLabel = ntype.charAt(0).toUpperCase() + ntype.slice(1);
-      const durationText = ntype !== 'video' ? ` · ${notice.duration || 10}s` : '';
-
-      // Schedule Line with Relative Duration
-      const scheduleLine = formatScheduleLine(notice.start, notice.end);
-
-      const deptChipsHtml = (() => {
-        const targetCodes = sanitizeScreenCodes(notice.screens || notice.screen_id);
-        if (targetCodes.includes('ALL')) {
-          return '<span class="badge-dept-chip badge-all" title="All Departments (college-wide)">ALL</span>';
-        }
-        const maxShown = 2;
-        const shown = targetCodes.slice(0, maxShown);
-        const overflow = targetCodes.length - maxShown;
-        const chips = shown.map(c => `<span class="badge-dept-chip">${escapeHtml(c)}</span>`).join('');
-        const overflowChip = overflow > 0 ? `<span class="badge-dept-chip badge-overflow" title="${escapeHtml(targetCodes.join(', '))}">+${overflow}</span>` : '';
-        return chips + overflowChip;
-      })();
-
-      // Exact card anatomy: top to bottom:
-      // 1. Title (1-2 lines, high-contrast)
-      // 2. Subtitle (1 line, ellipsis)
-      // 3. Badge row (status, priority, target chips, format)
-      // 4. Schedule line with relative text
-      // Actions: ONE Edit icon button (aria-label) plus ⋮ overflow menu
-      card.innerHTML = `
-        ${tileHtml}
-        <div class="notice-content">
-          <h3 class="notice-title">${escapeHtml(notice.title || 'Untitled notice')}</h3>
-          ${notice.body ? `<p class="notice-body-snippet">${escapeHtml(notice.body)}</p>` : ''}
-          <div class="notice-badges-row">
-            <span class="badge-status badge-status-${status}">
-              <span class="status-indicator-dot"></span>
-              <span>${statusLabel}</span>
-            </span>
-            <span class="badge-priority badge-prio-${prio}">
-              <span>${prioLabel}</span>
-            </span>
-            ${deptChipsHtml}
-            <span class="badge-type">
-              <span>${typeLabel}</span>${durationText}
-            </span>
-          </div>
-          <div class="notice-schedule-line">${scheduleLine}</div>
-          <div class="notice-public-link-row">
-            <span class="public-link-tag">Public link:</span>
-            <button type="button" class="btn-link-action btn-copy-public-card" data-id="${notice.id}">Copy link</button>
-            <span class="dot-sep">·</span>
-            <a href="/n/${notice.id}" target="_blank" class="btn-link-action btn-open-public-card">Open page ↗</a>
-            <span class="dot-sep">·</span>
-            <span class="scan-count-badge">${notice.scan_count > 0 ? (notice.scan_count === 1 ? 'Scanned 1 time' : `Scanned ${notice.scan_count} times`) : '0 scans'}</span>
-          </div>
-        </div>
-
-        <div class="notice-actions">
-          <button type="button" class="btn-icon btn-action-edit btn-edit-row" data-id="${notice.id}" aria-label="Edit notice" title="Edit">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
-          </button>
-          <button type="button" class="btn-icon btn-card-overflow" data-id="${notice.id}" aria-label="More options for notice" title="More options">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="12" cy="5" r="2.2"></circle><circle cx="12" cy="12" r="2.2"></circle><circle cx="12" cy="19" r="2.2"></circle></svg>
-          </button>
-        </div>
-      `;
-
-      // Async video poster rendering
-      if (ntype === 'video' && notice.media) {
-        const vTile = card.querySelector('.video-tile');
-        const vImg = card.querySelector('.video-poster-img');
-        if (vTile && vImg) {
-          const vUrl = notice.media.startsWith('http') ? notice.media : `/media/${encodeURIComponent(notice.media)}`;
-          requestVideoPoster(vUrl, (posterUrl) => {
-            if (posterUrl) {
-              vImg.src = posterUrl;
-              vImg.classList.remove('hidden');
-            }
-          });
-        }
-      }
-
-      // Tapping card opens edit sheet
-      card.addEventListener('click', () => {
-        saveScrollAndOpenEdit(notice);
-      });
-
-      const copyPublicBtn = card.querySelector('.btn-copy-public-card');
-      if (copyPublicBtn) {
-        copyPublicBtn.addEventListener('click', (e) => {
-          e.stopPropagation();
-          const url = `${window.location.origin}/n/${notice.id}`;
-          navigator.clipboard.writeText(url).then(() => {
-            showToast('Link copied');
-          }).catch(() => {
-            showToast('Link copied');
-          });
-        });
-      }
-
-      const openPublicBtn = card.querySelector('.btn-open-public-card');
-      if (openPublicBtn) {
-        openPublicBtn.addEventListener('click', (e) => {
-          e.stopPropagation();
-        });
-      }
-
-      const overflowBtn = card.querySelector('.btn-card-overflow');
-      if (overflowBtn) {
-        overflowBtn.addEventListener('click', (e) => {
-          e.stopPropagation();
-          window.openActionSheet(notice);
-        });
-      }
-
-      const editBtn = card.querySelector('.btn-edit-row');
-      if (editBtn) {
-        editBtn.addEventListener('click', (e) => {
-          e.stopPropagation();
-          saveScrollAndOpenEdit(notice);
-        });
-      }
-
-      noticesContainer.appendChild(card);
     });
 
-    // 6. Load More button if remaining notices exist
+    const finalCards = [];
+    visibleNotices.forEach(notice => {
+      const nid = String(notice.id);
+      const status = notice.status || 'live';
+      const prio = (notice.priority || 'normal').toLowerCase();
+      const updatedAt = String(notice.updated_at || '');
+
+      const existing = existingCards.get(nid);
+      if (existing &&
+          existing.dataset.updatedAt === updatedAt &&
+          existing.dataset.status === status &&
+          existing.dataset.prio === prio) {
+        // Reuse existing DOM card without wiping or recreation
+        finalCards.push(existing);
+        existingCards.delete(nid);
+      } else {
+        // Create new or updated card
+        const card = createNoticeCard(notice);
+        finalCards.push(card);
+      }
+    });
+
+    // Remove orphaned cards
+    existingCards.forEach(card => card.remove());
+
+    // Position cards in DOM matching filtered sort order
+    finalCards.forEach((card, idx) => {
+      const currentChild = noticesContainer.children[idx];
+      if (currentChild !== card) {
+        noticesContainer.insertBefore(card, currentChild || null);
+      }
+    });
+
+    // 6. Pagination sentinel with IntersectionObserver for auto load-more
+    let loadMoreWrap = noticesContainer.querySelector('#load-more-sentinel');
     if (visibleNotices.length < filtered.length) {
-      const loadMoreWrap = document.createElement('div');
-      loadMoreWrap.className = 'load-more-wrap';
+      if (!loadMoreWrap) {
+        loadMoreWrap = document.createElement('div');
+        loadMoreWrap.id = 'load-more-sentinel';
+        loadMoreWrap.className = 'load-more-wrap';
+      }
       loadMoreWrap.innerHTML = `
         <button type="button" class="btn btn-secondary btn-load-more" id="btn-load-more">
           Load more notices (${filtered.length - visibleNotices.length} remaining)
         </button>
       `;
+      noticesContainer.appendChild(loadMoreWrap);
+
       const btnLoadMore = loadMoreWrap.querySelector('#btn-load-more');
-      btnLoadMore.addEventListener('click', () => {
+      const triggerLoadMore = () => {
         noticesCurrentPage++;
         renderNoticesList();
-      });
-      noticesContainer.appendChild(loadMoreWrap);
+      };
+      if (btnLoadMore) {
+        btnLoadMore.addEventListener('click', triggerLoadMore);
+      }
+
+      if ('IntersectionObserver' in window) {
+        if (window.__loadMoreObserver) window.__loadMoreObserver.disconnect();
+        window.__loadMoreObserver = new IntersectionObserver((entries) => {
+          if (entries[0] && entries[0].isIntersecting) {
+            window.__loadMoreObserver.disconnect();
+            triggerLoadMore();
+          }
+        }, { rootMargin: '250px' });
+        window.__loadMoreObserver.observe(loadMoreWrap);
+      }
+    } else if (loadMoreWrap) {
+      if (window.__loadMoreObserver) window.__loadMoreObserver.disconnect();
+      loadMoreWrap.remove();
     }
   }
 
@@ -1682,7 +1857,13 @@
 
   function setSubmitting(loading) {
     btnSubmitCreate.disabled = loading;
-    btnSubmitText.textContent = loading ? 'Publishing…' : 'Publish';
+    if (loading) {
+      btnSubmitCreate.classList.add('btn-loading');
+      btnSubmitText.textContent = editingNoticeId ? 'Saving…' : 'Publishing…';
+    } else {
+      btnSubmitCreate.classList.remove('btn-loading');
+      btnSubmitText.textContent = editingNoticeId ? 'Save changes' : 'Publish';
+    }
     if (!loading && uploadProgressTrack) {
       uploadProgressTrack.classList.add('hidden');
     }
@@ -1762,14 +1943,23 @@
 
   // Escape key closes open dialogs
   window.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape') {
+    if (e.key === 'Escape' || e.key === 'Esc') {
       const discardModal = document.getElementById('discard-modal');
       if (discardModal && !discardModal.classList.contains('hidden')) {
         closeDiscardModal();
         return;
       }
-      if (!noticeModal.classList.contains('hidden')) requestCloseCreateModal();
-      if (!deleteModal.classList.contains('hidden')) closeDeleteModal();
+      if (!noticeModal.classList.contains('hidden')) {
+        requestCloseCreateModal();
+        return;
+      }
+      if (!deleteModal.classList.contains('hidden')) {
+        closeDeleteModal();
+        return;
+      }
+      if (typeof closeAnyOpenModal === 'function') {
+        closeAnyOpenModal();
+      }
     }
   });
 
@@ -1781,16 +1971,44 @@
   loadScreens();
   checkAuthAndLoad();
 
-  // Background auto-sync in admin every 5 seconds (uses ETag 304); throttled when tab is hidden
-  setInterval(() => {
-    if (localStorage.getItem('vnotice_admin_pass') && !document.hidden) {
-      fetchNotices(false).catch(() => {});
+  // Background auto-sync in admin with pause on hidden and single catch-up fetch
+  let noticesPollInterval = null;
+  function startNoticesPolling() {
+    if (noticesPollInterval) clearInterval(noticesPollInterval);
+    noticesPollInterval = setInterval(() => {
+      if (document.hidden) return;
+      if (localStorage.getItem('vnotice_admin_pass') && currentActiveTab === 'notices') {
+        fetchNotices(false).catch(() => {});
+      }
+    }, 10000);
+  }
+
+  function stopNoticesPolling() {
+    if (noticesPollInterval) {
+      clearInterval(noticesPollInterval);
+      noticesPollInterval = null;
     }
-  }, 5000);
+  }
+
+  startNoticesPolling();
 
   document.addEventListener('visibilitychange', () => {
-    if (!document.hidden && localStorage.getItem('vnotice_admin_pass')) {
-      fetchNotices(false).catch(() => {});
+    if (document.hidden) {
+      stopNoticesPolling();
+      if (screenPollInterval) {
+        clearInterval(screenPollInterval);
+        screenPollInterval = null;
+      }
+    } else {
+      if (localStorage.getItem('vnotice_admin_pass')) {
+        if (currentActiveTab === 'notices') {
+          fetchNotices(false).catch(() => {});
+          startNoticesPolling();
+        } else if (currentActiveTab === 'screens') {
+          loadScreens().catch(() => {});
+          screenPollInterval = setInterval(loadScreens, 4000);
+        }
+      }
     }
   });
 
@@ -1902,11 +2120,15 @@
 
   async function loadAndRenderScreensTable() {
     const screensCardsGrid = document.getElementById('screens-cards-grid');
-    if (deptTableBody) {
+    if (deptTableBody && (!deptTableBody.children.length || deptTableBody.children.length <= 1)) {
       deptTableBody.innerHTML = '<tr><td colspan="6" style="text-align: center; color: var(--muted); padding: 20px;">Loading screens…</td></tr>';
     }
-    if (screensCardsGrid) {
-      screensCardsGrid.innerHTML = '<div style="text-align: center; color: var(--muted); padding: 20px;">Loading campus screens…</div>';
+    if (screensCardsGrid && (!screensCardsGrid.children.length || screensCardsGrid.querySelector('.skeleton-card'))) {
+      screensCardsGrid.innerHTML = `
+        <div class="skeleton-card" style="height: 110px; border-radius: 14px; background: rgba(255,255,255,0.05); margin-bottom: 12px; animation: pulse 1.2s infinite ease-in-out;"></div>
+        <div class="skeleton-card" style="height: 110px; border-radius: 14px; background: rgba(255,255,255,0.05); margin-bottom: 12px; animation: pulse 1.2s infinite ease-in-out;"></div>
+        <div class="skeleton-card" style="height: 110px; border-radius: 14px; background: rgba(255,255,255,0.05); margin-bottom: 12px; animation: pulse 1.2s infinite ease-in-out;"></div>
+      `;
     }
 
     try {
@@ -2043,10 +2265,10 @@
                   <input type="checkbox" class="screen-sound-toggle" data-code="${escapeHtml(code)}" ${s.sound_enabled ? 'checked' : ''}>
                   <span>Sound</span>
                 </label>
-                <div class="screen-volume-wrap ${s.sound_enabled ? '' : 'disabled-wrap'}">
+                <div class="screen-volume-wrap ${s.sound_enabled ? '' : 'disabled-wrap'}" ${s.sound_enabled ? '' : 'aria-disabled="true"'}>
                   <label for="vol-${escapeHtml(code)}">Volume</label>
                   <input type="range" class="screen-volume-slider" id="vol-${escapeHtml(code)}" min="0" max="100" value="${typeof s.sound_volume === 'number' ? s.sound_volume : 70}" data-code="${escapeHtml(code)}" ${s.sound_enabled ? '' : 'disabled'}>
-                  <span class="screen-volume-val">${typeof s.sound_volume === 'number' ? s.sound_volume : 70}%</span>
+                  <span class="screen-volume-val" ${s.sound_enabled ? '' : 'aria-hidden="true"'}>${typeof s.sound_volume === 'number' ? s.sound_volume : 70}%</span>
                 </div>
               </div>
               <div class="screen-card-actions">
@@ -2574,7 +2796,7 @@
     if (previewModal && !previewModal.classList.contains('hidden')) {
       updatePreviewScale(activePreviewDims.w, activePreviewDims.h);
     }
-  });
+  }, { passive: true });
 
   document.querySelectorAll('.btn-preview-size').forEach(btn => {
     btn.addEventListener('click', () => {
@@ -2810,8 +3032,8 @@
       }
     };
 
-    window.visualViewport.addEventListener('resize', onViewportChange);
-    window.visualViewport.addEventListener('scroll', onViewportChange);
+    window.visualViewport.addEventListener('resize', onViewportChange, { passive: true });
+    window.visualViewport.addEventListener('scroll', onViewportChange, { passive: true });
   }
   initViewportKeyboardHandling();
 
@@ -2880,7 +3102,11 @@
   let isNavigatingBack = false;
   let closedViaUi = false;
 
-  function switchTab(tabName, pushToHistory = true) {
+  function switchTab(tabName, options = {}) {
+    const fromHistory = typeof options === 'boolean'
+      ? !options
+      : Boolean(options && options.fromHistory);
+
     if (tabName === 'new') {
       openCreateModal();
       return;
@@ -2890,14 +3116,7 @@
       tabName = 'notices';
     }
 
-    if (pushToHistory && tabName !== currentActiveTab) {
-      tabHistory.push(tabName);
-      if (window.location.hash !== '#' + tabName) {
-        history.pushState({ type: 'tab', tab: tabName }, '', '#' + tabName);
-      }
-    }
-    currentActiveTab = tabName;
-
+    // 1. Render the view and update titles and button visibility
     const views = {
       notices: document.getElementById('view-notices'),
       screens: document.getElementById('view-screens'),
@@ -2946,8 +3165,9 @@
 
     // Update active state in Sidebar & Bottom Tab Bar
     document.querySelectorAll('.sidebar-item').forEach(item => {
-      item.classList.toggle('active', item.getAttribute('data-tab') === tabName);
-      item.setAttribute('aria-selected', item.getAttribute('data-tab') === tabName ? 'true' : 'false');
+      const isCurrent = item.getAttribute('data-tab') === tabName;
+      item.classList.toggle('active', isCurrent);
+      item.setAttribute('aria-selected', isCurrent ? 'true' : 'false');
     });
 
     document.querySelectorAll('.bottom-tab-bar .tab-item').forEach(item => {
@@ -2967,6 +3187,24 @@
         loadAuditLogsPage();
       } else if (tabName === 'settings') {
         loadFlagSettings();
+      }
+    }
+
+    // 2. Only then update the history entry (pushState if not fromHistory)
+    currentActiveTab = tabName;
+
+    if (!fromHistory) {
+      if (tabHistory[tabHistory.length - 1] !== tabName) {
+        tabHistory.push(tabName);
+      }
+      if (window.location.hash !== '#' + tabName) {
+        history.pushState({ type: 'tab', tab: tabName }, '', '#' + tabName);
+      }
+    } else {
+      if (tabHistory.length > 1 && tabHistory[tabHistory.length - 2] === tabName) {
+        tabHistory.pop();
+      } else if (tabHistory[tabHistory.length - 1] !== tabName) {
+        tabHistory.push(tabName);
       }
     }
   }
@@ -2997,7 +3235,8 @@
   // Raised '+' button in bottom tab bar
   const tabBtnNew = document.getElementById('tab-btn-new');
   if (tabBtnNew) {
-    tabBtnNew.addEventListener('click', () => {
+    tabBtnNew.addEventListener('click', (e) => {
+      e.preventDefault();
       openCreateModal();
     });
   }
@@ -3005,6 +3244,7 @@
   // Wire tab items click
   document.querySelectorAll('.tab-item, .sidebar-item').forEach(item => {
     item.addEventListener('click', (e) => {
+      e.preventDefault();
       const tab = item.getAttribute('data-tab');
       if (tab) {
         switchTab(tab);
@@ -3014,20 +3254,18 @@
 
   window.addEventListener('hashchange', () => {
     const hash = window.location.hash.replace('#', '') || 'notices';
-    if (hash !== currentActiveTab) {
-      switchTab(hash, false);
+    if (hash !== currentActiveTab && ['notices', 'screens', 'audit', 'settings'].includes(hash)) {
+      switchTab(hash, { fromHistory: true });
     }
   });
 
   // Check initial hash
-  if (window.location.hash) {
-    const initHash = window.location.hash.replace('#', '');
-    if (['notices', 'screens', 'audit', 'settings'].includes(initHash)) {
-      currentActiveTab = initHash;
-      tabHistory[0] = initHash;
-      switchTab(initHash, false);
-    }
-  }
+  const initialHash = window.location.hash ? window.location.hash.replace('#', '') : '';
+  const initialTab = ['notices', 'screens', 'audit', 'settings'].includes(initialHash) ? initialHash : 'notices';
+  currentActiveTab = initialTab;
+  tabHistory[0] = initialTab;
+  history.replaceState({ type: 'tab', tab: initialTab }, '', '#' + initialTab);
+  switchTab(initialTab, { fromHistory: true });
 
   // ==========================================================================
   // Android Back & Modal Dismissal Navigation
@@ -3044,12 +3282,21 @@
       } else {
         topModal.classList.add('hidden');
       }
+    } else if (topModal.id === 'discard-modal') {
+      if (typeof closeDiscardModal === 'function') closeDiscardModal();
+      else topModal.classList.add('hidden');
+    } else if (topModal.id === 'delete-modal') {
+      if (typeof closeDeleteModal === 'function') closeDeleteModal();
+      else topModal.classList.add('hidden');
     } else if (topModal.id === 'preview-modal') {
       topModal.classList.add('hidden');
       const previewIframe = document.getElementById('preview-iframe');
       if (previewIframe) previewIframe.src = 'about:blank';
     } else if (topModal.id === 'action-sheet-modal') {
       if (typeof closeActionSheet === 'function') closeActionSheet();
+      else topModal.classList.add('hidden');
+    } else if (topModal.id === 'flag-confirm-modal') {
+      if (typeof closeFlagConfirmModal === 'function') closeFlagConfirmModal();
       else topModal.classList.add('hidden');
     } else {
       topModal.classList.add('hidden');
@@ -3070,9 +3317,11 @@
               history.pushState({ type: 'modal', modalId: el.id }, '');
             }
           } else {
-            if (!isNavigatingBack && history.state && history.state.type === 'modal') {
+            const anyOpen = Array.from(document.querySelectorAll('.modal-backdrop')).some(b => !b.classList.contains('hidden'));
+            if (!anyOpen && !isNavigatingBack && !closedViaUi && history.state && history.state.type === 'modal') {
               closedViaUi = true;
               history.back();
+              setTimeout(() => { closedViaUi = false; }, 300);
             }
           }
         }
@@ -3097,14 +3346,10 @@
       }
 
       // 2. Then goes to the previous tab
-      if (tabHistory.length > 1) {
-        tabHistory.pop(); // remove current tab
-        const prevTab = tabHistory[tabHistory.length - 1];
-        switchTab(prevTab, false);
-        return;
+      const targetTab = (e.state && e.state.tab) || window.location.hash.replace('#', '') || 'notices';
+      if (targetTab !== currentActiveTab) {
+        switchTab(targetTab, { fromHistory: true });
       }
-
-      // 3. Only then leaves the app
     } finally {
       setTimeout(() => { isNavigatingBack = false; }, 50);
     }

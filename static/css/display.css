@@ -2180,3 +2180,117 @@ body.flag-active #stage-qr-badge {
   transition: opacity 0.3s ease, visibility 0.3s ease;
 }
 
+/* ==========================================================================
+   Narrow Display Header (under 640px) & Reduced Motion Rules (Step 3)
+   ========================================================================== */
+@media (max-width: 640px) {
+  .display-frame {
+    padding: 0 12px;
+  }
+
+  .display-header {
+    height: 54px;
+    min-height: 54px;
+    padding: 0;
+    gap: 8px;
+    flex-wrap: nowrap !important;
+    overflow: hidden;
+  }
+
+  .header-left {
+    min-width: 0;
+    flex: 1 1 auto;
+    gap: 6px;
+    overflow: hidden;
+    flex-wrap: nowrap !important;
+  }
+
+  .logo-mark {
+    flex-shrink: 0;
+  }
+
+  .logo-text {
+    white-space: nowrap !important;
+    flex-shrink: 0;
+    font-size: 16px;
+  }
+
+  .dept-header-pill {
+    min-width: 0;
+    max-width: 140px;
+    margin-left: 4px;
+    padding: 2px 8px;
+    font-size: 11px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap !important;
+    flex-shrink: 1;
+    display: inline-flex;
+    align-items: center;
+  }
+
+  .dept-code {
+    flex-shrink: 0;
+    font-size: 11px;
+  }
+
+  .dept-sep {
+    flex-shrink: 0;
+  }
+
+  .dept-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap !important;
+    max-width: 75px;
+    font-size: 11px;
+  }
+
+  .header-right {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .clock-group {
+    white-space: nowrap !important;
+    flex-shrink: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+  }
+
+  .clock-time {
+    font-size: 17px;
+    white-space: nowrap !important;
+    line-height: 1.1;
+  }
+
+  .clock-period {
+    font-size: 10px;
+    white-space: nowrap !important;
+  }
+
+  .clock-date {
+    font-size: 10px;
+    white-space: nowrap !important;
+    line-height: 1.1;
+  }
+
+  .header-weather {
+    display: none !important;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
