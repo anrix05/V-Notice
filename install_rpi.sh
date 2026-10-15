@@ -31,7 +31,9 @@ echo ""
 # 1. Update and install system dependencies
 echo -e "${BLUE}[1/5] Installing system packages & Chromium...${NC}"
 sudo apt update
-sudo apt install -y python3 python3-pip python3-venv chromium-browser unclutter curl
+sudo apt install -y python3 python3-pip python3-venv chromium-browser unclutter curl systemd-timesyncd ffmpeg
+# Enable NTP time synchronization for sub-second precision daily events (e.g. National Flag screen)
+sudo timedatectl set-ntp true 2>/dev/null || true
 
 # 2. Setup Python Virtual Environment (Bookworm & Bullseye compatible)
 echo -e "${BLUE}[2/5] Setting up Python environment...${NC}"
@@ -44,14 +46,16 @@ fi
 # 3. Create .env if not exists
 if [ ! -f "${APP_DIR}/.env" ]; then
     echo -e "${BLUE}[3/5] Creating default .env configuration...${NC}"
+    GENERATED_PASS=$(openssl rand -hex 12 2>/dev/null || date +%s | sha256sum | head -c 24)
     cat <<EOF > "${APP_DIR}/.env"
 DISPLAY_PORT=5000
 ADMIN_PORT=5001
-ADMIN_PASSWORD=vnotice2026
+ADMIN_PASSWORD=${GENERATED_PASS}
 DEPARTMENT_CODE=${DEPARTMENT_CODE}
 EOF
 else
     echo -e "${BLUE}[3/5] Existing .env file found. Preserving configuration.${NC}"
+    GENERATED_PASS=$(grep -E '^ADMIN_PASSWORD=' "${APP_DIR}/.env" 2>/dev/null | cut -d '=' -f2-)
 fi
 
 # 4. Install systemd background service
@@ -84,6 +88,7 @@ sudo systemctl restart vnotice.service
 echo -e "${GREEN}✔ V Notice service installed and started successfully!${NC}"
 
 # 5. Configure Fullscreen Kiosk Mode on Boot
+# Launches Chromium via systemd/kiosk.sh with --autoplay-policy=no-user-gesture-required
 echo -e "${BLUE}[5/5] Configuring Fullscreen Chromium Kiosk on display boot...${NC}"
 chmod +x "${APP_DIR}/systemd/kiosk.sh"
 chmod +x "${APP_DIR}/start.sh"
@@ -107,7 +112,7 @@ echo -e "${GREEN}==========================================================${NC}
 echo -e "📺 Dedicated Screen:  ${BLUE}https://v-notice.onrender.com/display/${DEPARTMENT_CODE}${NC}"
 echo -e "   (Local Screen):    ${BLUE}http://localhost:5000/display/${DEPARTMENT_CODE}${NC}"
 echo -e "🔐 Admin Portal:      ${BLUE}http://$(hostname -I 2>/dev/null | awk '{print $1}'):5001${NC}"
-echo -e "🔑 Default Password:  ${GREEN}vnotice2026${NC}"
+echo -e "🔑 Admin Password:    ${GREEN}${GENERATED_PASS:-<see .env>}${NC} (stored securely in .env)"
 echo ""
 echo -e "Note: Each department screen uses its own dedicated URL:"
 echo -e "  - Computer Engineering:        https://v-notice.onrender.com/display/CMPN"

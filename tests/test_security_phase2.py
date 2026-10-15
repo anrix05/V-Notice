@@ -14,6 +14,8 @@ from security import (
 from app import unified_app
 from storage import storage
 
+TEST_ADMIN_PASSWORD = os.environ.get("TEST_ADMIN_PASSWORD") or os.environ.get("ADMIN_PASSWORD", "vnotice2026")
+
 @pytest.fixture
 def client():
     unified_app.config["TESTING"] = True
@@ -22,14 +24,14 @@ def client():
 
 def test_password_verification(monkeypatch):
     # Plaintext fallback check
-    assert verify_admin_password("vnotice2026") is True
-    assert verify_admin_password("wrongpass") is False
+    assert verify_admin_password(TEST_ADMIN_PASSWORD) is True
+    assert verify_admin_password("wrongpass_random_xyz") is False
 
     # Hashed password check
-    hashed = generate_password_hash("supersecret2026")
+    hashed = generate_password_hash("temp_hashed_secret_123")
     monkeypatch.setattr("security.ADMIN_PASSWORD_HASH", hashed)
-    assert verify_admin_password("supersecret2026") is True
-    assert verify_admin_password("vnotice2026") is False
+    assert verify_admin_password("temp_hashed_secret_123") is True
+    assert verify_admin_password(TEST_ADMIN_PASSWORD) is False
 
 def test_rate_limiter_lockout():
     limiter = RateLimiter(max_attempts=3, window_seconds=60)
@@ -90,7 +92,7 @@ def test_login_rate_limiting_api(client):
 
 def test_session_csrf_protection(client):
     # 1. Login with session
-    r_login = client.post("/api/login", json={"password": "vnotice2026"})
+    r_login = client.post("/api/login", json={"password": TEST_ADMIN_PASSWORD})
     assert r_login.status_code == 200
     csrf_token = r_login.get_json()["csrf_token"]
     assert csrf_token is not None
@@ -113,7 +115,7 @@ def test_session_csrf_protection(client):
     r_api_key = client.post(
         "/api/notices",
         data={"title": "Exempt API Key Notice", "screen_id": "default"},
-        headers={"X-Password": "vnotice2026"}
+        headers={"X-Password": TEST_ADMIN_PASSWORD}
     )
     assert r_api_key.status_code == 201
 
@@ -127,12 +129,12 @@ def test_enumeration_protection(client):
     })
     n_id = expired["id"]
 
-    # Unauthenticated viewer: /notice/<id> must return 404
-    r_public = client.get(f"/notice/{n_id}")
+    # Unauthenticated viewer: /notice/<id> redirects (301) to /n/<id> which must return 404
+    r_public = client.get(f"/notice/{n_id}", follow_redirects=True)
     assert r_public.status_code == 404
 
-    # Authenticated admin: /notice/<id> returns 200
-    r_admin = client.get(f"/notice/{n_id}", headers={"X-Password": "vnotice2026"})
+    # Authenticated admin: /notice/<id> redirects (301) to /n/<id> which returns 200
+    r_admin = client.get(f"/notice/{n_id}", headers={"X-Password": TEST_ADMIN_PASSWORD}, follow_redirects=True)
     assert r_admin.status_code == 200
 
 def test_spoofed_upload_rejected(client):
@@ -142,7 +144,7 @@ def test_spoofed_upload_rejected(client):
         "title": "Spoofed Upload Test",
         "media_file": (fake_png, "spoofed.png", "image/png")
     }
-    r = client.post("/api/notices", data=data, headers={"X-Password": "vnotice2026"})
+    r = client.post("/api/notices", data=data, headers={"X-Password": TEST_ADMIN_PASSWORD})
     assert r.status_code == 400
     assert "format" in r.get_json()["error"].lower()
 
@@ -167,17 +169,17 @@ def test_audit_log_recording(client):
     r_create = client.post(
         "/api/notices",
         data={"title": "Audited Announcement", "created_by": "prof_rao"},
-        headers={"X-Password": "vnotice2026"}
+        headers={"X-Password": TEST_ADMIN_PASSWORD}
     )
     assert r_create.status_code == 201
     nid = r_create.get_json()["id"]
 
     # Delete notice
-    r_del = client.delete(f"/api/notices/{nid}", headers={"X-Password": "vnotice2026"})
+    r_del = client.delete(f"/api/notices/{nid}", headers={"X-Password": TEST_ADMIN_PASSWORD})
     assert r_del.status_code == 200
 
     # Fetch audit logs
-    r_audit = client.get("/api/audit-logs", headers={"X-Password": "vnotice2026"})
+    r_audit = client.get("/api/audit-logs", headers={"X-Password": TEST_ADMIN_PASSWORD})
     assert r_audit.status_code == 200
     logs = r_audit.get_json()["audit_logs"]
     actions = [l["action"] for l in logs if l["target_id"] == nid]

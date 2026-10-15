@@ -14,9 +14,12 @@ from flask import (
     jsonify,
     session,
     send_from_directory,
+    send_file,
     redirect,
     Response,
 )
+from pathlib import Path
+import mimetypes
 from werkzeug.serving import run_simple
 from config import (
     DISPLAY_PORT,
@@ -34,7 +37,8 @@ from security import (
     validate_csrf_token,
     check_password_config_warnings,
 )
-from storage import storage, compute_status, sanitize_screen_codes
+from storage import storage, compute_status, sanitize_screen_codes, KOLKATA_TZ
+import datetime
 import socket
 import urllib.request
 import json
@@ -88,18 +92,41 @@ def make_etag_response(data):
     res.headers["Cache-Control"] = "no-cache"
     return res
 
+def make_flag_event_response(data):
+    """Return HTTP 304 if flag event schedule has not changed, else 200 with Cache-Control: no-store."""
+    schedule_payload = {
+        "flag_start_ms": data.get("flag_start_ms"),
+        "flag_end_ms": data.get("flag_end_ms"),
+        "show_standup_text": data.get("show_standup_text"),
+        "standup_lead_seconds": data.get("standup_lead_seconds")
+    }
+    etag = compute_etag(schedule_payload)
+    client_etag = request.headers.get("If-None-Match", "").strip('"')
+    if client_etag and client_etag == etag:
+        res = Response(status=304)
+        res.headers["ETag"] = f'"{etag}"'
+        res.headers["Cache-Control"] = "no-store, max-age=0"
+        return res
+    res = jsonify(data)
+    res.headers["ETag"] = f'"{etag}"'
+    res.headers["Cache-Control"] = "no-store, max-age=0"
+    return res
+
 _sse_subscribers = []
 _sse_lock = threading.Lock()
 
 _screen_heartbeats = {}
+_screen_audio_ready = {}
 _screen_heartbeats_lock = threading.Lock()
 
-def record_heartbeat(screen_code: str):
+def record_heartbeat(screen_code: str, audio_ready: bool = None):
     if not screen_code:
         return
     code = str(screen_code).strip().upper()
     with _screen_heartbeats_lock:
         _screen_heartbeats[code] = int(time.time() * 1000)
+        if audio_ready is not None:
+            _screen_audio_ready[code] = bool(audio_ready)
 
 def get_screen_last_seen(screen_code: str):
     if not screen_code:
@@ -107,6 +134,13 @@ def get_screen_last_seen(screen_code: str):
     code = str(screen_code).strip().upper()
     with _screen_heartbeats_lock:
         return _screen_heartbeats.get(code)
+
+def get_screen_audio_ready(screen_code: str) -> bool:
+    if not screen_code:
+        return False
+    code = str(screen_code).strip().upper()
+    with _screen_heartbeats_lock:
+        return _screen_audio_ready.get(code, False)
 
 def notify_notice_change(affected_screens=None):
     """Broadcast notice change to affected SSE listeners. ALL changes notify everyone."""
@@ -125,7 +159,31 @@ def notify_notice_change(affected_screens=None):
                         "action": "update",
                         "screens": list(aff_set) if aff_set else ["ALL"]
                     })
-                    q.put_nowait(payload)
+                    q.put_nowait(("notice_update", payload))
+                except Exception:
+                    pass
+
+def notify_flag_change(affected_screens=None):
+    """Broadcast flag_changed event to affected SSE listeners only."""
+    with _sse_lock:
+        if affected_screens:
+            if isinstance(affected_screens, str):
+                aff_set = {s.strip().upper() for s in affected_screens.split(",") if s.strip()}
+            else:
+                aff_set = {str(s).strip().upper() for s in affected_screens if str(s).strip()}
+        else:
+            aff_set = None
+
+        is_college_wide = (aff_set is None) or ("ALL" in aff_set)
+        for item in list(_sse_subscribers):
+            q, sub_screen = item
+            if sub_screen is None or is_college_wide or (aff_set and sub_screen in aff_set):
+                try:
+                    payload = json.dumps({
+                        "action": "flag_changed",
+                        "screens": list(aff_set) if aff_set else ["ALL"]
+                    })
+                    q.put_nowait(("flag_changed", payload))
                 except Exception:
                     pass
 
@@ -141,7 +199,12 @@ def sse_event_stream(screen_code=None):
         while True:
             try:
                 msg = q.get(timeout=15)
-                yield f"event: notice_update\ndata: {msg}\n\n"
+                if isinstance(msg, tuple):
+                    evt_type, data_str = msg
+                else:
+                    evt_type = "notice_update"
+                    data_str = str(msg)
+                yield f"event: {evt_type}\ndata: {data_str}\n\n"
             except queue.Empty:
                 yield ": keepalive\n\n"
     except GeneratorExit:
@@ -379,6 +442,10 @@ def apply_security_headers(app):
     def set_headers(response):
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+
+        is_display = request.path.startswith("/display")
+        frame_ancestors = "'self' http://localhost:5000 http://localhost:5001 http://127.0.0.1:5000 http://127.0.0.1:5001" if is_display else "'none'"
+
         response.headers["Content-Security-Policy"] = (
             "default-src 'self'; "
             "script-src 'self' 'unsafe-inline'; "
@@ -389,16 +456,18 @@ def apply_security_headers(app):
             "font-src 'self'; "
             "manifest-src 'self'; "
             "worker-src 'self'; "
-            "frame-ancestors 'none';"
+            "frame-src 'self' http://localhost:5000 http://localhost:5001 http://127.0.0.1:5000 http://127.0.0.1:5001; "
+            f"frame-ancestors {frame_ancestors};"
         )
         if request.path.startswith("/admin") or request.path == "/" or request.path.startswith("/api"):
             response.headers["X-Frame-Options"] = "DENY"
+        elif is_display:
+            response.headers.pop("X-Frame-Options", None)
         
         # If HTTPS, enforce Secure session cookies
         if request.is_secure or request.headers.get("X-Forwarded-Proto") == "https":
             for cookie_name in ("session", "csrf_token"):
                 if cookie_name in response.headers.get("Set-Cookie", ""):
-                    # cookie already formatted with HttpOnly, SameSite=Lax via Flask config
                     pass
         return response
 
@@ -509,6 +578,330 @@ def configure_app_security(app):
     apply_security_headers(app)
 
 # ==============================================================================
+# Public Notice Routes (/n/<id>, /n/<id>/file, redirects, and OG cards)
+# ==============================================================================
+_public_rate_limit = {}
+_public_rate_lock = threading.Lock()
+
+def check_public_rate_limit(ip, max_requests=120, window_sec=60):
+    now = time.time()
+    with _public_rate_lock:
+        reqs = _public_rate_limit.get(ip, [])
+        reqs = [t for t in reqs if now - t < window_sec]
+        if len(reqs) >= max_requests:
+            _public_rate_limit[ip] = reqs
+            return False
+        reqs.append(now)
+        _public_rate_limit[ip] = reqs
+        if len(_public_rate_limit) > 2000:
+            for k in list(_public_rate_limit.keys())[:500]:
+                if not _public_rate_limit[k] or (now - _public_rate_limit[k][-1] > window_sec):
+                    _public_rate_limit.pop(k, None)
+        return True
+
+def check_flag_trigger_auth():
+    import config
+    token = getattr(config, "FLAG_TRIGGER_TOKEN", "")
+    if not token or not str(token).strip():
+        return False, 404, "Trigger API is disabled"
+    ip = get_client_ip()
+    if not check_public_rate_limit(ip, max_requests=30, window_sec=60):
+        return False, 429, "Rate limit exceeded"
+    provided = request.headers.get("X-Flag-Token")
+    if not provided:
+        auth_header = request.headers.get("Authorization", "")
+        if auth_header.startswith("Bearer "):
+            provided = auth_header[7:].strip()
+    if not provided or not secrets.compare_digest(provided, str(token).strip()):
+        return False, 401, "Invalid trigger token"
+    return True, 200, "OK"
+
+def generate_download_slug(notice, ext=None):
+    dept = str(notice.get("screen_id") or "ALL").strip().upper()
+    dept = "".join(c for c in dept if c.isalnum() or c in ("-", "_")) or "ALL"
+    title = str(notice.get("title") or "notice").strip()
+    slug = re.sub(r"[^a-zA-Z0-9]+", "-", title).strip("-").lower()
+    slug = slug[:50] or "notice"
+    if not ext:
+        if notice.get("media"):
+            ext = Path(str(notice["media"])).suffix.lstrip(".").lower()
+        else:
+            ext = "txt"
+    ext = ext.lstrip(".") or "txt"
+    return f"{dept}-{slug}.{ext}"
+
+def get_public_base_url():
+    base = getattr(config, "PUBLIC_BASE_URL", "")
+    if base and str(base).strip():
+        return str(base).strip().rstrip("/")
+    try:
+        if request and request.host_url:
+            return request.host_url.rstrip("/")
+    except Exception:
+        pass
+    return ""
+
+def format_notice_for_display(notice):
+    if not notice:
+        return None
+    n = dict(notice)
+    start_ms = n.get("start") or 0
+    end_ms = n.get("end")
+    created_ms = n.get("created_at") or start_ms or int(time.time() * 1000)
+
+    if created_ms:
+        time_t = time.localtime(created_ms / 1000)
+        n["posted_date_str"] = time.strftime("%d %b %Y", time_t)
+    else:
+        n["posted_date_str"] = "Today"
+
+    if end_ms:
+        time_end = time.localtime(end_ms / 1000)
+        time_formatted = time.strftime("%d %b %Y, %I:%M %p", time_end).lstrip("0")
+        n["valid_till_str"] = f"Valid till {time_formatted}"
+    else:
+        n["valid_till_str"] = "Ongoing"
+
+    nid_str = str(n.get("id") or "")
+    h = sum(ord(c) for c in nid_str)
+    n["gradient_theme_idx"] = h % 4
+
+    n["file_size_formatted"] = ""
+    n["file_size_bytes"] = 0
+    if n.get("media"):
+        m_filename = str(n["media"])
+        media_path = storage.media_storage.get_path(m_filename) if hasattr(storage.media_storage, "get_path") else Path(MEDIA_FOLDER) / m_filename
+        if media_path and media_path.exists():
+            sz = media_path.stat().st_size
+            n["file_size_bytes"] = sz
+            if sz < 1024 * 1024:
+                n["file_size_formatted"] = f"{round(sz / 1024, 1)} KB"
+            else:
+                n["file_size_formatted"] = f"{round(sz / (1024 * 1024), 1)} MB"
+
+    n["download_slug"] = generate_download_slug(n)
+    n["clean_dept"] = str(n.get("screen_id") or "ALL").strip().upper()
+    return n
+
+def render_inactive_public_page():
+    return render_template(
+        "notice_public.html",
+        notice=None,
+        is_active=False,
+        is_admin_preview=False,
+        public_base_url=get_public_base_url(),
+        og_title="Notice not active — V Notice",
+        og_description="This notice is no longer active on the campus notice board.",
+        og_image=f"{get_public_base_url()}/static/brand/og-image.png"
+    ), 404
+
+def register_public_notice_routes(app):
+    @app.route("/n/<notice_id>", methods=["GET"])
+    def public_notice_view(notice_id):
+        if not check_public_rate_limit(get_client_ip()):
+            return Response("Too Many Requests", status=429, headers={"Retry-After": "60"})
+
+        notice = storage.get_by_id(notice_id)
+        if not notice or notice.get("deleted") == 1 or notice.get("is_active") == 0:
+            return render_inactive_public_page()
+
+        is_live = (notice.get("status") == "live")
+        is_admin = check_admin_auth()
+        if not is_live and not is_admin:
+            return render_inactive_public_page()
+
+        if is_live and not is_admin:
+            storage.increment_scan_count(notice_id)
+
+        enriched = format_notice_for_display(notice)
+        body_text = str(enriched.get("body") or "").strip()
+        og_desc = body_text[:120] if body_text else f"{enriched['clean_dept']} notice on V Notice"
+
+        if enriched.get("media") and enriched.get("type") in ("image", "video"):
+            if str(enriched["media"]).startswith("http"):
+                og_img = enriched["media"]
+            else:
+                og_img = f"{get_public_base_url()}/media/{enriched['media']}"
+        else:
+            og_img = f"{get_public_base_url()}/n/{notice_id}/og-image"
+
+        return render_template(
+            "notice_public.html",
+            notice=enriched,
+            is_active=True,
+            is_admin_preview=is_admin and not is_live,
+            public_base_url=get_public_base_url(),
+            og_title=f"{enriched.get('title') or 'Notice'} — V Notice",
+            og_description=og_desc,
+            og_image=og_img
+        ), 200
+
+    @app.route("/n/<notice_id>/file", methods=["GET"])
+    def public_notice_file(notice_id):
+        if not check_public_rate_limit(get_client_ip()):
+            return Response("Too Many Requests", status=429, headers={"Retry-After": "60"})
+
+        notice = storage.get_by_id(notice_id)
+        if not notice or notice.get("deleted") == 1 or notice.get("is_active") == 0:
+            return render_inactive_public_page()
+
+        is_live = (notice.get("status") == "live")
+        is_admin = check_admin_auth()
+        if not is_live and not is_admin:
+            return render_inactive_public_page()
+
+        if notice.get("media"):
+            if str(notice["media"]).startswith("http://") or str(notice["media"]).startswith("https://"):
+                try:
+                    req = urllib.request.Request(notice["media"], headers={"User-Agent": "VNotice/1.0"})
+                    with urllib.request.urlopen(req, timeout=5) as r:
+                        content = r.read()
+                        mime = r.headers.get("Content-Type") or "application/octet-stream"
+                        ext = Path(urllib.parse.urlparse(notice["media"]).path).suffix.lstrip(".") or "jpg"
+                        slug = generate_download_slug(notice, ext=ext)
+                        resp = Response(content, mimetype=mime)
+                        resp.headers["Content-Disposition"] = f'attachment; filename="{slug}"'
+                        resp.headers["Content-Length"] = str(len(content))
+                        resp.headers["X-Content-Type-Options"] = "nosniff"
+                        resp.headers["Cache-Control"] = "public, max-age=3600"
+                        return resp
+                except Exception:
+                    return redirect(notice["media"])
+
+            media_path = storage.media_storage.get_path(notice["media"]) if hasattr(storage.media_storage, "get_path") else Path(MEDIA_FOLDER) / notice["media"]
+            if media_path and media_path.exists():
+                ext = media_path.suffix.lstrip(".").lower()
+                slug = generate_download_slug(notice, ext=ext)
+                mime, _ = mimetypes.guess_type(str(media_path))
+                if not mime:
+                    mime = "application/octet-stream"
+                file_size = media_path.stat().st_size
+
+                resp = send_file(
+                    str(media_path),
+                    mimetype=mime,
+                    as_attachment=True,
+                    download_name=slug
+                )
+                resp.headers["Content-Length"] = str(file_size)
+                resp.headers["X-Content-Type-Options"] = "nosniff"
+                resp.headers["Cache-Control"] = "public, max-age=3600"
+                return resp
+
+        # Formatted announcement text file
+        slug = generate_download_slug(notice, ext="txt")
+        title = notice.get("title", "Notice")
+        lines = [
+            "====================================================",
+            "  V NOTICE -- OFFICIAL CAMPUS ANNOUNCEMENT",
+            "====================================================",
+            "",
+            f"TITLE:      {title}",
+            f"DEPARTMENT: {notice.get('screen_id', 'ALL')}",
+            f"PRIORITY:   {str(notice.get('priority', 'Normal')).upper()}",
+            "",
+            "DETAILS:",
+            notice.get('body', 'No additional details provided.'),
+            "",
+            "====================================================",
+            "Saved from V Notice Smart Display",
+        ]
+        content = "\n".join(lines).encode("utf-8")
+        resp = Response(content, mimetype="text/plain; charset=utf-8")
+        resp.headers["Content-Disposition"] = f'attachment; filename="{slug}"'
+        resp.headers["Content-Length"] = str(len(content))
+        resp.headers["X-Content-Type-Options"] = "nosniff"
+        resp.headers["Cache-Control"] = "public, max-age=3600"
+        return resp
+
+    @app.route("/n/<notice_id>/og-image", methods=["GET"])
+    def public_notice_og_image(notice_id):
+        notice = storage.get_by_id(notice_id)
+        if not notice or notice.get("status") != "live" or notice.get("deleted") == 1 or notice.get("is_active") == 0:
+            return send_from_directory("static/brand", "og-image.png")
+
+        if notice.get("media") and notice.get("type") == "image":
+            m_filename = str(notice["media"])
+            media_path = Path(MEDIA_FOLDER) / m_filename
+            if media_path.exists():
+                return send_from_directory(MEDIA_FOLDER, m_filename)
+
+        cache_file = Path(MEDIA_FOLDER) / f"og_text_{notice_id}.png"
+        if cache_file.exists():
+            resp = send_file(str(cache_file), mimetype="image/png")
+            resp.headers["Cache-Control"] = "public, max-age=3600"
+            return resp
+
+        try:
+            from PIL import Image, ImageDraw
+            img = Image.new("RGB", (1200, 630), color="#0B1020")
+            draw = ImageDraw.Draw(img)
+            draw.rectangle([(24, 24), (1176, 606)], outline="#24344F", width=2)
+
+            logo_path = Path("static/brand/mark-180.png")
+            if logo_path.exists():
+                try:
+                    mark = Image.open(logo_path).convert("RGBA")
+                    mark = mark.resize((64, 64), Image.Resampling.LANCZOS)
+                    img.paste(mark, (64, 64), mark)
+                except Exception:
+                    pass
+
+            dept = str(notice.get("screen_id") or "ALL").upper()
+            draw.text((144, 76), "V NOTICE", fill="#F8FAFC")
+            draw.text((144, 100), f"OFFICIAL CAMPUS ANNOUNCEMENT · {dept}", fill="#F59E0B")
+
+            title = str(notice.get("title") or "Notice").strip()
+            words = title.split()
+            lines = []
+            curr_line = []
+            for w in words:
+                curr_line.append(w)
+                if len(" ".join(curr_line)) > 32:
+                    lines.append(" ".join(curr_line))
+                    curr_line = []
+            if curr_line:
+                lines.append(" ".join(curr_line))
+
+            y = 200
+            for line in lines[:3]:
+                draw.text((64, y), line, fill="#F8FAFC")
+                y += 50
+
+            body = str(notice.get("body") or "").strip()
+            if body:
+                body_snippet = body[:180] + ("..." if len(body) > 180 else "")
+                b_words = body_snippet.split()
+                b_lines = []
+                c_b = []
+                for w in b_words:
+                    c_b.append(w)
+                    if len(" ".join(c_b)) > 55:
+                        b_lines.append(" ".join(c_b))
+                        c_b = []
+                if c_b:
+                    b_lines.append(" ".join(c_b))
+                y += 20
+                for line in b_lines[:3]:
+                    draw.text((64, y), line, fill="#94A3B8")
+                    y += 36
+
+            img.save(str(cache_file), format="PNG")
+            resp = send_file(str(cache_file), mimetype="image/png")
+            resp.headers["Cache-Control"] = "public, max-age=3600"
+            return resp
+        except Exception as e:
+            return send_from_directory("static/brand", "og-image.png")
+
+    @app.route("/notice/<notice_id>", methods=["GET"])
+    def legacy_notice_redirect(notice_id):
+        return redirect(f"/n/{notice_id}", code=301)
+
+    @app.route("/notice/<notice_id>/download", methods=["GET"])
+    def legacy_notice_download_redirect(notice_id):
+        return redirect(f"/n/{notice_id}/file", code=301)
+
+# ==============================================================================
 # DISPLAY APP (Port 5000)
 # ==============================================================================
 def create_display_app():
@@ -585,7 +978,8 @@ def create_display_app():
     def display_heartbeat():
         data = request.get_json(silent=True) or request.form.to_dict() or {}
         code = data.get("screen") or data.get("screen_id") or data.get("code") or "ALL"
-        record_heartbeat(code)
+        audio_ready = data.get("audio_ready")
+        record_heartbeat(code, audio_ready)
         return jsonify({"success": True, "code": str(code).strip().upper(), "timestamp": int(time.time() * 1000)})
 
     @app.route("/favicon.ico")
@@ -614,7 +1008,7 @@ def create_display_app():
             sse_event_stream(screen),
             mimetype="text/event-stream",
             headers={
-                "Cache-Control": "no-cache",
+                "Cache-Control": "no-store, no-cache",
                 "X-Accel-Buffering": "no",
                 "Connection": "keep-alive",
             }
@@ -623,8 +1017,59 @@ def create_display_app():
     @app.route("/api/screens", methods=["GET"])
     def get_screens():
         depts = storage.get_departments(active_only=True)
-        screens = [{"code": d["code"], "name": d["name"], "id": d["code"], "accent_color": d.get("accent_color")} for d in depts]
+        screens = [{
+            "code": d["code"],
+            "name": d["name"],
+            "id": d["code"],
+            "accent_color": d.get("accent_color"),
+            "sound_enabled": d.get("sound_enabled", False),
+            "sound_volume": d.get("sound_volume", 70)
+        } for d in depts]
         return jsonify({"success": True, "screens": screens})
+
+    @app.route("/api/events/today", methods=["GET"])
+    def get_events_today():
+        screen = request.args.get("screen") or request.args.get("screen_id") or "ALL"
+        sim_header = request.headers.get("X-Simulated-Now") or request.args.get("sim_now")
+        now_dt = None
+        if sim_header:
+            try:
+                now_dt = datetime.datetime.fromtimestamp(float(sim_header) / 1000.0, tz=KOLKATA_TZ)
+            except Exception:
+                pass
+        data = storage.get_flag_event_today(screen_code=screen, now_dt=now_dt)
+        return make_flag_event_response(data)
+
+    @app.route("/api/events/flag/start", methods=["POST"])
+    def flag_trigger_start():
+        authorized, status_code, msg = check_flag_trigger_auth()
+        if not authorized:
+            return jsonify({"error": msg}), status_code
+        data = request.get_json(silent=True) or request.form.to_dict() or {}
+        screens = data.get("screens", "ALL")
+        duration = data.get("duration_seconds", 60)
+        try:
+            duration = max(5, min(86400, int(duration)))
+        except Exception:
+            duration = 60
+        storage.set_flag_manual_override(screens=screens, duration_seconds=duration, show_standup_text=False)
+        storage.record_daily_event_run("flag", result=f"Triggered via external API for {duration}s on {screens}", actor="external_api", ip=get_client_ip())
+        notify_flag_change(screens)
+        res = jsonify({"success": True, "action": "flag_started", "duration_seconds": duration, "screens": screens})
+        res.headers["Cache-Control"] = "no-store"
+        return res
+
+    @app.route("/api/events/flag/end", methods=["POST"])
+    def flag_trigger_end():
+        authorized, status_code, msg = check_flag_trigger_auth()
+        if not authorized:
+            return jsonify({"error": msg}), status_code
+        storage.clear_flag_manual_override(ended_early=True)
+        storage.record_daily_event_run("flag", result="Ended via external API", actor="external_api", ip=get_client_ip())
+        notify_flag_change("ALL")
+        res = jsonify({"success": True, "action": "flag_ended"})
+        res.headers["Cache-Control"] = "no-store"
+        return res
 
     
 
@@ -632,57 +1077,7 @@ def create_display_app():
     def system_info():
         return jsonify(get_system_weather())
 
-    @app.route("/notice/<notice_id>")
-    def notice_detail(notice_id):
-        notice = storage.get_by_id(notice_id)
-        if not notice:
-            return render_template("notice_detail.html", notice=None), 404
-        # Phase 2 Rule 4: Return 404 unless active (admins may see any)
-        if notice.get("status") != "live" and not check_admin_auth():
-            return render_template("notice_detail.html", notice=None), 404
-        return render_template("notice_detail.html", notice=notice)
-
-    @app.route("/notice/<notice_id>/download")
-    def notice_download(notice_id):
-        notice = storage.get_by_id(notice_id)
-        if not notice:
-            return jsonify({"error": "Notice not found"}), 404
-        if notice.get("status") != "live" and not check_admin_auth():
-            return jsonify({"error": "Notice not found"}), 404
-
-        if notice.get("media"):
-            media_path = storage.media_storage.get_path(notice["media"])
-            if media_path.exists():
-                return send_from_directory(
-                    MEDIA_FOLDER,
-                    notice["media"],
-                    as_attachment=True,
-                    download_name=notice["media"]
-                )
-
-        title = notice.get("title", "Notice")
-        clean_title = "".join(c for c in title if c.isalnum() or c in (" ", "_", "-")).rstrip()
-        filename = f"{clean_title or 'notice'}.txt"
-        lines = [
-            "====================================================",
-            "  V NOTICE -- OFFICIAL CAMPUS ANNOUNCEMENT",
-            "====================================================",
-            "",
-            f"TITLE:    {notice.get('title', '')}",
-            f"PRIORITY: {notice.get('priority', 'Normal').upper()}",
-            "",
-            "DETAILS:",
-            notice.get('body', 'No additional details provided.'),
-            "",
-            "====================================================",
-            "Saved from V Notice Smart Display",
-        ]
-        content = "\n".join(lines)
-        return Response(
-            content,
-            mimetype="text/plain; charset=utf-8",
-            headers={"Content-Disposition": f'attachment; filename="{filename}"'}
-        )
+    register_public_notice_routes(app)
 
     @app.route("/media/<path:filename>")
     def serve_media(filename):
@@ -703,6 +1098,7 @@ def create_display_app():
 def create_admin_app():
     app = Flask(__name__, template_folder="templates", static_folder="static")
     configure_app_security(app)
+    register_public_notice_routes(app)
 
     @app.teardown_appcontext
     def teardown_db(exception=None):
@@ -713,6 +1109,17 @@ def create_admin_app():
         response = send_from_directory(
             os.path.join(app.root_path, "static"),
             "sw.js",
+            mimetype="application/javascript",
+        )
+        response.headers["Service-Worker-Allowed"] = "/"
+        response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+        return response
+
+    @app.route("/admin-sw.js")
+    def admin_service_worker():
+        response = send_from_directory(
+            os.path.join(app.root_path, "static"),
+            "admin-sw.js",
             mimetype="application/javascript",
         )
         response.headers["Service-Worker-Allowed"] = "/"
@@ -732,8 +1139,9 @@ def create_admin_app():
         return response
 
     @app.route("/")
+    @app.route("/admin")
     def index():
-        return render_template("admin.html")
+        return render_template("admin.html", version=getattr(config, "VERSION", "2.2.0"))
 
     @app.route("/favicon.ico")
     def favicon():
@@ -750,7 +1158,8 @@ def create_admin_app():
     def admin_heartbeat():
         data = request.get_json(silent=True) or request.form.to_dict() or {}
         code = data.get("screen") or data.get("screen_id") or data.get("code") or "ALL"
-        record_heartbeat(code)
+        audio_ready = data.get("audio_ready")
+        record_heartbeat(code, audio_ready)
         return jsonify({"success": True, "code": str(code).strip().upper(), "timestamp": int(time.time() * 1000)})
 
     @app.route("/api/csrf-token", methods=["GET"])
@@ -783,6 +1192,7 @@ def create_admin_app():
         if not username or username.lower() == "admin":
             if verify_admin_password(password):
                 login_rate_limiter.record_success(ip)
+                storage.record_audit(actor="admin", action="LOGIN_SUCCESS", target_id="admin", details="Admin login successful", ip=ip)
                 session["is_admin"] = True
                 session["username"] = "admin"
                 session["role"] = "super_admin"
@@ -803,12 +1213,14 @@ def create_admin_app():
                 })
             else:
                 login_rate_limiter.record_failure(ip)
+                storage.record_audit(actor=username or "admin", action="LOGIN_FAILURE", target_id=username or "admin", details="Failed login: incorrect password", ip=ip)
                 return jsonify({"success": False, "error": "Invalid password"}), 401
         else:
             # Per-user dept_admin login with hashed passwords
             user = storage.verify_user_credentials(username, password)
             if user:
                 login_rate_limiter.record_success(ip)
+                storage.record_audit(actor=user["username"], action="LOGIN_SUCCESS", target_id=user["username"], details=f"User {user['username']} logged in", ip=ip)
                 session["is_admin"] = True
                 session["username"] = user["username"]
                 session["role"] = user["role"]
@@ -829,13 +1241,30 @@ def create_admin_app():
                 })
             else:
                 login_rate_limiter.record_failure(ip)
+                storage.record_audit(actor=username, action="LOGIN_FAILURE", target_id=username, details="Failed login: bad credentials", ip=ip)
                 return jsonify({"success": False, "error": "Invalid username or password"}), 401
 
     @app.route("/api/logout", methods=["POST"])
     def logout():
+        actor = session.get("username", "admin")
+        storage.record_audit(actor=actor, action="LOGOUT", target_id=actor, details="User logged out", ip=get_client_ip())
         session.pop("is_admin", None)
         session.pop("csrf_token", None)
+        session.pop("username", None)
+        session.pop("role", None)
+        session.pop("departments", None)
+        session.pop("can_target_all", None)
         return jsonify({"success": True})
+
+    # Test-only rate limit reset: strictly disabled in production & Render environments
+    if os.environ.get("VNOTICE_TEST_MODE") == "1" and not os.environ.get("RENDER"):
+        @app.route("/api/test-reset-rate-limit", methods=["POST"])
+        def test_reset_rate_limit():
+            ip = get_client_ip()
+            login_rate_limiter.record_success(ip)
+            login_rate_limiter.record_success("127.0.0.1")
+            login_rate_limiter.record_success("::1")
+            return jsonify({"success": True})
 
     @app.route("/api/screens", methods=["GET"])
     @read_admin_required
@@ -846,6 +1275,7 @@ def create_admin_app():
             ls = get_screen_last_seen(d["code"])
             d["last_seen"] = ls
             d["online"] = (ls is not None) and ((now_ms - ls) < 60000)
+            d["audio_ready"] = get_screen_audio_ready(d["code"])
         return jsonify({"success": True, "screens": depts})
 
     @app.route("/api/screens", methods=["POST"])
@@ -924,8 +1354,35 @@ def create_admin_app():
     @app.route("/api/audit-logs", methods=["GET"])
     @read_admin_required
     def get_audit():
-        logs = storage.get_audit_logs(limit=50)
-        return jsonify({"success": True, "audit_logs": logs})
+        limit = min(int(request.args.get("limit", 50)), 200)
+        offset = max(int(request.args.get("offset", 0)), 0)
+        action = request.args.get("action")
+        actor = request.args.get("actor")
+        date_from = request.args.get("date_from")
+        date_to = request.args.get("date_to")
+        if date_from:
+            try: date_from = int(date_from)
+            except (ValueError, TypeError): date_from = None
+        if date_to:
+            try: date_to = int(date_to)
+            except (ValueError, TypeError): date_to = None
+
+        res = storage.get_audit_logs(
+            limit=limit,
+            offset=offset,
+            action=action,
+            actor=actor,
+            date_from=date_from,
+            date_to=date_to
+        )
+        return jsonify({
+            "success": True,
+            "audit_logs": res["audit_logs"],
+            "logs": res["logs"],
+            "total": res["total"],
+            "limit": limit,
+            "offset": offset
+        })
 
     @app.errorhandler(413)
     def request_entity_too_large(error):
@@ -1028,11 +1485,140 @@ def create_admin_app():
 
         affected = target.get("screens") if target else None
         actor = (user.get("username") if user else None) or "admin"
-        success = storage.delete(notice_id, actor=actor)
+        success = storage.delete(notice_id, actor=actor, ip=get_client_ip())
         notify_notice_change(affected_screens=affected)
         if success:
-            return jsonify({"success": True, "id": notice_id})
+            return jsonify({"success": True, "id": notice_id, "restorable": True})
         return jsonify({"error": "Notice not found"}), 404
+
+    @app.route("/api/notices/<notice_id>/restore", methods=["POST"])
+    @mutation_admin_required
+    def restore_notice(notice_id):
+        user = get_current_user()
+        actor = (user.get("username") if user else None) or "admin"
+        restored = storage.restore(notice_id, actor=actor, ip=get_client_ip())
+        if not restored:
+            return jsonify({"error": "Notice not found or cannot be restored"}), 404
+        notify_notice_change(affected_screens=restored.get("screens"))
+        return jsonify({"success": True, "notice": restored})
+
+    @app.route("/api/settings", methods=["POST", "PUT"])
+    @mutation_admin_required
+    def update_settings():
+        user = get_current_user()
+        actor = (user.get("username") if user else None) or "admin"
+        data = request.get_json(silent=True) or request.form.to_dict() or {}
+        theme = data.get("theme", "auto")
+        storage.record_audit(actor, "SETTINGS_UPDATE", "theme", f"Theme updated to '{theme}'", ip=get_client_ip())
+        return jsonify({"success": True, "theme": theme})
+
+    @app.route("/api/admin/events/flag", methods=["GET"])
+    @read_admin_required
+    def get_flag_settings():
+        evt = storage.get_daily_event("flag")
+        next_text = storage.compute_next_run_text(evt) if evt else "No event configured"
+        import config
+        return jsonify({
+            "success": True,
+            "event": evt,
+            "next_run": next_text,
+            "flag_event_enabled_config": getattr(config, "FLAG_EVENT_ENABLED", False),
+            "flag_trigger_token_configured": bool(getattr(config, "FLAG_TRIGGER_TOKEN", ""))
+        })
+
+    @app.route("/api/admin/events/flag", methods=["PUT", "POST"])
+    @mutation_admin_required
+    def update_flag_settings():
+        user = get_current_user()
+        actor = (user.get("username") if user else None) or "admin"
+        data = request.get_json(silent=True) or request.form.to_dict() or {}
+        updated = storage.update_daily_event("flag", data, actor=actor, ip=get_client_ip())
+        next_text = storage.compute_next_run_text(updated) if updated else ""
+        notify_flag_change(updated.get("screens", "ALL") if updated else "ALL")
+        return jsonify({"success": True, "event": updated, "next_run": next_text})
+
+    @app.route("/api/admin/events/flag/skip-today", methods=["POST"])
+    @mutation_admin_required
+    def skip_flag_today():
+        user = get_current_user()
+        actor = (user.get("username") if user else None) or "admin"
+        updated = storage.skip_daily_event_today("flag", actor=actor, ip=get_client_ip())
+        next_text = storage.compute_next_run_text(updated) if updated else ""
+        notify_flag_change(updated.get("screens", "ALL") if updated else "ALL")
+        return jsonify({"success": True, "event": updated, "next_run": next_text})
+
+    @app.route("/api/admin/events/flag/test-run", methods=["POST"])
+    @mutation_admin_required
+    def test_run_flag():
+        user = get_current_user()
+        actor = (user.get("username") if user else None) or "admin"
+        data = request.get_json(silent=True) or request.form.to_dict() or {}
+        screens = data.get("screens", "ALL")
+        show_now = bool(data.get("show_now", False))
+        if show_now:
+            duration = 86400
+        else:
+            try:
+                duration = int(data.get("duration_seconds", 60))
+                duration = max(5, min(86400, duration))
+            except Exception:
+                duration = 60
+        show_standup = bool(data.get("show_standup_text", False))
+        storage.set_flag_manual_override(screens=screens, duration_seconds=duration, show_standup_text=show_standup)
+        storage.record_daily_event_run("flag", result=f"Manual run on {screens} ({duration}s)", actor=actor, ip=get_client_ip())
+        notify_flag_change(screens)
+        return jsonify({"success": True, "message": f"This will replace the display with the flag for {duration} seconds", "duration": duration, "screens": screens})
+
+    @app.route("/api/admin/events/flag/stop", methods=["POST"])
+    @mutation_admin_required
+    def stop_flag_run():
+        storage.clear_flag_manual_override(ended_early=True)
+        notify_flag_change("ALL")
+        return jsonify({"success": True, "message": "Flag display ended"})
+
+    @app.route("/api/events/today", methods=["GET"])
+    def admin_events_today():
+        screen = request.args.get("screen") or request.args.get("screen_id") or "ALL"
+        sim_header = request.headers.get("X-Simulated-Now") or request.args.get("sim_now")
+        now_dt = None
+        if sim_header:
+            try:
+                now_dt = datetime.datetime.fromtimestamp(float(sim_header) / 1000.0, tz=KOLKATA_TZ)
+            except Exception:
+                pass
+        data = storage.get_flag_event_today(screen_code=screen, now_dt=now_dt)
+        return make_flag_event_response(data)
+
+    @app.route("/api/events/flag/start", methods=["POST"])
+    def flag_trigger_start_admin():
+        authorized, status_code, msg = check_flag_trigger_auth()
+        if not authorized:
+            return jsonify({"error": msg}), status_code
+        data = request.get_json(silent=True) or request.form.to_dict() or {}
+        screens = data.get("screens", "ALL")
+        duration = data.get("duration_seconds", 60)
+        try:
+            duration = max(5, min(86400, int(duration)))
+        except Exception:
+            duration = 60
+        storage.set_flag_manual_override(screens=screens, duration_seconds=duration, show_standup_text=False)
+        storage.record_daily_event_run("flag", result=f"Triggered via external API for {duration}s on {screens}", actor="external_api", ip=get_client_ip())
+        notify_flag_change(screens)
+        res = jsonify({"success": True, "action": "flag_started", "duration_seconds": duration, "screens": screens})
+        res.headers["Cache-Control"] = "no-store"
+        return res
+
+    @app.route("/api/events/flag/end", methods=["POST"])
+    def flag_trigger_end_admin():
+        authorized, status_code, msg = check_flag_trigger_auth()
+        if not authorized:
+            return jsonify({"error": msg}), status_code
+        storage.clear_flag_manual_override(ended_early=True)
+        storage.record_daily_event_run("flag", result="Ended via external API", actor="external_api", ip=get_client_ip())
+        notify_flag_change("ALL")
+        res = jsonify({"success": True, "action": "flag_ended"})
+        res.headers["Cache-Control"] = "no-store"
+        return res
 
     @app.route("/api/system-info", methods=["GET"])
     def system_info():
@@ -1128,6 +1714,17 @@ def create_unified_app():
         response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
         return response
 
+    @app.route("/admin-sw.js")
+    def admin_service_worker():
+        response = send_from_directory(
+            os.path.join(app.root_path, "static"),
+            "admin-sw.js",
+            mimetype="application/javascript",
+        )
+        response.headers["Service-Worker-Allowed"] = "/"
+        response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+        return response
+
     @app.route("/manifest.json")
     @app.route("/manifest.webmanifest")
     def manifest():
@@ -1149,7 +1746,7 @@ def create_unified_app():
     @app.route("/")
     @app.route("/admin")
     def admin_home():
-        return render_template("admin.html")
+        return render_template("admin.html", version=getattr(config, "VERSION", "2.2.0"))
 
     # 2. Display Kiosk UI
     @app.route("/display")
@@ -1194,7 +1791,8 @@ def create_unified_app():
     def post_heartbeat():
         data = request.get_json(silent=True) or request.form.to_dict() or {}
         code = data.get("screen") or data.get("screen_id") or data.get("code") or "ALL"
-        record_heartbeat(code)
+        audio_ready = data.get("audio_ready")
+        record_heartbeat(code, audio_ready)
         return jsonify({"success": True, "code": str(code).strip().upper(), "timestamp": int(time.time() * 1000)})
 
     @app.route("/favicon.ico")
@@ -1232,6 +1830,7 @@ def create_unified_app():
         if not username or username.lower() == "admin":
             if verify_admin_password(password):
                 login_rate_limiter.record_success(ip)
+                storage.record_audit(actor="admin", action="LOGIN_SUCCESS", target_id="admin", details="Admin login successful", ip=ip)
                 session["is_admin"] = True
                 session["username"] = "admin"
                 session["role"] = "super_admin"
@@ -1252,12 +1851,14 @@ def create_unified_app():
                 })
             else:
                 login_rate_limiter.record_failure(ip)
+                storage.record_audit(actor=username or "admin", action="LOGIN_FAILURE", target_id=username or "admin", details="Failed login: incorrect password", ip=ip)
                 return jsonify({"success": False, "error": "Invalid password"}), 401
         else:
             # Per-user dept_admin login with hashed passwords
             user = storage.verify_user_credentials(username, password)
             if user:
                 login_rate_limiter.record_success(ip)
+                storage.record_audit(actor=user["username"], action="LOGIN_SUCCESS", target_id=user["username"], details=f"User {user['username']} logged in", ip=ip)
                 session["is_admin"] = True
                 session["username"] = user["username"]
                 session["role"] = user["role"]
@@ -1278,12 +1879,19 @@ def create_unified_app():
                 })
             else:
                 login_rate_limiter.record_failure(ip)
+                storage.record_audit(actor=username, action="LOGIN_FAILURE", target_id=username, details="Failed login: bad credentials", ip=ip)
                 return jsonify({"success": False, "error": "Invalid username or password"}), 401
 
     @app.route("/api/logout", methods=["POST"])
     def logout():
+        actor = session.get("username", "admin")
+        storage.record_audit(actor=actor, action="LOGOUT", target_id=actor, details="User logged out", ip=get_client_ip())
         session.pop("is_admin", None)
         session.pop("csrf_token", None)
+        session.pop("username", None)
+        session.pop("role", None)
+        session.pop("departments", None)
+        session.pop("can_target_all", None)
         return jsonify({"success": True})
 
     @app.route("/api/screens", methods=["GET"])
@@ -1295,10 +1903,18 @@ def create_unified_app():
                 ls = get_screen_last_seen(d["code"])
                 d["last_seen"] = ls
                 d["online"] = (ls is not None) and ((now_ms - ls) < 60000)
+                d["audio_ready"] = get_screen_audio_ready(d["code"])
             return jsonify({"success": True, "screens": depts})
         else:
             depts = storage.get_departments(active_only=True)
-            screens = [{"code": d["code"], "name": d["name"], "id": d["code"], "accent_color": d.get("accent_color")} for d in depts]
+            screens = [{
+                "code": d["code"],
+                "name": d["name"],
+                "id": d["code"],
+                "accent_color": d.get("accent_color"),
+                "sound_enabled": d.get("sound_enabled", False),
+                "sound_volume": d.get("sound_volume", 70)
+            } for d in depts]
             return jsonify({"success": True, "screens": screens})
 
     @app.route("/api/screens", methods=["POST"])
@@ -1389,7 +2005,7 @@ def create_unified_app():
             sse_event_stream(screen),
             mimetype="text/event-stream",
             headers={
-                "Cache-Control": "no-cache",
+                "Cache-Control": "no-store, no-cache",
                 "X-Accel-Buffering": "no",
                 "Connection": "keep-alive",
             }
@@ -1398,8 +2014,35 @@ def create_unified_app():
     @app.route("/api/audit-logs", methods=["GET"])
     @read_admin_required
     def get_audit():
-        logs = storage.get_audit_logs(limit=50)
-        return jsonify({"success": True, "audit_logs": logs})
+        limit = min(int(request.args.get("limit", 50)), 200)
+        offset = max(int(request.args.get("offset", 0)), 0)
+        action = request.args.get("action")
+        actor = request.args.get("actor")
+        date_from = request.args.get("date_from")
+        date_to = request.args.get("date_to")
+        if date_from:
+            try: date_from = int(date_from)
+            except (ValueError, TypeError): date_from = None
+        if date_to:
+            try: date_to = int(date_to)
+            except (ValueError, TypeError): date_to = None
+
+        res = storage.get_audit_logs(
+            limit=limit,
+            offset=offset,
+            action=action,
+            actor=actor,
+            date_from=date_from,
+            date_to=date_to
+        )
+        return jsonify({
+            "success": True,
+            "audit_logs": res["audit_logs"],
+            "logs": res["logs"],
+            "total": res["total"],
+            "limit": limit,
+            "offset": offset
+        })
 
     @app.errorhandler(413)
     def request_entity_too_large(error):
@@ -1502,69 +2145,146 @@ def create_unified_app():
 
         affected = target.get("screens") if target else None
         actor = (user.get("username") if user else None) or "admin"
-        success = storage.delete(notice_id, actor=actor)
+        success = storage.delete(notice_id, actor=actor, ip=get_client_ip())
         notify_notice_change(affected_screens=affected)
         if success:
-            return jsonify({"success": True, "id": notice_id})
+            return jsonify({"success": True, "id": notice_id, "restorable": True})
         return jsonify({"error": "Notice not found"}), 404
+
+    @app.route("/api/notices/<notice_id>/restore", methods=["POST"])
+    @mutation_admin_required
+    def restore_notice(notice_id):
+        user = get_current_user()
+        actor = (user.get("username") if user else None) or "admin"
+        restored = storage.restore(notice_id, actor=actor, ip=get_client_ip())
+        if not restored:
+            return jsonify({"error": "Notice not found or cannot be restored"}), 404
+        notify_notice_change(affected_screens=restored.get("screens"))
+        return jsonify({"success": True, "notice": restored})
+
+    @app.route("/api/settings", methods=["POST", "PUT"])
+    @mutation_admin_required
+    def update_settings():
+        user = get_current_user()
+        actor = (user.get("username") if user else None) or "admin"
+        data = request.get_json(silent=True) or request.form.to_dict() or {}
+        theme = data.get("theme", "auto")
+        storage.record_audit(actor, "SETTINGS_UPDATE", "theme", f"Theme updated to '{theme}'", ip=get_client_ip())
+        return jsonify({"success": True, "theme": theme})
+
+    @app.route("/api/admin/events/flag", methods=["GET"])
+    @read_admin_required
+    def unified_flag_settings():
+        evt = storage.get_daily_event("flag")
+        next_text = storage.compute_next_run_text(evt) if evt else "No event configured"
+        import config
+        return jsonify({
+            "success": True,
+            "event": evt,
+            "next_run": next_text,
+            "flag_event_enabled_config": getattr(config, "FLAG_EVENT_ENABLED", False),
+            "flag_trigger_token_configured": bool(getattr(config, "FLAG_TRIGGER_TOKEN", ""))
+        })
+
+    @app.route("/api/admin/events/flag", methods=["PUT", "POST"])
+    @mutation_admin_required
+    def unified_update_flag_settings():
+        user = get_current_user()
+        actor = (user.get("username") if user else None) or "admin"
+        data = request.get_json(silent=True) or request.form.to_dict() or {}
+        updated = storage.update_daily_event("flag", data, actor=actor, ip=get_client_ip())
+        next_text = storage.compute_next_run_text(updated) if updated else ""
+        notify_flag_change(updated.get("screens", "ALL") if updated else "ALL")
+        return jsonify({"success": True, "event": updated, "next_run": next_text})
+
+    @app.route("/api/admin/events/flag/skip-today", methods=["POST"])
+    @mutation_admin_required
+    def unified_skip_flag_today():
+        user = get_current_user()
+        actor = (user.get("username") if user else None) or "admin"
+        updated = storage.skip_daily_event_today("flag", actor=actor, ip=get_client_ip())
+        next_text = storage.compute_next_run_text(updated) if updated else ""
+        notify_flag_change(updated.get("screens", "ALL") if updated else "ALL")
+        return jsonify({"success": True, "event": updated, "next_run": next_text})
+
+    @app.route("/api/admin/events/flag/test-run", methods=["POST"])
+    @mutation_admin_required
+    def unified_test_run_flag():
+        user = get_current_user()
+        actor = (user.get("username") if user else None) or "admin"
+        data = request.get_json(silent=True) or request.form.to_dict() or {}
+        screens = data.get("screens", "ALL")
+        show_now = bool(data.get("show_now", False))
+        if show_now:
+            duration = 86400
+        else:
+            try:
+                duration = int(data.get("duration_seconds", 60))
+                duration = max(5, min(86400, duration))
+            except Exception:
+                duration = 60
+        show_standup = bool(data.get("show_standup_text", False))
+        storage.set_flag_manual_override(screens=screens, duration_seconds=duration, show_standup_text=show_standup)
+        storage.record_daily_event_run("flag", result=f"Manual run on {screens} ({duration}s)", actor=actor, ip=get_client_ip())
+        notify_flag_change(screens)
+        return jsonify({"success": True, "message": f"This will replace the display with the flag for {duration} seconds", "duration": duration, "screens": screens})
+
+    @app.route("/api/admin/events/flag/stop", methods=["POST"])
+    @mutation_admin_required
+    def unified_stop_flag_run():
+        storage.clear_flag_manual_override(ended_early=True)
+        notify_flag_change("ALL")
+        return jsonify({"success": True, "message": "Flag display ended"})
+
+    @app.route("/api/events/today", methods=["GET"])
+    def unified_events_today():
+        screen = request.args.get("screen") or request.args.get("screen_id") or "ALL"
+        sim_header = request.headers.get("X-Simulated-Now") or request.args.get("sim_now")
+        now_dt = None
+        if sim_header:
+            try:
+                now_dt = datetime.datetime.fromtimestamp(float(sim_header) / 1000.0, tz=KOLKATA_TZ)
+            except Exception:
+                pass
+        data = storage.get_flag_event_today(screen_code=screen, now_dt=now_dt)
+        return make_flag_event_response(data)
+
+    @app.route("/api/events/flag/start", methods=["POST"])
+    def unified_flag_trigger_start():
+        authorized, status_code, msg = check_flag_trigger_auth()
+        if not authorized:
+            return jsonify({"error": msg}), status_code
+        data = request.get_json(silent=True) or request.form.to_dict() or {}
+        screens = data.get("screens", "ALL")
+        duration = data.get("duration_seconds", 60)
+        try:
+            duration = max(5, min(86400, int(duration)))
+        except Exception:
+            duration = 60
+        storage.set_flag_manual_override(screens=screens, duration_seconds=duration, show_standup_text=False)
+        storage.record_daily_event_run("flag", result=f"Triggered via external API for {duration}s on {screens}", actor="external_api", ip=get_client_ip())
+        notify_flag_change(screens)
+        res = jsonify({"success": True, "action": "flag_started", "duration_seconds": duration, "screens": screens})
+        res.headers["Cache-Control"] = "no-store"
+        return res
+
+    @app.route("/api/events/flag/end", methods=["POST"])
+    def unified_flag_trigger_end():
+        authorized, status_code, msg = check_flag_trigger_auth()
+        if not authorized:
+            return jsonify({"error": msg}), status_code
+        storage.clear_flag_manual_override(ended_early=True)
+        storage.record_daily_event_run("flag", result="Ended via external API", actor="external_api", ip=get_client_ip())
+        notify_flag_change("ALL")
+        res = jsonify({"success": True, "action": "flag_ended"})
+        res.headers["Cache-Control"] = "no-store"
+        return res
 
     @app.route("/api/system-info", methods=["GET"])
     def system_info():
         return jsonify(get_system_weather())
 
-    @app.route("/notice/<notice_id>")
-    def notice_detail(notice_id):
-        notice = storage.get_by_id(notice_id)
-        if not notice:
-            return render_template("notice_detail.html", notice=None), 404
-        # Phase 2 Rule 4: Return 404 unless active (admins may see any)
-        if notice.get("status") != "live" and not check_admin_auth():
-            return render_template("notice_detail.html", notice=None), 404
-        return render_template("notice_detail.html", notice=notice)
-
-    @app.route("/notice/<notice_id>/download")
-    def notice_download(notice_id):
-        notice = storage.get_by_id(notice_id)
-        if not notice:
-            return jsonify({"error": "Notice not found"}), 404
-        if notice.get("status") != "live" and not check_admin_auth():
-            return jsonify({"error": "Notice not found"}), 404
-
-        if notice.get("media"):
-            if str(notice["media"]).startswith("http://") or str(notice["media"]).startswith("https://"):
-                return redirect(notice["media"])
-            media_path = storage.media_storage.get_path(notice["media"]) if hasattr(storage.media_storage, "get_path") else None
-            if media_path and media_path.exists():
-                return send_from_directory(
-                    MEDIA_FOLDER,
-                    notice["media"],
-                    as_attachment=True,
-                    download_name=notice["media"]
-                )
-
-        title = notice.get("title", "Notice")
-        clean_title = "".join(c for c in title if c.isalnum() or c in (" ", "_", "-")).rstrip()
-        filename = f"{clean_title or 'notice'}.txt"
-        lines = [
-            "====================================================",
-            "  V NOTICE -- OFFICIAL CAMPUS ANNOUNCEMENT",
-            "====================================================",
-            "",
-            f"TITLE:    {notice.get('title', '')}",
-            f"PRIORITY: {notice.get('priority', 'Normal').upper()}",
-            "",
-            "DETAILS:",
-            notice.get('body', 'No additional details provided.'),
-            "",
-            "====================================================",
-            "Saved from V Notice Smart Display",
-        ]
-        content = "\n".join(lines)
-        return Response(
-            content,
-            mimetype="text/plain; charset=utf-8",
-            headers={"Content-Disposition": f'attachment; filename="{filename}"'}
-        )
+    register_public_notice_routes(app)
 
     @app.route("/media/<path:filename>")
     def serve_media(filename):
@@ -1673,7 +2393,6 @@ if __name__ == "__main__":
         print("=" * 60)
         print(f"Display Interface:  http://localhost:{DISPLAY_PORT}")
         print(f"Admin Interface:    http://localhost:{ADMIN_PORT}")
-        print(f"Default Admin Pass: {os.environ.get('ADMIN_PASSWORD', 'vnotice2026')}")
         print("=" * 60)
 
         admin_thread = threading.Thread(target=run_admin_server, daemon=True)

@@ -39,7 +39,10 @@ Desktop.ini
 # Logs & temp test outputs
 *.log
 screenshots/
+verification_text_fit/
 test_*.png
+*_backup/
+static/brand/contact-sheet.png
 
 # Local AI agents, skills & brag plugins (NEVER push to git)
 .agents/
@@ -57,7 +60,17 @@ memory.md
 design.md
 
 
+# Media uploads & local test storage
+media/
+uploads/
+
+# Test fixtures & scratch output
+tests/fixtures/
+scratch/
+scratch*/
+
 # Database, backups & test caches
+notices.db
 *.db
 *.db-wal
 *.db-shm

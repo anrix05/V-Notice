@@ -1,6 +1,7 @@
 import os
 import sys
 import time
+import datetime
 import secrets
 import mimetypes
 import logging
@@ -8,6 +9,12 @@ import sqlite3
 import shutil
 import json
 import re
+import subprocess
+try:
+    from zoneinfo import ZoneInfo
+    KOLKATA_TZ = ZoneInfo("Asia/Kolkata")
+except Exception:
+    KOLKATA_TZ = datetime.timezone(datetime.timedelta(hours=5, minutes=30), name="Asia/Kolkata")
 from pathlib import Path
 from werkzeug.utils import secure_filename
 from werkzeug.security import generate_password_hash, check_password_hash
@@ -20,6 +27,9 @@ from config import (
     ALLOWED_IMAGE_EXTENSIONS,
     ALLOWED_VIDEO_EXTENSIONS,
     ALLOWED_MIME_TYPES,
+    VIDEO_SOUND_ENABLED,
+    FLAG_EVENT_ENABLED,
+    FLAG_TRIGGER_TOKEN,
 )
 from security import (
     generate_notice_id,
@@ -33,6 +43,40 @@ if not logger.handlers:
     handler.setFormatter(logging.Formatter("[%(asctime)s] [%(levelname)s] [%(name)s] %(message)s"))
     logger.addHandler(handler)
     logger.setLevel(logging.INFO)
+
+def detect_video_audio(file_path) -> str:
+    """Detect whether video has an audio track using ffprobe.
+    Returns 'true' if audio track exists, 'false' if silent video, 'unknown' if ffprobe is unavailable or error."""
+    if not file_path:
+        return "unknown"
+    p = Path(file_path)
+    if not p.is_file():
+        return "unknown"
+    ffprobe_cmd = shutil.which("ffprobe")
+    if not ffprobe_cmd:
+        return "unknown"
+    try:
+        proc = subprocess.run(
+            [
+                ffprobe_cmd,
+                "-v", "error",
+                "-select_streams", "a",
+                "-show_entries", "stream=codec_type",
+                "-of", "default=noprint_wrappers=1:nokey=1",
+                str(p)
+            ],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            timeout=5
+        )
+        if proc.returncode == 0:
+            output = proc.stdout.strip().lower()
+            return "true" if "audio" in output else "false"
+        return "unknown"
+    except Exception as e:
+        logger.warning("ffprobe audio detection failed for %s: %s", file_path, e)
+        return "unknown"
 
 def get_current_time_ms():
     return int(time.time() * 1000)
@@ -244,6 +288,7 @@ class NoticeStorage:
         self.data_file = Path(data_file)
         self.media_storage = media_backend or media_storage
         self.media_folder = getattr(self.media_storage, "media_dir", MEDIA_DIR)
+        self._flag_manual_override = None
         self._init_db()
         self._run_migration_if_needed()
 
@@ -362,10 +407,65 @@ class NoticeStorage:
                         actor TEXT NOT NULL,
                         action TEXT NOT NULL,
                         target_id TEXT NOT NULL,
-                        details TEXT DEFAULT ''
+                        details TEXT DEFAULT '',
+                        ip TEXT DEFAULT '127.0.0.1'
                     );
                 """)
                 conn.execute("CREATE INDEX IF NOT EXISTS idx_audit_time ON audit_logs(timestamp);")
+
+                # Schema migration: ensure 'ip' column exists in audit_logs
+                cursor = conn.execute("PRAGMA table_info(audit_logs);")
+                cols = [r[1] for r in cursor.fetchall()]
+                if "ip" not in cols:
+                    conn.execute("ALTER TABLE audit_logs ADD COLUMN ip TEXT DEFAULT '127.0.0.1';")
+
+                # Schema migration: ensure 'deleted' column in notices
+                cursor_n = conn.execute("PRAGMA table_info(notices);")
+                ncols = [r[1] for r in cursor_n.fetchall()]
+                if "deleted" not in ncols:
+                    conn.execute("ALTER TABLE notices ADD COLUMN deleted INTEGER DEFAULT 0;")
+                if "deleted_at" not in ncols:
+                    conn.execute("ALTER TABLE notices ADD COLUMN deleted_at INTEGER DEFAULT NULL;")
+                if "scan_count" not in ncols:
+                    conn.execute("ALTER TABLE notices ADD COLUMN scan_count INTEGER DEFAULT 0;")
+
+                # Automatic backup before schema migration if database exists
+                cursor_d = conn.execute("PRAGMA table_info(departments);")
+                dcols = [r[1] for r in cursor_d.fetchall()]
+                needs_migration = (
+                    "has_audio" not in ncols or
+                    "play_sound" not in ncols or
+                    "sound_enabled" not in dcols or
+                    "sound_volume" not in dcols
+                )
+                if needs_migration and self.db_file.exists():
+                    backup_path = self.db_file.with_name(self.db_file.name + ".bak")
+                    try:
+                        shutil.copy2(self.db_file, backup_path)
+                        logger.info("Automatic database backup created at %s", backup_path)
+                    except Exception as e:
+                        logger.warning("Automatic database backup warning: %s", e)
+
+                if "has_audio" not in ncols:
+                    conn.execute("ALTER TABLE notices ADD COLUMN has_audio TEXT DEFAULT 'unknown';")
+                    try:
+                        vrows = conn.execute("SELECT id, media FROM notices WHERE type = 'video';").fetchall()
+                        for vr in vrows:
+                            if vr["media"]:
+                                mp = self.media_folder / vr["media"]
+                                if mp.is_file():
+                                    da = detect_video_audio(mp)
+                                    conn.execute("UPDATE notices SET has_audio = ? WHERE id = ?;", (da, vr["id"]))
+                    except Exception as e:
+                        logger.warning("Failed backfilling has_audio: %s", e)
+
+                if "play_sound" not in ncols:
+                    conn.execute("ALTER TABLE notices ADD COLUMN play_sound INTEGER DEFAULT 0;")
+
+                if "sound_enabled" not in dcols:
+                    conn.execute("ALTER TABLE departments ADD COLUMN sound_enabled INTEGER NOT NULL DEFAULT 0;")
+                if "sound_volume" not in dcols:
+                    conn.execute("ALTER TABLE departments ADD COLUMN sound_volume INTEGER NOT NULL DEFAULT 70;")
 
                 # 6. Users table for Phase 6 role-based permissions
                 conn.execute("""
@@ -380,17 +480,60 @@ class NoticeStorage:
                     );
                 """)
                 conn.execute("CREATE INDEX IF NOT EXISTS idx_users_username ON users(username);")
+
+                # 7. Daily events table (Part B)
+                conn.execute("""
+                    CREATE TABLE IF NOT EXISTS daily_events (
+                        type TEXT PRIMARY KEY,
+                        enabled INTEGER NOT NULL DEFAULT 0,
+                        start_time TEXT NOT NULL DEFAULT '11:00',
+                        start_offset_seconds INTEGER NOT NULL DEFAULT 0,
+                        duration_seconds INTEGER NOT NULL DEFAULT 60,
+                        days_of_week TEXT NOT NULL DEFAULT 'mon,tue,wed,thu,fri,sat',
+                        screens TEXT NOT NULL DEFAULT 'ALL',
+                        show_standup_text INTEGER NOT NULL DEFAULT 0,
+                        skip_dates TEXT NOT NULL DEFAULT '[]',
+                        last_run_at INTEGER,
+                        last_run_result TEXT,
+                        override_start_ms INTEGER DEFAULT NULL,
+                        override_end_ms INTEGER DEFAULT NULL,
+                        override_screens TEXT DEFAULT NULL,
+                        override_show_standup INTEGER DEFAULT 0,
+                        ended_early_date TEXT DEFAULT NULL,
+                        updated_at INTEGER NOT NULL
+                    );
+                """)
+                for col_name, col_type in [
+                    ("override_start_ms", "INTEGER DEFAULT NULL"),
+                    ("override_end_ms", "INTEGER DEFAULT NULL"),
+                    ("override_screens", "TEXT DEFAULT NULL"),
+                    ("override_show_standup", "INTEGER DEFAULT 0"),
+                    ("ended_early_date", "TEXT DEFAULT NULL")
+                ]:
+                    try:
+                        conn.execute(f"ALTER TABLE daily_events ADD COLUMN {col_name} {col_type};")
+                    except sqlite3.OperationalError:
+                        pass
+
+                conn.execute("""
+                    INSERT OR IGNORE INTO daily_events (
+                        type, enabled, start_time, start_offset_seconds, duration_seconds,
+                        days_of_week, screens, show_standup_text, skip_dates, updated_at
+                    ) VALUES (
+                        'flag', 0, '11:00', 0, 60, 'mon,tue,wed,thu,fri,sat', 'ALL', 0, '[]', ?
+                    );
+                """, (now_ms,))
         finally:
             conn.close()
 
-    def record_audit(self, actor: str, action: str, target_id: str, details: str = ""):
+    def record_audit(self, actor: str, action: str, target_id: str, details: str = "", ip: str = "127.0.0.1"):
         conn = self.get_connection()
         try:
             with conn:
                 conn.execute("""
-                    INSERT INTO audit_logs (timestamp, actor, action, target_id, details)
-                    VALUES (?, ?, ?, ?, ?);
-                """, (get_current_time_ms(), actor or "admin", action, target_id, details))
+                    INSERT INTO audit_logs (timestamp, actor, action, target_id, details, ip)
+                    VALUES (?, ?, ?, ?, ?, ?);
+                """, (get_current_time_ms(), actor or "admin", action, str(target_id or ""), details, ip or "127.0.0.1"))
         except Exception as e:
             logger.warning("Failed to record audit log: %s", e)
         finally:
@@ -417,13 +560,36 @@ class NoticeStorage:
                 "error": str(e)
             }
 
-    def get_audit_logs(self, limit: int = 50):
+    def get_audit_logs(self, limit: int = 50, offset: int = 0, action: str = None, actor: str = None, date_from: int = None, date_to: int = None):
         conn = self.get_connection()
         try:
-            rows = conn.execute("""
-                SELECT * FROM audit_logs ORDER BY timestamp DESC LIMIT ?;
-            """, (limit,)).fetchall()
-            return [dict(r) for r in rows]
+            where_clauses = ["1=1"]
+            params = []
+            if action and action != "ALL":
+                where_clauses.append("action = ?")
+                params.append(action)
+            if actor:
+                where_clauses.append("actor LIKE ?")
+                params.append(f"%{actor}%")
+            if date_from:
+                where_clauses.append("timestamp >= ?")
+                params.append(date_from)
+            if date_to:
+                where_clauses.append("timestamp <= ?")
+                params.append(date_to)
+
+            where_str = " AND ".join(where_clauses)
+            total = conn.execute(f"SELECT COUNT(*) FROM audit_logs WHERE {where_str};", params).fetchone()[0]
+
+            query = f"SELECT * FROM audit_logs WHERE {where_str} ORDER BY timestamp DESC LIMIT ? OFFSET ?;"
+            rows = conn.execute(query, params + [limit, offset]).fetchall()
+            logs = []
+            for r in rows:
+                d = dict(r)
+                d["ip_address"] = d.get("ip") or "127.0.0.1"
+                d["created_at"] = d["timestamp"]
+                logs.append(d)
+            return {"audit_logs": logs, "logs": logs, "total": total}
         finally:
             if not self._is_in_flask():
                 conn.close()
@@ -536,6 +702,9 @@ class NoticeStorage:
         if any(ch in raw_sid for ch in ['[', ']', '"', "'", ',', '\\']):
             clean = sanitize_screen_codes(raw_sid)
             d["screen_id"] = clean[0] if clean else "ALL"
+        d["scan_count"] = int(d.get("scan_count") or 0)
+        d["has_audio"] = str(d.get("has_audio") or "unknown")
+        d["play_sound"] = bool(d.get("play_sound") or 0)
         return d
 
     def _enrich_notices(self, notices, conn=None):
@@ -589,14 +758,14 @@ class NoticeStorage:
         try:
             if active_only:
                 rows = conn.execute("""
-                    SELECT code, name, sort_order, active, accent_color, created_at
+                    SELECT code, name, sort_order, active, accent_color, sound_enabled, sound_volume, created_at
                     FROM departments
                     WHERE active = 1
                     ORDER BY sort_order ASC, code ASC;
                 """).fetchall()
             else:
                 rows = conn.execute("""
-                    SELECT code, name, sort_order, active, accent_color, created_at
+                    SELECT code, name, sort_order, active, accent_color, sound_enabled, sound_volume, created_at
                     FROM departments
                     ORDER BY sort_order ASC, code ASC;
                 """).fetchall()
@@ -608,6 +777,8 @@ class NoticeStorage:
                     "sort_order": r["sort_order"],
                     "active": bool(r["active"]),
                     "accent_color": r["accent_color"],
+                    "sound_enabled": bool(r["sound_enabled"]) if "sound_enabled" in r.keys() else False,
+                    "sound_volume": int(r["sound_volume"]) if "sound_volume" in r.keys() else 70,
                     "created_at": r["created_at"],
                 }
                 for r in rows
@@ -623,7 +794,7 @@ class NoticeStorage:
         conn = self.get_connection()
         try:
             row = conn.execute("""
-                SELECT code, name, sort_order, active, accent_color, created_at
+                SELECT code, name, sort_order, active, accent_color, sound_enabled, sound_volume, created_at
                 FROM departments WHERE code = ?;
             """, (code,)).fetchone()
             if not row:
@@ -635,13 +806,15 @@ class NoticeStorage:
                 "sort_order": row["sort_order"],
                 "active": bool(row["active"]),
                 "accent_color": row["accent_color"],
+                "sound_enabled": bool(row["sound_enabled"]) if "sound_enabled" in row.keys() else False,
+                "sound_volume": int(row["sound_volume"]) if "sound_volume" in row.keys() else 70,
                 "created_at": row["created_at"],
             }
         finally:
             if not self._is_in_flask():
                 conn.close()
 
-    def add_department(self, code: str, name: str, sort_order: int = 0, active: bool = True, accent_color: str = None):
+    def add_department(self, code: str, name: str, sort_order: int = 0, active: bool = True, accent_color: str = None, sound_enabled: bool = False, sound_volume: int = 70):
         code = validate_screen_code(code)
         if not name or not str(name).strip():
             raise ValueError("Department name is required.")
@@ -656,15 +829,20 @@ class NoticeStorage:
             sort_order = 0
 
         active_int = 1 if active else 0
+        sound_enabled_int = 1 if sound_enabled else 0
+        try:
+            sound_volume = max(0, min(100, int(sound_volume)))
+        except (ValueError, TypeError):
+            sound_volume = 70
         now_ms = get_current_time_ms()
 
         conn = self.get_connection()
         try:
             with conn:
                 conn.execute("""
-                    INSERT INTO departments (code, name, sort_order, active, accent_color, created_at)
-                    VALUES (?, ?, ?, ?, ?, ?);
-                """, (code, name, sort_order, active_int, accent_color, now_ms))
+                    INSERT INTO departments (code, name, sort_order, active, accent_color, sound_enabled, sound_volume, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?);
+                """, (code, name, sort_order, active_int, accent_color, sound_enabled_int, sound_volume, now_ms))
                 conn.execute("""
                     INSERT OR IGNORE INTO screens (id, name, created_at)
                     VALUES (?, ?, ?);
@@ -696,6 +874,19 @@ class NoticeStorage:
 
         accent_color = data.get("accent_color", existing["accent_color"])
 
+        sound_enabled = existing.get("sound_enabled", False)
+        if "sound_enabled" in data:
+            val = data["sound_enabled"]
+            sound_enabled = val in (True, 1, "1", "true")
+        sound_enabled_int = 1 if sound_enabled else 0
+
+        sound_volume = existing.get("sound_volume", 70)
+        if "sound_volume" in data:
+            try:
+                sound_volume = max(0, min(100, int(data["sound_volume"])))
+            except (ValueError, TypeError):
+                sound_volume = existing.get("sound_volume", 70)
+
         conn = self.get_connection()
         try:
             with conn:
@@ -704,9 +895,11 @@ class NoticeStorage:
                         name = ?,
                         sort_order = ?,
                         active = ?,
-                        accent_color = ?
+                        accent_color = ?,
+                        sound_enabled = ?,
+                        sound_volume = ?
                     WHERE code = ?;
-                """, (name, sort_order, active_int, accent_color, code))
+                """, (name, sort_order, active_int, accent_color, sound_enabled_int, sound_volume, code))
                 conn.execute("""
                     UPDATE screens SET name = ? WHERE id = ?;
                 """, (name, code))
@@ -728,9 +921,11 @@ class NoticeStorage:
         conn = self.get_connection()
         try:
             with conn:
-                # Check if notices target this screen
+                # Check if non-deleted notices target this screen
                 count = conn.execute("""
-                    SELECT COUNT(*) FROM notice_screens WHERE screen_code = ?;
+                    SELECT COUNT(*) FROM notice_screens ns
+                    JOIN notices n ON ns.notice_id = n.id
+                    WHERE ns.screen_code = ? AND n.deleted = 0;
                 """, (code,)).fetchone()[0]
 
                 if count > 0:
@@ -869,6 +1064,17 @@ class NoticeStorage:
             if not self._is_in_flask():
                 conn.close()
 
+    def increment_scan_count(self, notice_id):
+        conn = self.get_connection()
+        try:
+            with conn:
+                conn.execute("UPDATE notices SET scan_count = COALESCE(scan_count, 0) + 1 WHERE id = ?;", (notice_id,))
+        except Exception as e:
+            logger.warning("Failed to increment scan count: %s", e)
+        finally:
+            if not self._is_in_flask():
+                conn.close()
+
     # ==========================================================================
     # Notice Mutations
     # ==========================================================================
@@ -951,11 +1157,21 @@ class NoticeStorage:
                             VALUES (?, ?, ?);
                         """, (s_code, s_code, now))
 
+                has_audio = "unknown"
+                if media_type == "video" and media_filename:
+                    final_path = self.media_folder / media_filename
+                    if final_path.is_file():
+                        has_audio = detect_video_audio(final_path)
+
+                raw_play_sound = data.get("play_sound")
+                play_sound_val = 1 if (raw_play_sound in (True, 1, "1", "true") and has_audio != "false") else 0
+
                 conn.execute("""
                     INSERT INTO notices (
                         id, title, body, priority, type, media, duration, start, end,
-                        screen_id, created_by, created_at, updated_at, is_active
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1);
+                        screen_id, created_by, created_at, updated_at, is_active,
+                        has_audio, play_sound
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?);
                 """, (
                     notice_id,
                     str(data.get("title", "")).strip(),
@@ -969,7 +1185,9 @@ class NoticeStorage:
                     primary_screen,
                     creator,
                     now,
-                    now
+                    now,
+                    has_audio,
+                    play_sound_val
                 ))
 
                 for s_code in target_screens:
@@ -1060,6 +1278,18 @@ class NoticeStorage:
         conn = self.get_connection()
         try:
             with conn:
+                has_audio = target.get("has_audio", "unknown")
+                if media_type == "video" and media_filename:
+                    final_path = self.media_folder / media_filename
+                    if final_path.is_file():
+                        has_audio = detect_video_audio(final_path)
+
+                if "play_sound" in data:
+                    raw_play_sound = data.get("play_sound")
+                    play_sound_val = 1 if (raw_play_sound in (True, 1, "1", "true") and has_audio != "false") else 0
+                else:
+                    play_sound_val = 1 if (target.get("play_sound") and has_audio != "false") else 0
+
                 conn.execute("""
                     UPDATE notices SET
                         title = ?,
@@ -1072,7 +1302,9 @@ class NoticeStorage:
                         end = ?,
                         screen_id = ?,
                         created_by = ?,
-                        updated_at = ?
+                        updated_at = ?,
+                        has_audio = ?,
+                        play_sound = ?
                     WHERE id = ?;
                 """, (
                     title,
@@ -1086,6 +1318,8 @@ class NoticeStorage:
                     primary_screen,
                     creator,
                     now,
+                    has_audio,
+                    play_sound_val,
                     notice_id
                 ))
 
@@ -1109,22 +1343,34 @@ class NoticeStorage:
             if not self._is_in_flask():
                 conn.close()
 
-    def delete(self, notice_id, actor="admin"):
+    def delete(self, notice_id, actor="admin", ip="127.0.0.1"):
         target = self.get_by_id(notice_id)
         if not target:
             return False
 
-        if target.get("media"):
-            self.media_storage.delete(target["media"])
-
+        now = get_current_time_ms()
         conn = self.get_connection()
         try:
             with conn:
-                conn.execute("DELETE FROM notice_screens WHERE notice_id = ?;", (notice_id,))
-                conn.execute("DELETE FROM notices WHERE id = ?;", (notice_id,))
-            self.record_audit(actor or "admin", "DELETE", notice_id, f"Deleted notice '{target.get('title', '')}'")
-            self.safe_garbage_collect_media()
+                conn.execute("UPDATE notices SET is_active = 0, deleted = 1, deleted_at = ?, updated_at = ? WHERE id = ?;", (now, now, notice_id))
+            self.record_audit(actor or "admin", "DELETE", notice_id, f"Deleted notice '{target.get('title', '')}'", ip=ip)
             return True
+        finally:
+            if not self._is_in_flask():
+                conn.close()
+
+    def restore(self, notice_id, actor="admin", ip="127.0.0.1"):
+        target = self.get_by_id(notice_id)
+        if not target:
+            return None
+
+        now = get_current_time_ms()
+        conn = self.get_connection()
+        try:
+            with conn:
+                conn.execute("UPDATE notices SET is_active = 1, deleted = 0, deleted_at = NULL, updated_at = ? WHERE id = ?;", (now, notice_id))
+            self.record_audit(actor or "admin", "RESTORE", notice_id, f"Restored notice '{target.get('title', '')}'", ip=ip)
+            return self.get_by_id(notice_id)
         finally:
             if not self._is_in_flask():
                 conn.close()
@@ -1276,6 +1522,353 @@ class NoticeStorage:
             safe.pop("password_hash", None)
             return safe
         return None
+
+
+    # ==========================================================================
+    # Daily Flag Event Operations (Part B)
+    # ==========================================================================
+    def get_daily_event(self, event_type: str = "flag") -> dict:
+        conn = self.get_connection()
+        try:
+            row = conn.execute("SELECT * FROM daily_events WHERE type = ?;", (event_type,)).fetchone()
+            if not row:
+                return None
+            d = dict(row)
+            d["enabled"] = bool(d.get("enabled", 0))
+            d["show_standup_text"] = bool(d.get("show_standup_text", 0))
+            try:
+                d["skip_dates"] = json.loads(d.get("skip_dates") or "[]")
+            except Exception:
+                d["skip_dates"] = []
+            raw_days = str(d.get("days_of_week") or "mon,tue,wed,thu,fri,sat")
+            d["days_of_week"] = [x.strip().lower() for x in raw_days.split(",") if x.strip()]
+            return d
+        finally:
+            if not self._is_in_flask():
+                conn.close()
+
+    def update_daily_event(self, event_type: str = "flag", data: dict = None, actor: str = "admin", ip: str = "127.0.0.1") -> dict:
+        data = data or {}
+        existing = self.get_daily_event(event_type)
+        if not existing:
+            return None
+
+        # Enabled toggle
+        enabled = data.get("enabled", existing["enabled"])
+        enabled_int = 1 if enabled in (True, 1, "1", "true") else 0
+
+        # Start time (HH:MM)
+        start_time = str(data.get("start_time", existing["start_time"])).strip()
+        if not re.match(r"^\d{1,2}:\d{2}$", start_time):
+            start_time = existing["start_time"]
+        else:
+            parts = start_time.split(":")
+            hh = max(0, min(23, int(parts[0])))
+            mm = max(0, min(59, int(parts[1])))
+            start_time = f"{hh:02d}:{mm:02d}"
+
+        # Start offset (-60 to +60)
+        try:
+            start_offset_seconds = int(data.get("start_offset_seconds", existing["start_offset_seconds"]))
+            start_offset_seconds = max(-60, min(60, start_offset_seconds))
+        except (ValueError, TypeError):
+            start_offset_seconds = existing["start_offset_seconds"]
+
+        # Duration (10 to 300)
+        try:
+            duration_seconds = int(data.get("duration_seconds", existing["duration_seconds"]))
+            duration_seconds = max(10, min(300, duration_seconds))
+        except (ValueError, TypeError):
+            duration_seconds = existing["duration_seconds"]
+
+        # Days of week
+        raw_days = data.get("days_of_week", existing["days_of_week"])
+        if isinstance(raw_days, list):
+            days_str = ",".join(str(d).strip().lower() for d in raw_days if str(d).strip())
+        else:
+            days_str = str(raw_days).strip().lower()
+        if not days_str:
+            days_str = "mon,tue,wed,thu,fri,sat"
+
+        # Screens
+        raw_screens = data.get("screens", existing["screens"])
+        clean_screens = sanitize_screen_codes(raw_screens)
+        screens_str = ",".join(clean_screens)
+
+        # Standup text toggle
+        show_standup = data.get("show_standup_text", existing["show_standup_text"])
+        show_standup_int = 1 if show_standup in (True, 1, "1", "true") else 0
+
+        # Skip dates
+        raw_skips = data.get("skip_dates", existing["skip_dates"])
+        if isinstance(raw_skips, list):
+            valid_skips = [s for s in raw_skips if isinstance(s, str) and re.match(r"^\d{4}-\d{2}-\d{2}$", s)]
+            skip_dates_str = json.dumps(sorted(list(set(valid_skips))))
+        else:
+            skip_dates_str = json.dumps(existing["skip_dates"])
+
+        now_ms = get_current_time_ms()
+        conn = self.get_connection()
+        try:
+            with conn:
+                conn.execute("""
+                    UPDATE daily_events SET
+                        enabled = ?,
+                        start_time = ?,
+                        start_offset_seconds = ?,
+                        duration_seconds = ?,
+                        days_of_week = ?,
+                        screens = ?,
+                        show_standup_text = ?,
+                        skip_dates = ?,
+                        ended_early_date = NULL,
+                        updated_at = ?
+                    WHERE type = ?;
+                """, (
+                    enabled_int, start_time, start_offset_seconds, duration_seconds,
+                    days_str, screens_str, show_standup_int, skip_dates_str,
+                    now_ms, event_type
+                ))
+            self.record_audit(actor, "FLAG_UPDATE", event_type, f"Updated flag event: enabled={bool(enabled_int)}, time={start_time}, offset={start_offset_seconds}s, dur={duration_seconds}s", ip)
+            return self.get_daily_event(event_type)
+        finally:
+            if not self._is_in_flask():
+                conn.close()
+
+    def skip_daily_event_today(self, event_type: str = "flag", actor: str = "admin", ip: str = "127.0.0.1") -> dict:
+        evt = self.get_daily_event(event_type)
+        if not evt:
+            return None
+        now_dt = datetime.datetime.now(KOLKATA_TZ)
+        today_str = now_dt.strftime("%Y-%m-%d")
+        current_skips = list(evt.get("skip_dates") or [])
+        if today_str not in current_skips:
+            current_skips.append(today_str)
+            current_skips.sort()
+        now_ms = get_current_time_ms()
+        conn = self.get_connection()
+        try:
+            with conn:
+                conn.execute("""
+                    UPDATE daily_events SET skip_dates = ?, updated_at = ? WHERE type = ?;
+                """, (json.dumps(current_skips), now_ms, event_type))
+            self.record_audit(actor, "FLAG_SKIP", event_type, f"Skipped flag event for today ({today_str})", ip)
+            return self.get_daily_event(event_type)
+        finally:
+            if not self._is_in_flask():
+                conn.close()
+
+    def record_daily_event_run(self, event_type: str = "flag", result: str = "success", actor: str = "admin", ip: str = "127.0.0.1") -> dict:
+        now_ms = get_current_time_ms()
+        conn = self.get_connection()
+        try:
+            with conn:
+                conn.execute("""
+                    UPDATE daily_events SET last_run_at = ?, last_run_result = ?, updated_at = ? WHERE type = ?;
+                """, (now_ms, result, now_ms, event_type))
+            self.record_audit(actor, "FLAG_TEST_RUN", event_type, f"Flag event run: {result}", ip)
+            return self.get_daily_event(event_type)
+        finally:
+            if not self._is_in_flask():
+                conn.close()
+
+    def set_flag_manual_override(self, screens="ALL", duration_seconds: int = 60, show_standup_text: bool = False):
+        now_ms = get_current_time_ms()
+        try:
+            dur = int(duration_seconds)
+            # allow duration up to 86400 (for Show flag now / indefinite until End flag now)
+            dur = max(5, min(86400, dur))
+        except (ValueError, TypeError):
+            dur = 60
+        clean_screens = sanitize_screen_codes(screens)
+        start_ms = now_ms
+        end_ms = now_ms + (dur * 1000)
+        show_standup_int = 1 if show_standup_text else 0
+
+        screens_str = ",".join(clean_screens) if isinstance(clean_screens, list) else str(clean_screens)
+
+        conn = self.get_connection()
+        try:
+            with conn:
+                conn.execute("""
+                    UPDATE daily_events SET
+                        override_start_ms = ?,
+                        override_end_ms = ?,
+                        override_screens = ?,
+                        override_show_standup = ?,
+                        ended_early_date = NULL,
+                        updated_at = ?
+                    WHERE type = 'flag';
+                """, (start_ms, end_ms, screens_str, show_standup_int, now_ms))
+        finally:
+            if not self._is_in_flask():
+                conn.close()
+
+        self._flag_manual_override = {
+            "start_ms": start_ms,
+            "end_ms": end_ms,
+            "screens": clean_screens,
+            "show_standup_text": bool(show_standup_text)
+        }
+        return self._flag_manual_override
+
+    def clear_flag_manual_override(self, ended_early: bool = True):
+        now_ms = get_current_time_ms()
+        now_dt = datetime.datetime.now(KOLKATA_TZ)
+        today_str = now_dt.strftime("%Y-%m-%d") if ended_early else None
+
+        conn = self.get_connection()
+        try:
+            with conn:
+                conn.execute("""
+                    UPDATE daily_events SET
+                        override_start_ms = NULL,
+                        override_end_ms = NULL,
+                        override_screens = NULL,
+                        override_show_standup = 0,
+                        ended_early_date = ?,
+                        updated_at = ?
+                    WHERE type = 'flag';
+                """, (today_str, now_ms))
+        finally:
+            if not self._is_in_flask():
+                conn.close()
+
+        self._flag_manual_override = None
+
+    def compute_next_run_text(self, event_data: dict, now_dt: datetime.datetime = None) -> str:
+        if not event_data:
+            return "No event configured"
+        now_dt = now_dt or datetime.datetime.now(KOLKATA_TZ)
+        days_map = {0: "mon", 1: "tue", 2: "wed", 3: "thu", 4: "fri", 5: "sat", 6: "sun"}
+        days_name_map = {0: "Monday", 1: "Tuesday", 2: "Wednesday", 3: "Thursday", 4: "Friday", 5: "Saturday", 6: "Sunday"}
+        
+        start_time_str = event_data.get("start_time", "11:00")
+        try:
+            hh, mm = map(int, start_time_str.split(":"))
+        except Exception:
+            hh, mm = 11, 0
+        offset = event_data.get("start_offset_seconds", 0)
+        dur = event_data.get("duration_seconds", 60)
+        skip_dates = set(event_data.get("skip_dates") or [])
+        active_days = set(event_data.get("days_of_week") or [])
+
+        for day_offset in range(14):
+            candidate_date = now_dt + datetime.timedelta(days=day_offset)
+            c_str = candidate_date.strftime("%Y-%m-%d")
+            if c_str in skip_dates:
+                continue
+            c_day_code = days_map[candidate_date.weekday()]
+            if c_day_code not in active_days:
+                continue
+            
+            c_start = candidate_date.replace(hour=hh, minute=mm, second=0, microsecond=0) + datetime.timedelta(seconds=offset)
+            c_end = c_start + datetime.timedelta(seconds=dur)
+            if c_end <= now_dt:
+                continue
+            
+            time_display = f"{hh:02d}:{mm:02d}"
+            if day_offset == 0:
+                return f"Today {time_display}"
+            elif day_offset == 1:
+                return f"Tomorrow {time_display}"
+            else:
+                return f"{days_name_map[candidate_date.weekday()]} {time_display}"
+
+        return f"{start_time_str}"
+
+    def get_flag_event_today(self, screen_code: str = "ALL", now_dt: datetime.datetime = None) -> dict:
+        now_dt = now_dt or datetime.datetime.now(KOLKATA_TZ)
+        server_time_ms = int(now_dt.timestamp() * 1000)
+        screen_code_clean = str(screen_code or "ALL").strip().upper()
+        today_str = now_dt.strftime("%Y-%m-%d")
+
+        empty_response = {
+            "server_time_ms": server_time_ms,
+            "flag_start_ms": None,
+            "flag_end_ms": None,
+            "show_standup_text": False,
+            "standup_lead_seconds": 0
+        }
+
+        evt = self.get_daily_event("flag")
+        if not evt:
+            return empty_response
+
+        # 1. Check persistent manual override from database
+        ov_start = evt.get("override_start_ms")
+        ov_end = evt.get("override_end_ms")
+        if ov_start is not None and ov_end is not None:
+            if server_time_ms < ov_end:
+                ov_screens = sanitize_screen_codes(evt.get("override_screens") or "ALL")
+                if "ALL" in ov_screens or screen_code_clean in ov_screens:
+                    return {
+                        "server_time_ms": server_time_ms,
+                        "flag_start_ms": ov_start,
+                        "flag_end_ms": ov_end,
+                        "show_standup_text": bool(evt.get("override_show_standup")),
+                        "standup_lead_seconds": 15 if evt.get("override_show_standup") else 0
+                    }
+            else:
+                # Override expired, clear in DB
+                self.clear_flag_manual_override(ended_early=False)
+
+        # 2. Check ended_early marker for today (scheduled event ended early)
+        if evt.get("ended_early_date") == today_str:
+            return empty_response
+
+        # 3. Check feature flag and event enable status
+        import config
+        if not getattr(config, "FLAG_EVENT_ENABLED", True):
+            return empty_response
+
+        if not evt.get("enabled"):
+            return empty_response
+
+        # 4. Screen targeting
+        target_screens = evt.get("screens", "ALL")
+        if isinstance(target_screens, str):
+            target_screens = sanitize_screen_codes(target_screens)
+        if "ALL" not in target_screens and screen_code_clean not in target_screens:
+            return empty_response
+
+        # 5. Skip dates filter (Asia/Kolkata date)
+        skip_dates = set(evt.get("skip_dates") or [])
+        if today_str in skip_dates:
+            return empty_response
+
+        # 6. Day of week filter
+        days_map = {0: "mon", 1: "tue", 2: "wed", 3: "thu", 4: "fri", 5: "sat", 6: "sun"}
+        today_code = days_map[now_dt.weekday()]
+        if today_code not in evt.get("days_of_week", []):
+            return empty_response
+
+        # 7. Compute start and end times for today
+        start_time_str = evt.get("start_time", "11:00")
+        try:
+            hh, mm = map(int, start_time_str.split(":"))
+        except Exception:
+            hh, mm = 11, 0
+        offset_sec = evt.get("start_offset_seconds", 0)
+        dur_sec = evt.get("duration_seconds", 60)
+
+        event_start = now_dt.replace(hour=hh, minute=mm, second=0, microsecond=0) + datetime.timedelta(seconds=offset_sec)
+        event_end = event_start + datetime.timedelta(seconds=dur_sec)
+
+        start_ms = int(event_start.timestamp() * 1000)
+        end_ms = int(event_end.timestamp() * 1000)
+
+        if server_time_ms >= end_ms:
+            return empty_response
+
+        show_standup = bool(evt.get("show_standup_text", False))
+        return {
+            "server_time_ms": server_time_ms,
+            "flag_start_ms": start_ms,
+            "flag_end_ms": end_ms,
+            "show_standup_text": show_standup,
+            "standup_lead_seconds": 15 if show_standup else 0
+        }
 
 
 storage = NoticeStorage()

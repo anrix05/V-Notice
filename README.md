@@ -102,7 +102,8 @@ Each notice adheres to the following JSON schema:
 ```
 
 - **Priority**: `urgent` (priority takeover), `normal` (standard rotation), `info` (guidelines/hours).
-- **Type**: `text` (large typography), `image` (poster with caption strip), `video` (muted playback, auto-advances on end).
+- **Type**: `text` (large typography), `image` (poster with caption strip), `video` (plays with sound only when notice `play_sound` is true AND the screen's `sound_enabled` is true AND the browser allows audio; otherwise plays muted; preloaded next video remains strictly muted).
+- **Audio Attributes**: `has_audio` (`"true"`, `"false"`, or `"unknown"` via ffprobe), `play_sound` (boolean, default `false`).
 - **Start / End**: Timestamps in milliseconds for automated scheduling and expiry.
 
 ---
@@ -110,7 +111,7 @@ Each notice adheres to the following JSON schema:
 ## 5. REST API Specification
 
 | Method | Endpoint | Site | Auth Required | Description |
-| :--- | :--- | :---: | :---: | :--- |
+| :--- | :--- | :--- | :---: | :--- |
 | `GET` | `/api/notices` | Display (5000) | No | Returns currently active notices (`start <= now <= end`) |
 | `GET` | `/api/notices` | Admin (5001) | Yes (`X-Password`) | Returns all notices with computed status (`live`, `scheduled`, `expired`) |
 | `POST` | `/api/notices` | Admin (5001) | Yes (`X-Password`) | Creates new notice (supports multipart form for file uploads) |
@@ -118,6 +119,9 @@ Each notice adheres to the following JSON schema:
 | `DELETE` | `/api/notices/<id>` | Admin (5001) | Yes (`X-Password`) | Deletes notice and associated media file from storage |
 | `GET` | `/notice/<id>/download` | Display (5000) | No | Triggers 1-tap download of the notice media/text to phone |
 | `GET` | `/api/system-info` | Display (5000) | No | Returns auto-detected campus weather, LAN IP, and ports |
+| `GET` | `/api/events/today` | Display (5000) | No | Returns server time and today's next flag event for screen (cached 5s) |
+| `POST` | `/api/events/flag/start` | Both | Token (`Bearer`) | External trigger: forces flag display on specified screens |
+| `POST` | `/api/events/flag/end` | Both | Token (`Bearer`) | External trigger: ends active flag override on specified screens |
 | `POST` | `/api/login` | Admin (5001) | No | Authenticates admin password |
 | `POST` | `/api/logout` | Admin (5001) | No | Terminates session |
 | `GET` | `/media/<file>` | Both | No | Serves uploaded images and video files |
@@ -131,7 +135,7 @@ All settings use safe defaults and can be customized via `.env` or container env
 
 | Variable | Default | Description |
 | :--- | :--- | :--- |
-| `ADMIN_PASSWORD` | `vnotice2026` | Plaintext password or secret for Admin Portal authentication. |
+| `ADMIN_PASSWORD` | *(set in .env)* | Plaintext password or secret for Admin Portal authentication. |
 | `ADMIN_PASSWORD_HASH` | *empty* | Optional Werkzeug hash taking precedence over plaintext password. |
 | `SECRET_KEY` | *auto-generated* | Secret key for session cookies. **Mandatory in production**. |
 | `STORAGE_DIR` | `./` | Root directory for SQLite database and storage. |
@@ -149,6 +153,9 @@ All settings use safe defaults and can be customized via `.env` or container env
 | `MAX_UPLOAD_MB` | `200` | Maximum file upload size in Megabytes (default 200MB). |
 | `POLL_INTERVAL_SECONDS` | `5` | Base polling interval for kiosk display and admin feed sync. |
 | `SSE_ENABLED` | `false` | Enable Server-Sent Events stream (`/api/events`). Disabled by default to protect Gunicorn sync workers from thread starvation. |
+| `VIDEO_SOUND_ENABLED` | `true` | Master feature flag for selective video audio playback. |
+| `FLAG_EVENT_ENABLED` | `false` | Master feature flag for daily fullscreen national flag event (default OFF until enabled in Admin). |
+| `FLAG_TRIGGER_TOKEN` | *empty* | Optional secret Bearer token for external trigger endpoints (`/api/events/flag/start` and `/end`). 404 when unset. |
 | `LOG_LEVEL` | `INFO` | Logging verbosity (`DEBUG`, `INFO`, `WARNING`, `ERROR`). |
 
 ---
@@ -181,7 +188,7 @@ python app.py
 This automatically starts:
 - **Display Interface**: `http://localhost:5000`
 - **Admin Management Portal**: `http://localhost:5001`
-- **Default Admin Password**: `vnotice2026` (configurable in `.env`)
+- **Admin Password**: Configured via `ADMIN_PASSWORD` in `.env`
 
 ---
 
@@ -241,7 +248,7 @@ X-GNOME-Autostart-enabled=true
 - **Bounded Media Cache & Orphan Cleanup**: Caches up to 50 active media posters/videos. Automatically evicts cached files that are no longer referenced by active notices upon syncing.
 - **Graceful Weather Degradation**: Weather queries time out after 3 seconds. Cached weather is shown for up to 60 minutes; if unavailable, the weather widget hides silently without ugly error boxes.
 - **Pure Client-Side QR Generation**: Uses vendored `qrcode.min.js` to render crisp high-DPI QR codes locally without external API dependencies.
-- **Audio Chime & Video Protection**: Gentle synthetic two-tone chime via Web Audio API (default disabled via `URGENT_CHIME=false`), wrapped in safe autoplay catch blocks. All `<video>` elements remain strictly muted (`muted=true, volume=0`).
+- **Audio Architecture & Selective Video Sound**: Gentle synthetic two-tone chime via Web Audio API for urgent alerts (default disabled via `URGENT_CHIME=false`), wrapped in safe autoplay catch blocks. Video notices play unmuted ONLY if the notice has sound enabled (`play_sound: true`), the target screen has sound enabled (`sound_enabled: 1`), and the browser environment allows audio playback (`audio_ready: true`). In all other cases, videos play strictly muted (`muted=true, volume=0`). Preloaded background videos always remain strictly muted. Audio stops cleanly on slide change with no tail, and display volume honors the per-screen volume setting.
 
 
 ### ⚡ 7. High-Efficiency Sync Engine
@@ -255,3 +262,58 @@ X-GNOME-Autostart-enabled=true
 - **Deep Healthcheck Endpoint (`/api/health`)**: Actively probes SQLite database connectivity, journal mode (`wal`), storage directory writability, remaining disk capacity, system uptime, and memory footprint. Returns HTTP 503 if dependencies fail.
 - **Ultra-Lean Memory Footprint (<60MB Target)**: Real-time RSS process memory tracking via Linux `/proc/self/status` and native Windows APIs. Backend memory usage remains at ~35MB, well below the 60MB target for Raspberry Pi 3B+ hardware.
 - **Structured Request Logging**: Formats all HTTP requests with ISO timestamps, HTTP method, URL path, response status, client IP, and request duration in milliseconds.
+
+
+### ⚡ 9. Brand Identity & Vector Monogram
+V Notice features an official **merged "VN" monogram** built on Concept A shared-stem geometry:
+- **The Mark**: The V's right arm *is* the N's left stem. Refined optically with equalized 10.8px stroke weight, 15.5-unit open notch at top, and amber `#F59E0B` diagonal tucked cleanly under white `#F8FAFC` stems with zero slivers.
+- **Variants**:
+  - `mark-obsidian`: Obsidian `#0B1020` base with 1px `#334155` border, white letters, amber diagonal.
+  - `mark-light-tile`: Light `#F8FAFC` base with 1px `#CBD5E1` border, dark `#0B1020` letters, amber diagonal.
+  - `mark-mono-dot`: Notched notification dot on last stem; crimson `#EF4444` dot for emergency/urgent broadcasts.
+  - `favicon-16` / `favicon-32`: Simplified cut with no border, +15% stroke width, and widened notch for crisp micro-rendering.
+- **Wordmark & Typography**: "V Notice" set in **Outfit 700 (Bold)**, letter-spacing `-0.01em`, solid single color.
+- **Dynamic Swapping**: Driven directly by CSS variables (`--logo-tile`, `--logo-border`, `--logo-letters`, `--logo-diagonal`) across dark and light admin themes. On kiosk displays, the amber diagonal features a subtle 2.4s pulse (disabled under `prefers-reduced-motion`).
+
+
+### ⚡ 10. Kiosk Audio Configuration & NTP Time Synchronization
+- **Chromium Autoplay Flag**: Raspberry Pi kiosks launch Chromium with `--autoplay-policy=no-user-gesture-required` (in `systemd/kiosk.sh`) to allow audio playback without prior user interaction on physical kiosks.
+- **NTP Time Synchronization**: Daily events (such as the 11:00 AM National Flag screen) require sub-second clock synchronization across all corridor kiosks. Ensure NTP is active on all Raspberry Pis:
+  ```bash
+  # Enable and check NTP synchronization
+  sudo timedatectl set-ntp true
+  timedatectl status
+  ```
+  The kiosk display also actively computes the round-trip network clock offset against server time every 5 minutes, maintaining sub-second synchronization across all screens even if an individual device clock drifts.
+
+
+### ⚡ 11. Daily National Flag Screen & Anthem Rehearsal Workflow
+V Notice displays the Indian National Flag fullscreen daily across all campus screens (display only; V Notice does **NOT** store, play, or reference any anthem audio).
+
+#### Rehearsal Procedure (Step-by-Step)
+1. **Time the Anthem System**: Use a stopwatch to time the college's existing external anthem audio system from beginning to end.
+2. **Configure Duration**: In the Admin Portal under **Settings > Daily events: National flag**, enter the measured duration plus about 5 seconds (e.g. 52s anthem + 5s buffer = 57 seconds).
+3. **Rehearse with Test Run**: With someone near the audio system and someone observing a kiosk screen, click **"Run now on screen..."** in Admin Settings at the exact moment the anthem begins.
+4. **Adjust Start Offset**: Observe the synchronization. Adjust the **Start offset in seconds** (-60 to +60 seconds) in Admin Settings until the display transition and audio align cleanly.
+5. **Enable the Event**: Toggle the **Enable daily flag screen** switch to ON and click **Save settings**.
+
+#### Optional External Trigger API (Disabled by Default)
+If the external anthem system has network capabilities, it can trigger or cancel the flag screen directly via HTTP POST:
+- Endpoints: `POST /api/events/flag/start` and `POST /api/events/flag/end`
+- Authenticated via `Authorization: Bearer <FLAG_TRIGGER_TOKEN>` header (configured via `FLAG_TRIGGER_TOKEN` in `.env`). If unset, endpoints return HTTP 404 with zero information leakage.
+- Rate-limited to 10 requests per minute.
+
+```bash
+# Start fullscreen flag display across all boards for 60 seconds
+curl -X POST https://v-notice.onrender.com/api/events/flag/start \
+  -H "Authorization: Bearer YOUR_FLAG_TRIGGER_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"screens": "ALL", "duration_seconds": 60}'
+
+# End fullscreen flag display immediately and return to rotation
+curl -X POST https://v-notice.onrender.com/api/events/flag/end \
+  -H "Authorization: Bearer YOUR_FLAG_TRIGGER_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"screens": "ALL"}'
+```
+

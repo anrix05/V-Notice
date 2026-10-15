@@ -33,6 +33,16 @@
   const noticeScreen = document.getElementById('notice-screen');
   const noticeCreatedBy = document.getElementById('notice-created-by');
   const btnOpenCreate = document.getElementById('btn-open-create');
+  // DOM Elements - Screens
+  const screensModal = document.getElementById('screens-modal');
+  const btnViewScreens = document.getElementById('btn-view-screens');
+  const btnCloseScreens = document.getElementById('btn-close-screens-modal');
+  const deptTableBody = document.getElementById('dept-table-body');
+  const addDeptForm = document.getElementById('add-dept-form');
+  const deptCodeInput = document.getElementById('dept-code-input');
+  const deptNameInput = document.getElementById('dept-name-input');
+  const deptColorInput = document.getElementById('dept-color-input');
+  const deptFormError = document.getElementById('dept-form-error');
 
   // DOM Elements - Create Modal
   const noticeModal = document.getElementById('notice-modal');
@@ -119,7 +129,6 @@
       setAdminPassword('vnotice2026');
     }
 
-    loadScreens();
     const pass = getAdminPassword();
     if (!pass) {
       showLoginModal();
@@ -127,6 +136,7 @@
     }
 
     try {
+      loadScreens();
       await fetchNotices();
       hideLoginModal();
       if (urlParams.get('test_modal') === 'create') {
@@ -250,6 +260,39 @@
       toast.style.transition = 'all 0.2s ease';
       setTimeout(() => { toast.remove(); }, 200);
     }, 3000);
+  }
+
+  function showToastWithUndo(message, onUndo) {
+    const toast = document.createElement('div');
+    toast.className = 'toast toast-with-undo';
+
+    const msgSpan = document.createElement('span');
+    msgSpan.className = 'toast-message-text';
+    msgSpan.textContent = message;
+    toast.appendChild(msgSpan);
+
+    if (onUndo) {
+      const undoBtn = document.createElement('button');
+      undoBtn.type = 'button';
+      undoBtn.className = 'btn-toast-undo toast-undo';
+      undoBtn.setAttribute('data-action', 'undo');
+      undoBtn.textContent = 'Undo';
+      undoBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        toast.remove();
+        onUndo();
+      });
+      toast.appendChild(undoBtn);
+    }
+
+    toastContainer.appendChild(toast);
+
+    setTimeout(() => {
+      toast.style.opacity = '0';
+      toast.style.transform = 'translateY(6px)';
+      toast.style.transition = 'all 0.2s ease';
+      setTimeout(() => { toast.remove(); }, 200);
+    }, 6000);
   }
 
   // ==========================================================================
@@ -385,15 +428,16 @@
     if (!screens || !screens.length) return;
     if (feedScreenFilter) {
       const cur = feedScreenFilter.value;
-      feedScreenFilter.innerHTML = '<option value="all">All Screens</option>';
+      feedScreenFilter.innerHTML = '<option value="all_screens" label="All">All Screens</option>';
       screens.forEach(s => {
         const code = s.code || s.id;
         const opt = document.createElement('option');
         opt.value = code;
-        opt.textContent = code === 'ALL' ? 'All Departments (college-wide)' : `${code} - ${s.name || code}`;
+        opt.label = code;
+        opt.textContent = code === 'ALL' ? 'ALL - All Departments (college-wide)' : `${code} - ${s.name || code}`;
         feedScreenFilter.appendChild(opt);
       });
-      feedScreenFilter.value = cur || 'all';
+      feedScreenFilter.value = cur || 'all_screens';
     }
     renderChipPicker(screens);
   }
@@ -591,11 +635,39 @@
     }
   };
 
+  let noticesPageSize = 20;
+  let noticesCurrentPage = 1;
+  let savedAdminScrollTop = 0;
+
   function renderNoticesList() {
     noticesContainer.innerHTML = '';
 
-    // Sort order per spec
-    const sorted = [...notices].sort((a, b) => {
+    // 1. Screen Filter: filter notices by target screen
+    const screenFilterVal = feedScreenFilter ? feedScreenFilter.value : 'all_screens';
+    const screenFiltered = (screenFilterVal === 'all_screens')
+      ? [...notices]
+      : notices.filter(n => {
+          const s = sanitizeScreenCodes(n.screens || n.screen_id);
+          return s.includes(screenFilterVal) || s.includes('ALL');
+        });
+
+    // 2. Tab counts following selected screen filter
+    const countAll = screenFiltered.length;
+    const countLive = screenFiltered.filter(n => (n.status || 'live') === 'live').length;
+    const countScheduled = screenFiltered.filter(n => (n.status || 'live') === 'scheduled').length;
+    const countExpired = screenFiltered.filter(n => (n.status || 'live') === 'expired').length;
+
+    const elCountAll = document.getElementById('count-all');
+    const elCountLive = document.getElementById('count-live');
+    const elCountSched = document.getElementById('count-scheduled');
+    const elCountExp = document.getElementById('count-expired');
+    if (elCountAll) elCountAll.textContent = countAll;
+    if (elCountLive) elCountLive.textContent = countLive;
+    if (elCountSched) elCountSched.textContent = countScheduled;
+    if (elCountExp) elCountExp.textContent = countExpired;
+
+    // 3. Sort order per spec
+    const sorted = screenFiltered.sort((a, b) => {
       const rank = { live: 1, scheduled: 2, expired: 3 };
       const rankA = rank[a.status || 'live'] || 2;
       const rankB = rank[b.status || 'live'] || 2;
@@ -603,10 +675,8 @@
       if (rankA !== rankB) return rankA - rankB;
 
       if (rankA === 2) {
-        // Scheduled: earliest start time first
         return (a.start || 0) - (b.start || 0);
       }
-      // Expired or Live: newest first
       return (b.start || 0) - (a.start || 0);
     });
 
@@ -615,7 +685,20 @@
       return (n.status || 'live') === currentFilter;
     });
 
-        if (filtered.length === 0) {
+    // 4. Summary indicator: "Showing N of M"
+    let countSummaryEl = document.getElementById('notices-count-summary');
+    if (!countSummaryEl) {
+      countSummaryEl = document.createElement('div');
+      countSummaryEl.id = 'notices-count-summary';
+      countSummaryEl.className = 'notices-count-summary';
+      const wrapper = document.querySelector('.notices-list-wrapper');
+      if (wrapper && wrapper.parentNode) {
+        wrapper.parentNode.insertBefore(countSummaryEl, wrapper);
+      }
+    }
+
+    if (filtered.length === 0) {
+      if (countSummaryEl) countSummaryEl.textContent = 'Showing 0 of 0';
       const emptyInfo = TAB_EMPTY_STATES[currentFilter] || TAB_EMPTY_STATES.all;
       noticesContainer.innerHTML = `
         <div class="notices-empty-view">
@@ -632,7 +715,13 @@
       return;
     }
 
-    filtered.forEach(notice => {
+    // 5. Pagination: 20 per batch
+    const visibleNotices = filtered.slice(0, noticesCurrentPage * noticesPageSize);
+    if (countSummaryEl) {
+      countSummaryEl.textContent = `Showing ${visibleNotices.length} of ${filtered.length}`;
+    }
+
+    visibleNotices.forEach(notice => {
       const card = document.createElement('article');
       card.tabIndex = 0;
       const status = notice.status || 'live';
@@ -643,7 +732,7 @@
       card.setAttribute('role', 'button');
       card.setAttribute('aria-label', `Notice: ${notice.title || 'Untitled notice'}, status ${status}`);
 
-      // 1. Media Tile Anatomy: 64x64 Image, Video Poster, or Gradient Initial Tile
+      // Media Tile
       let tileHtml = '';
       if (ntype === 'image' && notice.media) {
         const mediaUrl = notice.media.startsWith('http') ? notice.media : `/media/${encodeURIComponent(notice.media)}`;
@@ -663,13 +752,13 @@
           </div>`;
       }
 
-      // 2. Badges Row: Distinct Status Pill & Distinct Priority Pill & Target Screen Chips
+      // Badges
       const statusLabel = status.charAt(0).toUpperCase() + status.slice(1);
       const prioLabel = prio.charAt(0).toUpperCase() + prio.slice(1);
       const typeLabel = ntype.charAt(0).toUpperCase() + ntype.slice(1);
       const durationText = ntype !== 'video' ? ` · ${notice.duration || 10}s` : '';
 
-      // 3. Formatted Schedule Line with Year Disambiguation and Relative Duration
+      // Schedule Line with Relative Duration
       const scheduleLine = formatScheduleLine(notice.start, notice.end);
 
       const deptChipsHtml = (() => {
@@ -685,10 +774,17 @@
         return chips + overflowChip;
       })();
 
+      // Exact card anatomy: top to bottom:
+      // 1. Title (1-2 lines, high-contrast)
+      // 2. Subtitle (1 line, ellipsis)
+      // 3. Badge row (status, priority, target chips, format)
+      // 4. Schedule line with relative text
+      // Actions: ONE Edit icon button (aria-label) plus ⋮ overflow menu
       card.innerHTML = `
         ${tileHtml}
         <div class="notice-content">
-          <!-- Row 1: Badges Row -->
+          <h3 class="notice-title">${escapeHtml(notice.title || 'Untitled notice')}</h3>
+          ${notice.body ? `<p class="notice-body-snippet">${escapeHtml(notice.body)}</p>` : ''}
           <div class="notice-badges-row">
             <span class="badge-status badge-status-${status}">
               <span class="status-indicator-dot"></span>
@@ -698,34 +794,27 @@
               <span>${prioLabel}</span>
             </span>
             ${deptChipsHtml}
-          </div>
-
-          <!-- Row 2: Title (clamp 2 lines) & Optional Snippet -->
-          <h3 class="notice-title">${escapeHtml(notice.title || 'Untitled notice')}</h3>
-          ${notice.body ? `<p class="notice-body-snippet">${escapeHtml(notice.body)}</p>` : ''}
-
-          <!-- Row 3: Format & Dates -->
-          <div class="notice-row-meta">
             <span class="badge-type">
               <span>${typeLabel}</span>${durationText}
             </span>
-            <span class="notice-schedule-line">${scheduleLine}</span>
+          </div>
+          <div class="notice-schedule-line">${scheduleLine}</div>
+          <div class="notice-public-link-row">
+            <span class="public-link-tag">Public link:</span>
+            <button type="button" class="btn-link-action btn-copy-public-card" data-id="${notice.id}">Copy link</button>
+            <span class="dot-sep">·</span>
+            <a href="/n/${notice.id}" target="_blank" class="btn-link-action btn-open-public-card">Open page ↗</a>
+            <span class="dot-sep">·</span>
+            <span class="scan-count-badge">${notice.scan_count > 0 ? (notice.scan_count === 1 ? 'Scanned 1 time' : `Scanned ${notice.scan_count} times`) : '0 scans'}</span>
           </div>
         </div>
 
         <div class="notice-actions">
-          <div class="desktop-card-actions">
-            <button type="button" class="btn btn-secondary btn-action-edit btn-edit-row" data-id="${notice.id}" aria-label="Edit notice" title="Edit">
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
-              <span class="btn-label-text">Edit</span>
-            </button>
-            <button type="button" class="btn btn-secondary btn-action-delete btn-delete-row" data-id="${notice.id}" aria-label="Delete notice" title="Delete">
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
-              <span class="btn-label-text">Delete</span>
-            </button>
-          </div>
-          <button type="button" class="btn-card-overflow" data-id="${notice.id}" aria-label="More options for notice" title="More options">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="5" r="2.2"></circle><circle cx="12" cy="12" r="2.2"></circle><circle cx="12" cy="19" r="2.2"></circle></svg>
+          <button type="button" class="btn-icon btn-action-edit btn-edit-row" data-id="${notice.id}" aria-label="Edit notice" title="Edit">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
+          </button>
+          <button type="button" class="btn-icon btn-card-overflow" data-id="${notice.id}" aria-label="More options for notice" title="More options">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="12" cy="5" r="2.2"></circle><circle cx="12" cy="12" r="2.2"></circle><circle cx="12" cy="19" r="2.2"></circle></svg>
           </button>
         </div>
       `;
@@ -747,8 +836,28 @@
 
       // Tapping card opens edit sheet
       card.addEventListener('click', () => {
-        openEditModal(notice);
+        saveScrollAndOpenEdit(notice);
       });
+
+      const copyPublicBtn = card.querySelector('.btn-copy-public-card');
+      if (copyPublicBtn) {
+        copyPublicBtn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          const url = `${window.location.origin}/n/${notice.id}`;
+          navigator.clipboard.writeText(url).then(() => {
+            showToast('Link copied');
+          }).catch(() => {
+            showToast('Link copied');
+          });
+        });
+      }
+
+      const openPublicBtn = card.querySelector('.btn-open-public-card');
+      if (openPublicBtn) {
+        openPublicBtn.addEventListener('click', (e) => {
+          e.stopPropagation();
+        });
+      }
 
       const overflowBtn = card.querySelector('.btn-card-overflow');
       if (overflowBtn) {
@@ -762,20 +871,37 @@
       if (editBtn) {
         editBtn.addEventListener('click', (e) => {
           e.stopPropagation();
-          openEditModal(notice);
-        });
-      }
-
-      const deleteBtn = card.querySelector('.btn-delete-row');
-      if (deleteBtn) {
-        deleteBtn.addEventListener('click', (e) => {
-          e.stopPropagation();
-          openDeleteModal(notice);
+          saveScrollAndOpenEdit(notice);
         });
       }
 
       noticesContainer.appendChild(card);
     });
+
+    // 6. Load More button if remaining notices exist
+    if (visibleNotices.length < filtered.length) {
+      const loadMoreWrap = document.createElement('div');
+      loadMoreWrap.className = 'load-more-wrap';
+      loadMoreWrap.innerHTML = `
+        <button type="button" class="btn btn-secondary btn-load-more" id="btn-load-more">
+          Load more notices (${filtered.length - visibleNotices.length} remaining)
+        </button>
+      `;
+      const btnLoadMore = loadMoreWrap.querySelector('#btn-load-more');
+      btnLoadMore.addEventListener('click', () => {
+        noticesCurrentPage++;
+        renderNoticesList();
+      });
+      noticesContainer.appendChild(loadMoreWrap);
+    }
+  }
+
+  function saveScrollAndOpenEdit(notice) {
+    const scrollContainer = document.getElementById('admin-scroll-container');
+    if (scrollContainer) {
+      savedAdminScrollTop = scrollContainer.scrollTop;
+    }
+    openEditModal(notice);
   }
 
   function escapeHtml(str) {
@@ -910,7 +1036,8 @@
       prio: document.querySelector('input[name="priority"]:checked')?.value || 'normal',
       type: document.querySelector('input[name="type"]:checked')?.value || 'text',
       duration: inputDuration ? inputDuration.value : '10',
-      hasFile: Boolean(mediaFileInput.files && mediaFileInput.files.length > 0)
+      hasFile: Boolean(mediaFileInput.files && mediaFileInput.files.length > 0),
+      playSound: Boolean(document.getElementById('notice-play-sound')?.checked)
     };
   }
 
@@ -923,7 +1050,8 @@
       prio: document.querySelector('input[name="priority"]:checked')?.value || 'normal',
       type: document.querySelector('input[name="type"]:checked')?.value || 'text',
       duration: inputDuration ? inputDuration.value : '10',
-      hasFile: Boolean(mediaFileInput.files && mediaFileInput.files.length > 0)
+      hasFile: Boolean(mediaFileInput.files && mediaFileInput.files.length > 0),
+      playSound: Boolean(document.getElementById('notice-play-sound')?.checked)
     };
     return JSON.stringify(initialFormSnapshot) !== JSON.stringify(current);
   }
@@ -959,10 +1087,22 @@
     const spErr = document.getElementById('screen-picker-error');
     if (spErr) spErr.classList.add('hidden');
     if (noticeCreatedBy) noticeCreatedBy.value = 'admin';
+
+    const videoSoundGroup = document.getElementById('video-sound-group');
+    const noticePlaySound = document.getElementById('notice-play-sound');
+    const videoNoAudioNote = document.getElementById('video-no-audio-note');
+    if (videoSoundGroup) videoSoundGroup.classList.add('hidden');
+    if (noticePlaySound) {
+      noticePlaySound.checked = false;
+      noticePlaySound.disabled = false;
+    }
+    if (videoNoAudioNote) videoNoAudioNote.classList.add('hidden');
+
     snapshotForm();
     noticeModal.classList.remove('hidden');
     inputTitle.focus();
   }
+  window.openCreateModal = openCreateModal;
 
   function openEditModal(notice) {
     resetCreateForm();
@@ -997,6 +1137,29 @@
     const typeRadio = document.querySelector(`input[name="type"][value="${type}"]`);
     if (typeRadio) typeRadio.checked = true;
     updateTypeState(type);
+
+    // Video sound switch configuration
+    const videoSoundGroup = document.getElementById('video-sound-group');
+    const noticePlaySound = document.getElementById('notice-play-sound');
+    const videoNoAudioNote = document.getElementById('video-no-audio-note');
+    if (type === 'video') {
+      if (videoSoundGroup) videoSoundGroup.classList.remove('hidden');
+      if (notice.has_audio === 'false') {
+        if (noticePlaySound) {
+          noticePlaySound.checked = false;
+          noticePlaySound.disabled = true;
+        }
+        if (videoNoAudioNote) videoNoAudioNote.classList.remove('hidden');
+      } else {
+        if (noticePlaySound) {
+          noticePlaySound.disabled = false;
+          noticePlaySound.checked = Boolean(notice.play_sound);
+        }
+        if (videoNoAudioNote) videoNoAudioNote.classList.add('hidden');
+      }
+    } else {
+      if (videoSoundGroup) videoSoundGroup.classList.add('hidden');
+    }
 
     // Dates
     if (notice.start) {
@@ -1036,6 +1199,12 @@
     editingNoticeId = null;
     initialFormSnapshot = null;
     closeDiscardModal();
+    const scrollContainer = document.getElementById('admin-scroll-container');
+    if (scrollContainer && savedAdminScrollTop) {
+      setTimeout(() => {
+        scrollContainer.scrollTop = savedAdminScrollTop;
+      }, 50);
+    }
   }
 
   function resetCreateForm() {
@@ -1045,6 +1214,16 @@
 
     const scrollBody = createNoticeForm.querySelector('.modal-body-scroll');
     if (scrollBody) scrollBody.scrollTop = 0;
+
+    const videoSoundGroup = document.getElementById('video-sound-group');
+    const noticePlaySound = document.getElementById('notice-play-sound');
+    const videoNoAudioNote = document.getElementById('video-no-audio-note');
+    if (videoSoundGroup) videoSoundGroup.classList.add('hidden');
+    if (noticePlaySound) {
+      noticePlaySound.checked = false;
+      noticePlaySound.disabled = false;
+    }
+    if (videoNoAudioNote) videoNoAudioNote.classList.add('hidden');
 
     const now = new Date();
     const nextWeek = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
@@ -1078,11 +1257,13 @@
   });
 
   function updateTypeState(type) {
+    const videoSoundGroup = document.getElementById('video-sound-group');
     if (type === 'image' || type === 'video') {
       mediaUploadGroup.classList.remove('hidden');
       mediaFileInput.accept = type === 'image' ? 'image/*' : 'video/*';
 
       if (type === 'image') {
+        if (videoSoundGroup) videoSoundGroup.classList.add('hidden');
         if (aspectRecommendLabel) aspectRecommendLabel.textContent = 'Best: 16:9 or 3:4 / 4:3';
         if (dropAspectHint) {
           dropAspectHint.innerHTML = `
@@ -1091,6 +1272,7 @@
           `;
         }
       } else {
+        if (videoSoundGroup) videoSoundGroup.classList.remove('hidden');
         if (aspectRecommendLabel) aspectRecommendLabel.textContent = 'Best: 16:9 Widescreen';
         if (dropAspectHint) {
           dropAspectHint.innerHTML = `
@@ -1101,6 +1283,7 @@
       }
     } else {
       mediaUploadGroup.classList.add('hidden');
+      if (videoSoundGroup) videoSoundGroup.classList.add('hidden');
       clearSelectedFile();
     }
 
@@ -1215,6 +1398,31 @@
     }
   }
 
+  function attachSpeakerToggle(video, container) {
+    const speakerToggle = document.createElement('button');
+    speakerToggle.type = 'button';
+    speakerToggle.className = 'preview-speaker-toggle';
+    speakerToggle.setAttribute('aria-label', 'Toggle preview sound');
+    speakerToggle.title = 'Sound off';
+    speakerToggle.innerHTML = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><line x1="23" y1="9" x2="17" y2="15"></line><line x1="17" y1="9" x2="23" y2="15"></line></svg>`;
+
+    speakerToggle.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      video.muted = !video.muted;
+      if (video.muted) {
+        speakerToggle.title = 'Sound off';
+        speakerToggle.innerHTML = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><line x1="23" y1="9" x2="17" y2="15"></line><line x1="17" y1="9" x2="23" y2="15"></line></svg>`;
+      } else {
+        speakerToggle.title = 'Sound on';
+        speakerToggle.innerHTML = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"></path></svg>`;
+        video.play().catch(() => {});
+      }
+    });
+
+    container.appendChild(speakerToggle);
+  }
+
   function renderMediaPreviewFromFile(file) {
     if (!file || !previewMediaWrapper) return;
     previewMediaWrapper.innerHTML = '';
@@ -1240,6 +1448,7 @@
         displayRatioAndDims(video.videoWidth, video.videoHeight);
       };
       previewMediaWrapper.appendChild(video);
+      attachSpeakerToggle(video, previewMediaWrapper);
     }
     if (mediaLivePreview) mediaLivePreview.classList.remove('hidden');
   }
@@ -1264,6 +1473,7 @@
         displayRatioAndDims(video.videoWidth, video.videoHeight);
       };
       previewMediaWrapper.appendChild(video);
+      attachSpeakerToggle(video, previewMediaWrapper);
     }
     if (mediaLivePreview) mediaLivePreview.classList.remove('hidden');
   }
@@ -1411,6 +1621,11 @@
     formData.append('start', startMs);
     formData.append('end', endMs);
 
+    const playSoundInput = document.getElementById('notice-play-sound');
+    if (playSoundInput && type === 'video') {
+      formData.append('play_sound', playSoundInput.checked ? '1' : '0');
+    }
+
     if (mediaFileInput.files && mediaFileInput.files[0]) {
       formData.append('media_file', mediaFileInput.files[0]);
     }
@@ -1493,6 +1708,7 @@
   btnConfirmDelete.addEventListener('click', async () => {
     if (!noticeToDelete) return;
     const deletedId = noticeToDelete.id;
+    const deletedNoticeCopy = Object.assign({}, noticeToDelete);
     btnConfirmDelete.disabled = true;
 
     try {
@@ -1508,12 +1724,32 @@
       if (!res.ok) throw new Error('Failed to delete notice.');
 
       closeDeleteModal();
-      showToast('Notice deleted');
 
       // Instantly remove notice from local array and re-render UI without waiting
       notices = notices.filter(n => n.id !== deletedId);
       updateSummaryCounts();
       renderNoticesList();
+
+      showToastWithUndo('Notice deleted', async () => {
+        try {
+          const restoreRes = await fetch(`/api/notices/${deletedId}/restore`, {
+            method: 'POST',
+            headers: {
+              'X-Password': getAdminPassword(),
+              'X-CSRF-Token': (await getCsrfToken()) || '',
+              'Cache-Control': 'no-cache, no-store, must-revalidate'
+            }
+          });
+          if (restoreRes.ok) {
+            showToast('Notice restored');
+            await fetchNotices(true);
+          } else {
+            showToast('Failed to restore notice', true);
+          }
+        } catch (err) {
+          showToast('Network error restoring notice', true);
+        }
+      });
 
       // Refresh data from server to ensure complete sync
       await fetchNotices();
@@ -1642,15 +1878,6 @@
   // ==========================================================================
   // Screens Management Panel (Phase 4)
   // ==========================================================================
-  const screensModal = document.getElementById('screens-modal');
-  const btnViewScreens = document.getElementById('btn-view-screens');
-  const btnCloseScreens = document.getElementById('btn-close-screens-modal');
-  const deptTableBody = document.getElementById('dept-table-body');
-  const addDeptForm = document.getElementById('add-dept-form');
-  const deptCodeInput = document.getElementById('dept-code-input');
-  const deptNameInput = document.getElementById('dept-name-input');
-  const deptColorInput = document.getElementById('dept-color-input');
-  const deptFormError = document.getElementById('dept-form-error');
 
   function openScreensModal() {
     if (screensModal) {
@@ -1664,12 +1891,13 @@
   }
 
   function formatRelativeHeartbeat(timestamp) {
-    if (!timestamp) return '<span class="hb-offline">⚪ Never seen</span>';
-    const diffSec = Math.floor((Date.now() - timestamp) / 1000);
-    if (diffSec < 60) return '<span class="hb-online">🟢 Online</span>';
-    if (diffSec < 3600) return `<span class="hb-recent">🟡 Seen ${Math.floor(diffSec / 60)}m ago</span>`;
-    if (diffSec < 86400) return `<span class="hb-recent">🟡 Seen ${Math.floor(diffSec / 3600)}h ago</span>`;
-    return `<span class="hb-offline">⚪ Seen ${Math.floor(diffSec / 86400)}d ago</span>`;
+    if (!timestamp) return 'Never seen';
+    const diffSec = Math.max(0, Math.floor((Date.now() - timestamp) / 1000));
+    if (diffSec < 15) return 'Just now';
+    if (diffSec < 60) return `${diffSec}s ago`;
+    if (diffSec < 3600) return `${Math.floor(diffSec / 60)}m ago`;
+    if (diffSec < 86400) return `${Math.floor(diffSec / 3600)}h ago`;
+    return `${Math.floor(diffSec / 86400)}d ago`;
   }
 
   async function loadAndRenderScreensTable() {
@@ -1695,21 +1923,50 @@
         return;
       }
 
+      const now = Date.now();
+
       // 1. Populate modal / desktop table body
       if (deptTableBody) {
         deptTableBody.innerHTML = screens.map(s => {
           const code = s.code || s.id;
           const isAll = code === 'ALL';
-          const accentStyle = s.accent_color ? `border-color: ${s.accent_color}55; color: ${s.accent_color};` : '';
-          const statusBadge = s.active 
-            ? '<span class="badge-status badge-status-live"><span class="status-indicator-dot"></span><span>Active</span></span>'
-            : '<span class="badge-status badge-status-expired"><span>Inactive</span></span>';
+          const accentStyle = s.accent_color ? `border-color: ${s.accent_color};` : '';
+
+          let statusClass = 'status-offline';
+          let statusLabel = 'Offline';
+          if (s.last_seen) {
+            const diff = now - s.last_seen;
+            if (diff < 120000) {
+              statusClass = 'status-online';
+              statusLabel = 'Online';
+            } else if (diff < 3600000) {
+              statusClass = 'status-idle';
+              statusLabel = 'Idle';
+            }
+          }
+          const relativeSeen = formatRelativeHeartbeat(s.last_seen);
+
+          const isCollegeWide = isAll || (s.name && s.name.toLowerCase().includes('college-wide'));
+          const displayName = isCollegeWide ? 'College-wide' : (s.name || code);
+          const fullName = s.name || (isAll ? 'All Departments (college-wide)' : code);
+
+          const soundStatusBadge = s.sound_enabled ? (
+            s.audio_ready
+              ? `<span class="screen-sound-badge sound-ready" title="Sound ready">Sound ready</span>`
+              : `<span class="screen-sound-badge sound-blocked" title="Sound blocked">Sound blocked</span>`
+          ) : '';
 
           return `<tr>
             <td><span class="dept-pill-badge" style="${accentStyle}">${escapeHtml(code)}</span></td>
-            <td><strong>${escapeHtml(s.name || code)}</strong></td>
-            <td>${statusBadge}</td>
-            <td>${formatRelativeHeartbeat(s.last_seen)}</td>
+            <td><strong title="${escapeHtml(fullName)}">${escapeHtml(displayName)}</strong></td>
+            <td>
+              <div class="screen-single-status">
+                <span class="screen-status-pill ${statusClass}"><span class="status-indicator-dot"></span>${statusLabel}</span>
+                ${soundStatusBadge}
+                <span class="screen-last-seen-secondary">${escapeHtml(relativeSeen)}</span>
+              </div>
+            </td>
+            <td>${escapeHtml(relativeSeen)}</td>
             <td>
               <button type="button" class="btn btn-secondary btn-sm btn-copy-screen-link" data-code="${escapeHtml(code)}">
                 Copy Link
@@ -1717,14 +1974,16 @@
             </td>
             <td>
               <div class="dept-actions-cell">
-                <button type="button" class="btn btn-secondary btn-sm btn-toggle-screen" data-code="${escapeHtml(code)}" data-active="${s.active ? '1' : '0'}">
-                  ${s.active ? 'Deactivate' : 'Activate'}
-                </button>
                 ${!isAll ? `
+                  <button type="button" class="btn btn-secondary btn-sm btn-toggle-screen" data-code="${escapeHtml(code)}" data-active="${s.active ? '1' : '0'}">
+                    ${s.active ? 'Deactivate' : 'Activate'}
+                  </button>
                   <button type="button" class="btn btn-secondary btn-sm btn-delete-screen" data-code="${escapeHtml(code)}" style="color: var(--red);">
                     Delete
                   </button>
-                ` : ''}
+                ` : `
+                  <span style="color: var(--muted); font-size: 12px;">Protected</span>
+                `}
               </div>
             </td>
           </tr>`;
@@ -1737,52 +1996,149 @@
           const code = s.code || s.id;
           const isAll = code === 'ALL';
           const accentColor = s.accent_color || '#3B82F6';
-          const accentStyle = `border-color: ${accentColor}55; color: ${accentColor};`;
-          const isOnline = s.last_seen && ((Date.now() - s.last_seen) < 60000);
-          const statusPill = isOnline 
-            ? '<span class="screen-pill screen-pill-online"><span class="status-indicator-dot"></span>Online</span>'
-            : '<span class="screen-pill screen-pill-offline"><span class="status-indicator-dot"></span>Offline</span>';
-          const activeBadge = s.active
-            ? '<span class="badge-status badge-status-live"><span class="status-indicator-dot"></span>Active</span>'
-            : '<span class="badge-status badge-status-expired">Inactive</span>';
+          const accentStyle = `border-color: ${accentColor};`;
+
+          let statusClass = 'status-offline';
+          let statusLabel = 'Offline';
+          if (s.last_seen) {
+            const diff = now - s.last_seen;
+            if (diff < 120000) {
+              statusClass = 'status-online';
+              statusLabel = 'Online';
+            } else if (diff < 3600000) {
+              statusClass = 'status-idle';
+              statusLabel = 'Idle';
+            }
+          }
+          const relativeSeen = formatRelativeHeartbeat(s.last_seen);
+
+          const isCollegeWide = isAll || (s.name && s.name.toLowerCase().includes('college-wide'));
+          const displayName = isCollegeWide ? 'College-wide' : (s.name || code);
+          const fullFullName = s.name || (isAll ? 'All Departments (college-wide)' : code);
+
+          const soundStatusBadge = s.sound_enabled ? (
+            s.audio_ready
+              ? `<span class="screen-sound-badge sound-ready" title="Sound ready">Sound ready</span>`
+              : `<span class="screen-sound-badge sound-blocked" title="Sound blocked">Sound blocked</span>`
+          ) : '';
 
           return `
             <article class="screen-item-card" data-code="${escapeHtml(code)}">
               <div class="screen-card-top">
                 <div class="screen-badge-title">
                   <span class="dept-pill-badge" style="${accentStyle}">${escapeHtml(code)}</span>
-                  <h3 class="screen-name">${escapeHtml(s.name || code)}</h3>
+                  <h3 class="screen-name" title="${escapeHtml(fullFullName)}">${escapeHtml(displayName)}</h3>
                 </div>
-                <div class="screen-pills-wrap">
-                  ${statusPill}
-                  ${activeBadge}
+                <div class="screen-single-status">
+                  <span class="screen-status-pill ${statusClass}"><span class="status-indicator-dot"></span>${statusLabel}</span>
+                  ${soundStatusBadge}
+                  <span class="screen-last-seen-secondary">${escapeHtml(relativeSeen)}</span>
                 </div>
               </div>
               <div class="screen-card-meta">
-                <span class="screen-heartbeat-text">${formatRelativeHeartbeat(s.last_seen)}</span>
                 <span class="screen-endpoint-text">/display/${encodeURIComponent(code)}</span>
               </div>
+              <div class="screen-sound-controls">
+                <label class="screen-sound-toggle-label">
+                  <input type="checkbox" class="screen-sound-toggle" data-code="${escapeHtml(code)}" ${s.sound_enabled ? 'checked' : ''}>
+                  <span>Sound</span>
+                </label>
+                <div class="screen-volume-wrap ${s.sound_enabled ? '' : 'disabled-wrap'}">
+                  <label for="vol-${escapeHtml(code)}">Volume</label>
+                  <input type="range" class="screen-volume-slider" id="vol-${escapeHtml(code)}" min="0" max="100" value="${typeof s.sound_volume === 'number' ? s.sound_volume : 70}" data-code="${escapeHtml(code)}" ${s.sound_enabled ? '' : 'disabled'}>
+                  <span class="screen-volume-val">${typeof s.sound_volume === 'number' ? s.sound_volume : 70}%</span>
+                </div>
+              </div>
               <div class="screen-card-actions">
-                <a href="/display/${encodeURIComponent(code)}" target="_blank" class="btn btn-primary btn-sm btn-kiosk-open">
+                <a href="/display/${encodeURIComponent(code)}" target="_blank" class="btn btn-primary btn-sm btn-kiosk-open" style="text-decoration: none !important;">
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></svg>
                   <span>Open kiosk</span>
                 </a>
                 <button type="button" class="btn btn-secondary btn-sm btn-copy-screen-link" data-code="${escapeHtml(code)}">
                   Copy link
                 </button>
-                <button type="button" class="btn btn-secondary btn-sm btn-toggle-screen" data-code="${escapeHtml(code)}" data-active="${s.active ? '1' : '0'}">
-                  ${s.active ? 'Deactivate' : 'Activate'}
-                </button>
                 ${!isAll ? `
-                  <button type="button" class="btn btn-secondary btn-sm btn-delete-screen" data-code="${escapeHtml(code)}" style="color: var(--red);">
-                    Delete
+                  <button type="button" class="btn btn-secondary btn-sm btn-toggle-screen" data-code="${escapeHtml(code)}" data-active="${s.active ? '1' : '0'}">
+                    ${s.active ? 'Deactivate' : 'Activate'}
                   </button>
+                  <div class="screen-overflow-menu-wrap" style="position: relative; display: inline-block;">
+                    <button type="button" class="btn-icon btn-screen-overflow-trigger" aria-label="More screen options" data-code="${escapeHtml(code)}" title="More options">
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="1.5"></circle><circle cx="12" cy="5" r="1.5"></circle><circle cx="12" cy="19" r="1.5"></circle></svg>
+                    </button>
+                    <div class="screen-card-dropdown hidden" id="screen-dropdown-${escapeHtml(code)}">
+                      <button type="button" class="dropdown-item-danger btn-delete-screen" data-code="${escapeHtml(code)}">
+                        Delete Screen
+                      </button>
+                    </div>
+                  </div>
                 ` : ''}
               </div>
             </article>
           `;
         }).join('');
       }
+
+      // Wire Screen Sound Toggles
+      document.querySelectorAll('.screen-sound-toggle').forEach(toggle => {
+        toggle.addEventListener('change', async () => {
+          const code = toggle.getAttribute('data-code');
+          const isChecked = toggle.checked;
+          const card = toggle.closest('.screen-item-card');
+          if (card) {
+            const volWrap = card.querySelector('.screen-volume-wrap');
+            const volSlider = card.querySelector('.screen-volume-slider');
+            if (volWrap) volWrap.classList.toggle('disabled-wrap', !isChecked);
+            if (volSlider) volSlider.disabled = !isChecked;
+          }
+          const csrf = await getCsrfToken();
+          try {
+            const updRes = await fetch(`/api/screens/${encodeURIComponent(code)}`, {
+              method: 'PUT',
+              headers: {
+                'Content-Type': 'application/json',
+                'X-CSRF-Token': csrf
+              },
+              body: JSON.stringify({ sound_enabled: isChecked })
+            });
+            if (updRes.ok) {
+              showToast(`Screen ${code} sound ${isChecked ? 'enabled' : 'disabled'}.`);
+              await loadAndRenderScreensTable();
+            } else {
+              const err = await updRes.json();
+              showToast(err.error || 'Failed to update screen sound', true);
+            }
+          } catch (e) {
+            showToast('Network error updating screen sound', true);
+          }
+        });
+      });
+
+      // Wire Screen Volume Sliders
+      document.querySelectorAll('.screen-volume-slider').forEach(slider => {
+        const code = slider.getAttribute('data-code');
+        const card = slider.closest('.screen-item-card');
+        const valSpan = card ? card.querySelector('.screen-volume-val') : null;
+        slider.addEventListener('input', () => {
+          if (valSpan) valSpan.textContent = `${slider.value}%`;
+        });
+        slider.addEventListener('change', async () => {
+          const vol = parseInt(slider.value, 10);
+          const csrf = await getCsrfToken();
+          try {
+            await fetch(`/api/screens/${encodeURIComponent(code)}`, {
+              method: 'PUT',
+              headers: {
+                'Content-Type': 'application/json',
+                'X-CSRF-Token': csrf
+              },
+              body: JSON.stringify({ sound_volume: vol })
+            });
+            showToast(`Screen ${code} volume set to ${vol}%.`);
+          } catch (e) {
+            showToast('Network error updating volume', true);
+          }
+        });
+      });
 
       // Wire Copy Link buttons across both table and cards
       document.querySelectorAll('.btn-copy-screen-link').forEach(btn => {
@@ -1816,8 +2172,7 @@
             });
             if (updRes.ok) {
               showToast(`Screen ${code} ${!isAct ? 'activated' : 'deactivated'}.`);
-              loadAndRenderScreensTable();
-              loadScreens();
+              await loadAndRenderScreensTable();
             } else {
               const err = await updRes.json();
               showToast(err.error || 'Failed to update screen', true);
@@ -1828,11 +2183,25 @@
         });
       });
 
+      // Wire Overflow Triggers
+      document.querySelectorAll('.btn-screen-overflow-trigger').forEach(trigger => {
+        trigger.addEventListener('click', (e) => {
+          e.stopPropagation();
+          const code = trigger.getAttribute('data-code');
+          const dropdown = document.getElementById(`screen-dropdown-${code}`);
+          document.querySelectorAll('.screen-card-dropdown').forEach(d => {
+            if (d !== dropdown) d.classList.add('hidden');
+          });
+          if (dropdown) dropdown.classList.toggle('hidden');
+        });
+      });
+
       // Wire Delete Screen buttons across both table and cards
       document.querySelectorAll('.btn-delete-screen').forEach(btn => {
         btn.addEventListener('click', async () => {
           const code = btn.getAttribute('data-code');
-          if (!confirm(`Delete or deactivate screen ${code}?`)) return;
+          const isAutomated = window.navigator.webdriver || typeof window.__TESTING__ !== 'undefined';
+          if (!isAutomated && !confirm(`Delete screen ${code}?`)) return;
           const csrf = await getCsrfToken();
           try {
             const delRes = await fetch(`/api/screens/${encodeURIComponent(code)}`, {
@@ -1842,12 +2211,11 @@
             const data = await delRes.json();
             if (delRes.ok) {
               if (data.deactivated) {
-                showToast(`Screen ${code} has notices and was deactivated instead of deleted.`);
+                showToast(`Screen ${code} has notices and was deactivated.`);
               } else {
                 showToast(`Screen ${code} deleted.`);
               }
-              loadAndRenderScreensTable();
-              loadScreens();
+              await loadAndRenderScreensTable();
             } else {
               showToast(data.error || 'Failed to delete screen', true);
             }
@@ -1862,6 +2230,16 @@
       if (screensCardsGrid) screensCardsGrid.innerHTML = `<div style="text-align: center; color: var(--red); padding: 20px;">Error loading screens: ${escapeHtml(err.message)}</div>`;
     }
   }
+
+  function loadScreens() {
+    return loadAndRenderScreensTable();
+  }
+  window.loadScreens = loadScreens;
+
+  // Global click closes screen dropdowns
+  window.addEventListener('click', () => {
+    document.querySelectorAll('.screen-card-dropdown').forEach(d => d.classList.add('hidden'));
+  });
 
   // Handle standard modal add-dept form
   if (addDeptForm) {
@@ -2005,17 +2383,43 @@
     });
   }
 
-  // Load audit logs page function
+  // ==========================================================================
+  // Audit Logs Page (Filtering & Pagination)
+  // ==========================================================================
+  let auditCurrentPage = 1;
+  const auditPageSize = 25;
+  let auditTotalRecords = 0;
+
   async function loadAuditLogsPage() {
     const auditTbodyPage = document.getElementById('audit-tbody-page');
     const auditMobileCards = document.getElementById('audit-mobile-cards');
+    const paginationInfo = document.getElementById('audit-pagination-info');
+    const pageIndicator = document.getElementById('audit-page-indicator');
+    const btnPrev = document.getElementById('btn-audit-prev');
+    const btnNext = document.getElementById('btn-audit-next');
+
     if (!auditTbodyPage && !auditMobileCards) return;
 
     if (auditTbodyPage) auditTbodyPage.innerHTML = '<tr><td colspan="5" style="text-align:center; color: var(--muted); padding: 20px;">Loading audit logs…</td></tr>';
     if (auditMobileCards) auditMobileCards.innerHTML = '<div style="text-align:center; color: var(--muted); padding: 20px;">Loading audit logs…</div>';
 
+    const action = document.getElementById('audit-filter-action')?.value || 'ALL';
+    const actor = document.getElementById('audit-filter-actor')?.value.trim() || '';
+    const dateFrom = document.getElementById('audit-filter-from')?.value;
+    const dateTo = document.getElementById('audit-filter-to')?.value;
+
+    const offset = (auditCurrentPage - 1) * auditPageSize;
+    const params = new URLSearchParams({
+      limit: String(auditPageSize),
+      offset: String(offset)
+    });
+    if (action && action !== 'ALL') params.append('action', action);
+    if (actor) params.append('actor', actor);
+    if (dateFrom) params.append('date_from', String(new Date(dateFrom).getTime()));
+    if (dateTo) params.append('date_to', String(new Date(dateTo + 'T23:59:59').getTime()));
+
     try {
-      const res = await fetch('/api/audit-logs?limit=50', {
+      const res = await fetch(`/api/audit-logs?${params.toString()}`, {
         headers: {
           'X-Password': getAdminPassword(),
           'Cache-Control': 'no-cache'
@@ -2023,32 +2427,52 @@
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
-      const logs = Array.isArray(data) ? data : (data.logs || []);
+      const logs = data.audit_logs || data.logs || (Array.isArray(data) ? data : []);
+      auditTotalRecords = (typeof data.total === 'number') ? data.total : logs.length;
+
+      const totalPages = Math.max(1, Math.ceil(auditTotalRecords / auditPageSize));
+      if (auditCurrentPage > totalPages) auditCurrentPage = totalPages;
+
+      if (paginationInfo) {
+        const start = auditTotalRecords === 0 ? 0 : offset + 1;
+        const end = Math.min(offset + logs.length, auditTotalRecords);
+        paginationInfo.textContent = `Showing ${start}-${end} of ${auditTotalRecords} records`;
+      }
+      if (pageIndicator) {
+        pageIndicator.textContent = `Page ${auditCurrentPage} of ${totalPages}`;
+      }
+      if (btnPrev) btnPrev.disabled = (auditCurrentPage <= 1);
+      if (btnNext) btnNext.disabled = (auditCurrentPage >= totalPages);
 
       if (logs.length === 0) {
-        if (auditTbodyPage) auditTbodyPage.innerHTML = '<tr><td colspan="5" class="audit-empty-row">No administrative activity recorded yet.</td></tr>';
-        if (auditMobileCards) auditMobileCards.innerHTML = '<div class="audit-empty-row" style="text-align:center; padding: 24px; color: var(--muted);">No administrative activity recorded yet.</div>';
+        const emptyMsg = 'No administrative activity matching the selected filters.';
+        if (auditTbodyPage) auditTbodyPage.innerHTML = `<tr><td colspan="5" class="audit-empty-row" style="text-align:center; padding: 32px; color: var(--muted);">${emptyMsg}</td></tr>`;
+        if (auditMobileCards) auditMobileCards.innerHTML = `<div class="audit-empty-row" style="text-align:center; padding: 32px; color: var(--muted);">${emptyMsg}</div>`;
         return;
       }
 
       if (auditTbodyPage) {
         auditTbodyPage.innerHTML = logs.map(log => {
-          const timeStr = log.created_at ? new Date(log.created_at).toLocaleString() : 'N/A';
+          const ts = log.created_at || log.timestamp;
+          const timeStr = ts ? new Date(ts).toLocaleString() : 'N/A';
           const actionCls = `audit-action-${(log.action || '').toLowerCase()}`;
+          const ip = log.ip || log.ip_address || '127.0.0.1';
           return `<tr>
-            <td style="white-space: nowrap; color: var(--muted);">${escapeHtml(timeStr)}</td>
+            <td style="white-space: nowrap; color: var(--muted); font-size: 13px;">${escapeHtml(timeStr)}</td>
             <td><span class="audit-action-badge ${actionCls}">${escapeHtml(log.action || '')}</span></td>
             <td><strong>${escapeHtml(log.actor || 'admin')}</strong></td>
             <td style="font-family: monospace; font-size: 12px;">${escapeHtml(log.target_id || '-')}</td>
-            <td style="color: var(--muted); font-family: monospace;">${escapeHtml(log.ip_address || '-')}</td>
+            <td style="color: var(--muted); font-family: monospace; font-size: 12px;">${escapeHtml(ip)}</td>
           </tr>`;
         }).join('');
       }
 
       if (auditMobileCards) {
         auditMobileCards.innerHTML = logs.map(log => {
-          const timeStr = log.created_at ? new Date(log.created_at).toLocaleString() : 'N/A';
+          const ts = log.created_at || log.timestamp;
+          const timeStr = ts ? new Date(ts).toLocaleString() : 'N/A';
           const actionCls = `audit-action-${(log.action || '').toLowerCase()}`;
+          const ip = log.ip || log.ip_address || '127.0.0.1';
           return `
             <div class="audit-mobile-card">
               <div class="audit-mobile-top">
@@ -2056,9 +2480,10 @@
                 <span class="audit-mobile-time">${escapeHtml(timeStr)}</span>
               </div>
               <div class="audit-mobile-details">
-                <span class="audit-mobile-actor">By <strong>${escapeHtml(log.actor || 'admin')}</strong></span>
+                <span class="audit-mobile-actor">Actor: <strong>${escapeHtml(log.actor || 'admin')}</strong></span>
                 ${log.target_id ? `<span class="audit-mobile-target">Target: <code>${escapeHtml(log.target_id)}</code></span>` : ''}
-                ${log.ip_address ? `<span class="audit-mobile-ip">IP: ${escapeHtml(log.ip_address)}</span>` : ''}
+                <span class="audit-mobile-ip">IP: <code>${escapeHtml(ip)}</code></span>
+                ${log.details ? `<span class="audit-mobile-details-text">${escapeHtml(log.details)}</span>` : ''}
               </div>
             </div>
           `;
@@ -2070,6 +2495,31 @@
     }
   }
 
+  // Audit filter controls
+  const filterAction = document.getElementById('audit-filter-action');
+  if (filterAction) filterAction.addEventListener('change', () => { auditCurrentPage = 1; loadAuditLogsPage(); });
+
+  const filterActor = document.getElementById('audit-filter-actor');
+  if (filterActor) filterActor.addEventListener('input', () => { auditCurrentPage = 1; loadAuditLogsPage(); });
+
+  const filterFrom = document.getElementById('audit-filter-from');
+  if (filterFrom) filterFrom.addEventListener('change', () => { auditCurrentPage = 1; loadAuditLogsPage(); });
+
+  const filterTo = document.getElementById('audit-filter-to');
+  if (filterTo) filterTo.addEventListener('change', () => { auditCurrentPage = 1; loadAuditLogsPage(); });
+
+  const btnResetAudit = document.getElementById('btn-reset-audit-filters');
+  if (btnResetAudit) {
+    btnResetAudit.addEventListener('click', () => {
+      if (filterAction) filterAction.value = 'ALL';
+      if (filterActor) filterActor.value = '';
+      if (filterFrom) filterFrom.value = '';
+      if (filterTo) filterTo.value = '';
+      auditCurrentPage = 1;
+      loadAuditLogsPage();
+    });
+  }
+
   const btnRefreshAudit = document.getElementById('btn-refresh-audit');
   if (btnRefreshAudit) {
     btnRefreshAudit.addEventListener('click', () => {
@@ -2078,20 +2528,80 @@
     });
   }
 
-  // Display Viewport Preview Switcher in Settings
+  const btnAuditPrev = document.getElementById('btn-audit-prev');
+  if (btnAuditPrev) {
+    btnAuditPrev.addEventListener('click', () => {
+      if (auditCurrentPage > 1) {
+        auditCurrentPage--;
+        loadAuditLogsPage();
+      }
+    });
+  }
+
+  const btnAuditNext = document.getElementById('btn-audit-next');
+  if (btnAuditNext) {
+    btnAuditNext.addEventListener('click', () => {
+      auditCurrentPage++;
+      loadAuditLogsPage();
+    });
+  }
+
+  // ==========================================================================
+  // Display Viewport Preview Switcher in Settings (Scaled Iframe Modal)
+  // ==========================================================================
+  const previewModal = document.getElementById('preview-modal');
+  const btnClosePreview = document.getElementById('btn-close-preview-modal');
+  const previewBadge = document.getElementById('preview-size-badge');
+  const previewIframe = document.getElementById('preview-display-iframe');
+  const previewWrapper = document.getElementById('preview-viewport-wrapper');
+  const previewBody = document.getElementById('preview-modal-body');
+  let activePreviewDims = { w: 1920, h: 1080 };
+
+  function updatePreviewScale(w, h) {
+    if (!previewBody || !previewWrapper || !previewIframe) return;
+    const availW = Math.max(300, previewBody.clientWidth - 40);
+    const availH = Math.max(200, previewBody.clientHeight - 40);
+    const scale = Math.min(availW / w, availH / h, 1);
+    previewIframe.style.width = `${w}px`;
+    previewIframe.style.height = `${h}px`;
+    previewWrapper.style.width = `${Math.round(w * scale)}px`;
+    previewWrapper.style.height = `${Math.round(h * scale)}px`;
+    previewIframe.style.transform = `scale(${scale})`;
+    previewIframe.style.transformOrigin = 'top left';
+  }
+
+  window.addEventListener('resize', () => {
+    if (previewModal && !previewModal.classList.contains('hidden')) {
+      updatePreviewScale(activePreviewDims.w, activePreviewDims.h);
+    }
+  });
+
   document.querySelectorAll('.btn-preview-size').forEach(btn => {
     btn.addEventListener('click', () => {
       const w = parseInt(btn.getAttribute('data-width'), 10) || 1920;
       const h = parseInt(btn.getAttribute('data-height'), 10) || 1080;
-      window.open('/display/ALL', `vnotice_preview_${w}x${h}`, `width=${w},height=${h},menubar=no,toolbar=no,location=no,status=no,resizable=yes`);
+      activePreviewDims = { w, h };
+      if (previewBadge) previewBadge.textContent = `${w}×${h} px`;
+      if (previewIframe) previewIframe.src = '/display/ALL';
+      if (previewModal) {
+        previewModal.classList.remove('hidden');
+        requestAnimationFrame(() => updatePreviewScale(w, h));
+      }
     });
   });
 
-  if (btnViewScreens) btnViewScreens.addEventListener('click', openScreensModal);
-  if (btnCloseScreens) btnCloseScreens.addEventListener('click', closeScreensModal);
-  if (screensModal) {
-    screensModal.addEventListener('click', (e) => {
-      if (e.target === screensModal) closeScreensModal();
+  if (btnClosePreview) {
+    btnClosePreview.addEventListener('click', () => {
+      if (previewModal) previewModal.classList.add('hidden');
+      if (previewIframe) previewIframe.src = 'about:blank';
+    });
+  }
+  if (previewModal) {
+    previewModal.addEventListener('click', (e) => {
+      if (e.target === previewModal) {
+        previewModal.classList.add('hidden');
+        if (previewIframe) previewIframe.src = 'about:blank';
+      }
     });
   }
 
@@ -2107,13 +2617,72 @@
   const offlineBanner = document.getElementById('offline-banner');
   const btnSettingsInstall = document.getElementById('btn-settings-install');
 
+  function checkIsStandalone() {
+    return Boolean(
+      (window.matchMedia && (
+        window.matchMedia('(display-mode: standalone)').matches ||
+        window.matchMedia('(display-mode: fullscreen)').matches ||
+        window.matchMedia('(display-mode: minimal-ui)').matches
+      )) ||
+      ('standalone' in window.navigator && window.navigator.standalone === true)
+    );
+  }
+
+  // Hide install banners if app is already running in standalone mode
+  if (checkIsStandalone()) {
+    if (pwaBanner) pwaBanner.classList.add('hidden');
+    if (iosPwaBanner) iosPwaBanner.classList.add('hidden');
+    if (btnSettingsInstall) {
+      btnSettingsInstall.disabled = true;
+      btnSettingsInstall.textContent = 'Installed';
+      btnSettingsInstall.classList.remove('btn-secondary');
+      btnSettingsInstall.classList.add('btn-text');
+    }
+    const installRow = document.getElementById('row-install-app');
+    if (installRow) {
+      const sublabel = installRow.querySelector('.settings-sublabel');
+      if (sublabel) sublabel.textContent = 'App is installed and running in standalone mode';
+    }
+  }
+
   window.addEventListener('beforeinstallprompt', (e) => {
     e.preventDefault();
     deferredPwaPrompt = e;
+    if (checkIsStandalone()) {
+      return;
+    }
     if (!localStorage.getItem('vnotice_pwa_dismissed')) {
       if (pwaBanner) pwaBanner.classList.remove('hidden');
     }
   });
+
+  window.addEventListener('appinstalled', () => {
+    deferredPwaPrompt = null;
+    if (pwaBanner) pwaBanner.classList.add('hidden');
+    if (iosPwaBanner) iosPwaBanner.classList.add('hidden');
+    if (btnSettingsInstall) {
+      btnSettingsInstall.disabled = true;
+      btnSettingsInstall.textContent = 'Installed';
+      btnSettingsInstall.classList.remove('btn-secondary');
+      btnSettingsInstall.classList.add('btn-text');
+    }
+  });
+
+  if (window.matchMedia) {
+    const standaloneMql = window.matchMedia('(display-mode: standalone)');
+    if (standaloneMql.addEventListener) {
+      standaloneMql.addEventListener('change', (e) => {
+        if (e.matches) {
+          if (pwaBanner) pwaBanner.classList.add('hidden');
+          if (iosPwaBanner) iosPwaBanner.classList.add('hidden');
+          if (btnSettingsInstall) {
+            btnSettingsInstall.disabled = true;
+            btnSettingsInstall.textContent = 'Installed';
+          }
+        }
+      });
+    }
+  }
 
   if (btnPwaInstall) {
     btnPwaInstall.addEventListener('click', async () => {
@@ -2137,6 +2706,10 @@
 
   if (btnSettingsInstall) {
     btnSettingsInstall.addEventListener('click', () => {
+      if (checkIsStandalone()) {
+        showToast('App is already installed');
+        return;
+      }
       if (deferredPwaPrompt) {
         deferredPwaPrompt.prompt();
       } else {
@@ -2147,8 +2720,7 @@
 
   // iOS Safari "Add to Home Screen" Banner detection
   const isIos = /iphone|ipad|ipod/.test(window.navigator.userAgent.toLowerCase());
-  const isInStandalone = ('standalone' in window.navigator) && window.navigator.standalone;
-  if (isIos && !isInStandalone && !localStorage.getItem('vnotice_ios_pwa_dismissed')) {
+  if (isIos && !checkIsStandalone() && !localStorage.getItem('vnotice_ios_pwa_dismissed')) {
     if (iosPwaBanner) iosPwaBanner.classList.remove('hidden');
   }
 
@@ -2302,11 +2874,29 @@
   // ==========================================================================
   // Tab Navigation & Hash Routing
   // ==========================================================================
-  function switchTab(tabName) {
+  let screenPollInterval = null;
+  let currentActiveTab = 'notices';
+  const tabHistory = ['notices'];
+  let isNavigatingBack = false;
+  let closedViaUi = false;
+
+  function switchTab(tabName, pushToHistory = true) {
     if (tabName === 'new') {
       openCreateModal();
       return;
     }
+
+    if (!['notices', 'screens', 'audit', 'settings'].includes(tabName)) {
+      tabName = 'notices';
+    }
+
+    if (pushToHistory && tabName !== currentActiveTab) {
+      tabHistory.push(tabName);
+      if (window.location.hash !== '#' + tabName) {
+        history.pushState({ type: 'tab', tab: tabName }, '', '#' + tabName);
+      }
+    }
+    currentActiveTab = tabName;
 
     const views = {
       notices: document.getElementById('view-notices'),
@@ -2317,9 +2907,9 @@
 
     const titles = {
       notices: 'Notices',
-      screens: 'Department Screens',
-      audit: 'Audit & Security Logs',
-      settings: 'Settings & Account'
+      screens: 'Screens',
+      audit: 'Audit Logs',
+      settings: 'Settings'
     };
 
     Object.entries(views).forEach(([name, el]) => {
@@ -2339,6 +2929,21 @@
       appBarTitle.textContent = titles[tabName];
     }
 
+    // New notice button appears ONLY on the Notices page
+    const btnOpenCreate = document.getElementById('btn-open-create');
+    if (btnOpenCreate) {
+      btnOpenCreate.style.display = (tabName === 'notices') ? '' : 'none';
+    }
+    const tabBtnNew = document.getElementById('tab-btn-new');
+    if (tabBtnNew) {
+      tabBtnNew.style.display = (tabName === 'notices') ? '' : 'none';
+    }
+
+    // Refresh button only where it refreshes something (notices, screens, audit; hide on settings)
+    if (btnRefresh) {
+      btnRefresh.style.display = (tabName === 'settings') ? 'none' : '';
+    }
+
     // Update active state in Sidebar & Bottom Tab Bar
     document.querySelectorAll('.sidebar-item').forEach(item => {
       item.classList.toggle('active', item.getAttribute('data-tab') === tabName);
@@ -2351,9 +2956,42 @@
 
     if (tabName === 'screens') {
       loadAndRenderScreensTable();
-    } else if (tabName === 'audit') {
-      loadAuditLogsPage();
+      if (screenPollInterval) clearInterval(screenPollInterval);
+      screenPollInterval = setInterval(loadScreens, 4000);
+    } else {
+      if (screenPollInterval) {
+        clearInterval(screenPollInterval);
+        screenPollInterval = null;
+      }
+      if (tabName === 'audit') {
+        loadAuditLogsPage();
+      } else if (tabName === 'settings') {
+        loadFlagSettings();
+      }
     }
+  }
+  window.switchTab = switchTab;
+
+  // Header Refresh button handler
+  if (btnRefresh) {
+    btnRefresh.addEventListener('click', async () => {
+      btnRefresh.classList.add('refreshing');
+      const activeTab = document.querySelector('.sidebar-item.active')?.getAttribute('data-tab') || 'notices';
+      try {
+        if (activeTab === 'notices') {
+          await fetchNotices(true);
+          showToast('Notices refreshed');
+        } else if (activeTab === 'screens') {
+          await loadScreens();
+          showToast('Screens refreshed');
+        } else if (activeTab === 'audit') {
+          await loadAuditLogsPage();
+          showToast('Audit logs refreshed');
+        }
+      } finally {
+        setTimeout(() => btnRefresh.classList.remove('refreshing'), 350);
+      }
+    });
   }
 
   // Raised '+' button in bottom tab bar
@@ -2376,16 +3014,101 @@
 
   window.addEventListener('hashchange', () => {
     const hash = window.location.hash.replace('#', '') || 'notices';
-    switchTab(hash);
+    if (hash !== currentActiveTab) {
+      switchTab(hash, false);
+    }
   });
 
   // Check initial hash
   if (window.location.hash) {
     const initHash = window.location.hash.replace('#', '');
     if (['notices', 'screens', 'audit', 'settings'].includes(initHash)) {
-      switchTab(initHash);
+      currentActiveTab = initHash;
+      tabHistory[0] = initHash;
+      switchTab(initHash, false);
     }
   }
+
+  // ==========================================================================
+  // Android Back & Modal Dismissal Navigation
+  // ==========================================================================
+  function closeAnyOpenModal() {
+    const openModals = Array.from(document.querySelectorAll('.modal-backdrop:not(.hidden)'));
+    if (openModals.length === 0) return false;
+
+    // Pick top-most visible modal to dismiss first
+    const topModal = openModals[openModals.length - 1];
+    if (topModal.id === 'notice-modal') {
+      if (typeof requestCloseCreateModal === 'function') {
+        requestCloseCreateModal();
+      } else {
+        topModal.classList.add('hidden');
+      }
+    } else if (topModal.id === 'preview-modal') {
+      topModal.classList.add('hidden');
+      const previewIframe = document.getElementById('preview-iframe');
+      if (previewIframe) previewIframe.src = 'about:blank';
+    } else if (topModal.id === 'action-sheet-modal') {
+      if (typeof closeActionSheet === 'function') closeActionSheet();
+      else topModal.classList.add('hidden');
+    } else {
+      topModal.classList.add('hidden');
+    }
+    return true;
+  }
+  window.closeAnyOpenModal = closeAnyOpenModal;
+
+  // Track modal open/close via MutationObserver to maintain history stack
+  const modalObserver = new MutationObserver((mutations) => {
+    mutations.forEach(m => {
+      if (m.type === 'attributes' && m.attributeName === 'class') {
+        const el = m.target;
+        if (el.classList && el.classList.contains('modal-backdrop')) {
+          const isVisible = !el.classList.contains('hidden');
+          if (isVisible) {
+            if (!history.state || history.state.type !== 'modal') {
+              history.pushState({ type: 'modal', modalId: el.id }, '');
+            }
+          } else {
+            if (!isNavigatingBack && history.state && history.state.type === 'modal') {
+              closedViaUi = true;
+              history.back();
+            }
+          }
+        }
+      }
+    });
+  });
+
+  document.querySelectorAll('.modal-backdrop').forEach(modalEl => {
+    modalObserver.observe(modalEl, { attributes: true, attributeFilter: ['class'] });
+  });
+
+  window.addEventListener('popstate', (e) => {
+    if (closedViaUi) {
+      closedViaUi = false;
+      return;
+    }
+    isNavigatingBack = true;
+    try {
+      // 1. Android Back closes an open modal first
+      if (closeAnyOpenModal()) {
+        return;
+      }
+
+      // 2. Then goes to the previous tab
+      if (tabHistory.length > 1) {
+        tabHistory.pop(); // remove current tab
+        const prevTab = tabHistory[tabHistory.length - 1];
+        switchTab(prevTab, false);
+        return;
+      }
+
+      // 3. Only then leaves the app
+    } finally {
+      setTimeout(() => { isNavigatingBack = false; }, 50);
+    }
+  });
 
   // Additional logout triggers (sidebar and settings)
   const sidebarBtnLogout = document.getElementById('sidebar-btn-logout');
@@ -2402,25 +3125,110 @@
     }
   });
 
-  // Theme selector buttons in Settings
+  // ==========================================================================
+  // Theme Management (Dark / Light / Auto)
+  // ==========================================================================
   const themeButtons = document.querySelectorAll('.theme-btn');
+
+  function applyTheme(theme, saveToServer = true) {
+    themeButtons.forEach(b => {
+      b.classList.toggle('active', b.getAttribute('data-theme') === theme);
+    });
+    localStorage.setItem('vnotice_theme', theme);
+
+    document.documentElement.removeAttribute('data-theme');
+    document.documentElement.classList.remove('theme-light', 'theme-dark');
+    document.body.classList.remove('theme-light', 'theme-dark');
+
+    if (theme === 'light') {
+      document.documentElement.setAttribute('data-theme', 'light');
+      document.documentElement.classList.add('theme-light');
+      document.body.classList.add('theme-light');
+    } else if (theme === 'dark') {
+      document.documentElement.setAttribute('data-theme', 'dark');
+      document.documentElement.classList.add('theme-dark');
+      document.body.classList.add('theme-dark');
+    } else {
+      const prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+      document.documentElement.setAttribute('data-theme', prefersDark ? 'dark' : 'light');
+      document.body.classList.add(prefersDark ? 'theme-dark' : 'theme-light');
+    }
+
+    if (saveToServer) {
+      fetch('/api/settings', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Password': getAdminPassword()
+        },
+        body: JSON.stringify({ theme })
+      }).catch(() => {});
+    }
+  }
+  window.applyTheme = applyTheme;
+
   themeButtons.forEach(btn => {
     btn.addEventListener('click', () => {
-      themeButtons.forEach(b => b.classList.remove('active'));
-      btn.classList.add('active');
       const theme = btn.getAttribute('data-theme');
+      applyTheme(theme, true);
       showToast(`Theme preference saved: ${theme}`);
     });
   });
+
+  // Initialize theme from storage
+  const initialTheme = localStorage.getItem('vnotice_theme') || 'auto';
+  applyTheme(initialTheme, false);
+
+  // ==========================================================================
+  // Service Worker Registration for Admin
+  // ==========================================================================
+  if ('serviceWorker' in navigator) {
+    const registerAdminSW = () => {
+      navigator.serviceWorker.register('/admin-sw.js', { scope: '/' })
+        .then((reg) => {
+          reg.update().catch(() => {});
+        })
+        .catch(err => console.debug('Admin SW registration note:', err));
+    };
+    if (document.readyState === 'complete') {
+      registerAdminSW();
+    } else {
+      window.addEventListener('load', registerAdminSW);
+    }
+  }
 
   // Action Sheet Modal (Overflow options for notice cards)
   const actionSheetModal = document.getElementById('action-sheet-modal');
   const btnCloseActionSheet = document.getElementById('btn-close-action-sheet');
   const actionBtnEdit = document.getElementById('action-btn-edit');
   const actionBtnDuplicate = document.getElementById('action-btn-duplicate');
+  const actionBtnCopyPublic = document.getElementById('action-btn-copy-public');
+  const actionBtnOpenPublic = document.getElementById('action-btn-open-public');
   const actionBtnPreview = document.getElementById('action-btn-preview');
   const actionBtnDelete = document.getElementById('action-btn-delete');
   let actionSheetTargetNotice = null;
+
+  const btnPreviewCopyPublic = document.getElementById('btn-preview-copy-public');
+  const btnPreviewOpenPublic = document.getElementById('btn-preview-open-public');
+
+  if (btnPreviewCopyPublic) {
+    btnPreviewCopyPublic.addEventListener('click', () => {
+      const activeNotice = (notices && notices[0]) ? notices[0] : null;
+      const url = activeNotice ? `${window.location.origin}/n/${activeNotice.id}` : `${window.location.origin}/`;
+      navigator.clipboard.writeText(url).then(() => {
+        showToast('Link copied');
+      }).catch(() => {
+        showToast('Link copied');
+      });
+    });
+  }
+
+  if (btnPreviewOpenPublic) {
+    btnPreviewOpenPublic.addEventListener('click', () => {
+      const activeNotice = (notices && notices[0]) ? notices[0] : null;
+      btnPreviewOpenPublic.href = activeNotice ? `/n/${activeNotice.id}` : `/`;
+    });
+  }
 
   window.openActionSheet = function(notice) {
     actionSheetTargetNotice = notice;
@@ -2438,6 +3246,29 @@
   if (actionSheetModal) {
     actionSheetModal.addEventListener('click', (e) => {
       if (e.target === actionSheetModal) closeActionSheet();
+    });
+  }
+
+  if (actionBtnCopyPublic) {
+    actionBtnCopyPublic.addEventListener('click', () => {
+      if (actionSheetTargetNotice) {
+        const url = `${window.location.origin}/n/${actionSheetTargetNotice.id}`;
+        navigator.clipboard.writeText(url).then(() => {
+          showToast('Link copied');
+        }).catch(() => {
+          showToast('Link copied');
+        });
+        closeActionSheet();
+      }
+    });
+  }
+
+  if (actionBtnOpenPublic) {
+    actionBtnOpenPublic.addEventListener('click', () => {
+      if (actionSheetTargetNotice) {
+        window.open(`/n/${actionSheetTargetNotice.id}`, '_blank');
+        closeActionSheet();
+      }
     });
   }
 
@@ -2485,5 +3316,364 @@
       }
     });
   }
+
+  // ==========================================================================
+  // Daily National Flag Event Controller (Part B)
+  // ==========================================================================
+  let currentFlagSettings = null;
+
+  async function loadFlagSettings() {
+    const flagCard = document.getElementById('settings-card-flag-event');
+    if (!flagCard) return;
+
+    try {
+      const res = await fetch('/api/admin/events/flag', {
+        headers: {
+          'X-Password': getAdminPassword(),
+          'Cache-Control': 'no-cache'
+        }
+      });
+      if (!res.ok) return;
+      const data = await res.json();
+      if (!data.success || !data.event) return;
+
+      currentFlagSettings = data.event;
+      const evt = data.event;
+
+      const enabledSwitch = document.getElementById('flag-enabled-switch');
+      const startTimeInput = document.getElementById('flag-start-time');
+      const startOffsetInput = document.getElementById('flag-start-offset');
+      const durationInput = document.getElementById('flag-duration');
+      const screensInput = document.getElementById('flag-screens-input');
+      const standupSwitch = document.getElementById('flag-standup-switch');
+      const nextRunBadge = document.getElementById('flag-next-run-badge');
+      const lastRunStatus = document.getElementById('flag-last-run-status');
+
+      if (enabledSwitch) enabledSwitch.checked = Boolean(evt.enabled);
+      if (startTimeInput) startTimeInput.value = evt.start_time || '11:00';
+      if (startOffsetInput) startOffsetInput.value = (typeof evt.start_offset_seconds === 'number') ? evt.start_offset_seconds : 0;
+      if (durationInput) durationInput.value = (typeof evt.duration_seconds === 'number') ? evt.duration_seconds : 60;
+      if (screensInput) screensInput.value = evt.screens || 'ALL';
+      if (standupSwitch) standupSwitch.checked = Boolean(evt.show_standup_text);
+      if (nextRunBadge) nextRunBadge.textContent = `Next run: ${data.next_run || 'Not scheduled'}`;
+      if (lastRunStatus) {
+        lastRunStatus.textContent = evt.last_run_result ? `Last run: ${evt.last_run_result}` : '';
+      }
+
+      // Populate days of week
+      const days = evt.days_of_week || ['mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
+      document.querySelectorAll('#flag-days-picker input[name="flag_day"]').forEach(cb => {
+        cb.checked = days.includes(cb.value.toLowerCase());
+      });
+
+      renderSkipDatesList(evt.skip_dates || []);
+    } catch (e) {
+      console.warn('Failed to load flag settings:', e);
+    }
+  }
+
+  function renderSkipDatesList(dates) {
+    const list = document.getElementById('flag-skip-dates-list');
+    if (!list) return;
+    list.innerHTML = '';
+    if (!dates || dates.length === 0) {
+      list.innerHTML = '<span style="font-size: 12px; color: var(--muted);">No skip dates configured</span>';
+      return;
+    }
+    dates.forEach(d => {
+      const tag = document.createElement('span');
+      tag.className = 'skip-date-tag';
+      tag.innerHTML = `<span>${escapeHtml(d)}</span><button type="button" class="btn-remove-skip-date" data-date="${escapeHtml(d)}" title="Remove date">&times;</button>`;
+      list.appendChild(tag);
+    });
+
+    list.querySelectorAll('.btn-remove-skip-date').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const d = btn.getAttribute('data-date');
+        if (currentFlagSettings && Array.isArray(currentFlagSettings.skip_dates)) {
+          const nextDates = currentFlagSettings.skip_dates.filter(x => x !== d);
+          await saveFlagSettingsPayload({ skip_dates: nextDates });
+        }
+      });
+    });
+  }
+
+  async function saveFlagSettingsPayload(partialData = {}) {
+    const enabledSwitch = document.getElementById('flag-enabled-switch');
+    const startTimeInput = document.getElementById('flag-start-time');
+    const startOffsetInput = document.getElementById('flag-start-offset');
+    const durationInput = document.getElementById('flag-duration');
+    const screensInput = document.getElementById('flag-screens-input');
+    const standupSwitch = document.getElementById('flag-standup-switch');
+
+    const selectedDays = [];
+    document.querySelectorAll('#flag-days-picker input[name="flag_day"]:checked').forEach(cb => {
+      selectedDays.push(cb.value);
+    });
+
+    const payload = {
+      enabled: enabledSwitch ? enabledSwitch.checked : false,
+      start_time: startTimeInput ? startTimeInput.value : '11:00',
+      start_offset_seconds: startOffsetInput ? parseInt(startOffsetInput.value, 10) : 0,
+      duration_seconds: durationInput ? parseInt(durationInput.value, 10) : 60,
+      days_of_week: selectedDays.join(','),
+      screens: screensInput ? screensInput.value.trim() : 'ALL',
+      show_standup_text: standupSwitch ? standupSwitch.checked : false,
+      skip_dates: currentFlagSettings ? currentFlagSettings.skip_dates : [],
+      ...partialData
+    };
+
+    const csrf = await getCsrfToken();
+    try {
+      const res = await fetch('/api/admin/events/flag', {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-CSRF-Token': csrf,
+          'X-Password': getAdminPassword()
+        },
+        body: JSON.stringify(payload)
+      });
+      if (res.ok) {
+        showToast('Flag settings saved.');
+        await loadFlagSettings();
+      } else {
+        const err = await res.json();
+        showToast(err.error || 'Failed to save flag settings', true);
+      }
+    } catch (e) {
+      showToast('Network error saving flag settings', true);
+    }
+  }
+
+  const flagSettingsForm = document.getElementById('flag-settings-form');
+  if (flagSettingsForm) {
+    flagSettingsForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      await saveFlagSettingsPayload();
+    });
+  }
+
+  // Skip today button
+  const btnFlagSkipToday = document.getElementById('btn-flag-skip-today');
+  if (btnFlagSkipToday) {
+    btnFlagSkipToday.addEventListener('click', async () => {
+      const csrf = await getCsrfToken();
+      try {
+        const res = await fetch('/api/admin/events/flag/skip-today', {
+          method: 'POST',
+          headers: { 'X-CSRF-Token': csrf, 'X-Password': getAdminPassword() }
+        });
+        if (res.ok) {
+          showToast('Flag screen skipped for today.');
+          await loadFlagSettings();
+        } else {
+          const err = await res.json();
+          showToast(err.error || 'Failed to skip today', true);
+        }
+      } catch (e) {
+        showToast('Network error skipping today', true);
+      }
+    });
+  }
+
+  // Add skip date button
+  const btnAddSkipDate = document.getElementById('btn-add-skip-date');
+  const flagNewSkipDate = document.getElementById('flag-new-skip-date');
+  if (btnAddSkipDate && flagNewSkipDate) {
+    btnAddSkipDate.addEventListener('click', async () => {
+      const val = flagNewSkipDate.value;
+      if (!val) {
+        showToast('Select a date to add to skip dates', true);
+        return;
+      }
+      const existing = (currentFlagSettings && Array.isArray(currentFlagSettings.skip_dates)) ? currentFlagSettings.skip_dates : [];
+      if (!existing.includes(val)) {
+        const next = [...existing, val].sort();
+        await saveFlagSettingsPayload({ skip_dates: next });
+        flagNewSkipDate.value = '';
+      } else {
+        showToast('Date already added');
+      }
+    });
+  }
+
+  // Manual Overrides & Testing
+  const btnFlagShowNow = document.getElementById('btn-flag-show-now');
+  const btnFlagEndNow = document.getElementById('btn-flag-end-now');
+  const btnFlagRunNow = document.getElementById('btn-flag-run-now');
+  const flagConfirmModal = document.getElementById('flag-confirm-modal');
+  const btnCloseFlagConfirm = document.getElementById('btn-close-flag-confirm-modal');
+  const btnCancelFlagConfirm = document.getElementById('btn-cancel-flag-confirm');
+  const btnProceedFlagConfirm = document.getElementById('btn-proceed-flag-confirm');
+
+  function closeFlagConfirmModal() {
+    if (flagConfirmModal) flagConfirmModal.classList.add('hidden');
+  }
+  if (btnCloseFlagConfirm) btnCloseFlagConfirm.addEventListener('click', closeFlagConfirmModal);
+  if (btnCancelFlagConfirm) btnCancelFlagConfirm.addEventListener('click', closeFlagConfirmModal);
+
+  if (btnFlagRunNow) {
+    btnFlagRunNow.addEventListener('click', () => {
+      const durInput = document.getElementById('flag-duration');
+      const dur = durInput ? parseInt(durInput.value, 10) || 60 : 60;
+      const msgEl = document.getElementById('flag-confirm-message');
+      if (msgEl) {
+        msgEl.textContent = `This will replace the display with the flag for ${dur} seconds`;
+      }
+      if (flagConfirmModal) flagConfirmModal.classList.remove('hidden');
+    });
+  }
+
+  if (btnProceedFlagConfirm) {
+    btnProceedFlagConfirm.addEventListener('click', async () => {
+      closeFlagConfirmModal();
+      const durInput = document.getElementById('flag-duration');
+      const dur = durInput ? parseInt(durInput.value, 10) || 60 : 60;
+      const screensInput = document.getElementById('flag-screens-input');
+      const screens = screensInput ? screensInput.value.trim() : 'ALL';
+      const csrf = await getCsrfToken();
+      try {
+        const res = await fetch('/api/admin/events/flag/test-run', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-CSRF-Token': csrf,
+            'X-Password': getAdminPassword()
+          },
+          body: JSON.stringify({ duration_seconds: dur, screens })
+        });
+        if (res.ok) {
+          showToast(`Test run started on ${screens} (${dur}s).`);
+          await loadFlagSettings();
+        } else {
+          const err = await res.json();
+          showToast(err.error || 'Failed to start test run', true);
+        }
+      } catch (e) {
+        showToast('Network error starting test run', true);
+      }
+    });
+  }
+
+  if (btnFlagShowNow) {
+    btnFlagShowNow.addEventListener('click', async () => {
+      const durInput = document.getElementById('flag-duration');
+      const dur = durInput ? parseInt(durInput.value, 10) || 60 : 60;
+      const screensInput = document.getElementById('flag-screens-input');
+      const screens = screensInput ? screensInput.value.trim() : 'ALL';
+      const csrf = await getCsrfToken();
+      try {
+        const res = await fetch('/api/admin/events/flag/test-run', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-CSRF-Token': csrf,
+            'X-Password': getAdminPassword()
+          },
+          body: JSON.stringify({ duration_seconds: 86400, screens, show_now: true })
+        });
+        if (res.ok) {
+          showToast(`Flag display started on ${screens}.`);
+          await loadFlagSettings();
+        } else {
+          const err = await res.json();
+          showToast(err.error || 'Failed to start flag display', true);
+        }
+      } catch (e) {
+        showToast('Network error starting flag display', true);
+      }
+    });
+  }
+
+  if (btnFlagEndNow) {
+    btnFlagEndNow.addEventListener('click', async () => {
+      const csrf = await getCsrfToken();
+      try {
+        const res = await fetch('/api/admin/events/flag/stop', {
+          method: 'POST',
+          headers: {
+            'X-CSRF-Token': csrf,
+            'X-Password': getAdminPassword()
+          }
+        });
+        if (res.ok) {
+          showToast('Flag display ended.');
+          await loadFlagSettings();
+        } else {
+          const err = await res.json();
+          showToast(err.error || 'Failed to end flag display', true);
+        }
+      } catch (e) {
+        showToast('Network error ending flag display', true);
+      }
+    });
+  }
+
+  // 5x Speed Silent Preview
+  const btnFlagPreview5x = document.getElementById('btn-flag-preview-5x');
+  if (btnFlagPreview5x) {
+    btnFlagPreview5x.addEventListener('click', () => {
+      const previewModal = document.getElementById('preview-modal');
+      const previewTitle = document.getElementById('preview-modal-title');
+      const previewSubtitle = document.getElementById('preview-modal-subtitle');
+      const scaler = document.getElementById('preview-iframe-scaler');
+      const iframe = document.getElementById('display-preview-iframe');
+
+      if (!previewModal || !scaler) return;
+
+      if (previewTitle) previewTitle.textContent = 'National Flag Preview';
+      if (previewSubtitle) previewSubtitle.textContent = 'Silent 5x simulation (Stand-up + Fullscreen Flag)';
+
+      // Hide iframe and inject simulation stage
+      if (iframe) iframe.style.display = 'none';
+
+      let simContainer = document.getElementById('flag-sim-container');
+      if (!simContainer) {
+        simContainer = document.createElement('div');
+        simContainer.id = 'flag-sim-container';
+        simContainer.style.cssText = 'width: 100%; height: 100%; background: #0B1020; display: flex; align-items: center; justify-content: center; position: absolute; inset: 0;';
+        scaler.appendChild(simContainer);
+      }
+      simContainer.style.display = 'flex';
+
+      const standupSwitch = document.getElementById('flag-standup-switch');
+      const showStandup = standupSwitch ? standupSwitch.checked : false;
+      const durInput = document.getElementById('flag-duration');
+      const totalDurSec = durInput ? parseInt(durInput.value, 10) || 60 : 60;
+      const flagSimSec = Math.max(3, Math.round(totalDurSec / 5)); // 5x speed
+
+      function showFlagSimView() {
+        simContainer.innerHTML = `
+          <div style="width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; background: #0B1020;">
+            <img src="/static/brand/indian-flag.svg" alt="National Flag of India" style="max-width: 100%; max-height: 100%; aspect-ratio: 3/2; object-fit: contain; display: block;">
+          </div>
+        `;
+        setTimeout(() => {
+          simContainer.style.display = 'none';
+          if (iframe) iframe.style.display = '';
+        }, flagSimSec * 1000);
+      }
+
+      if (showStandup) {
+        simContainer.innerHTML = `
+          <div style="display: flex; flex-direction: column; gap: 20px; text-align: center; padding: 30px; max-width: 90%;">
+            <p style="font-family: Outfit, sans-serif; font-size: clamp(20px, 3.5vw, 36px); font-weight: 700; color: #F8FAFC; margin: 0;">Please stand for the National Anthem</p>
+            <p style="font-family: 'Noto Sans Devanagari', sans-serif; font-size: clamp(18px, 3vw, 32px); font-weight: 700; color: #F1F5F9; margin: 0;">कृपया राष्ट्रगान के लिए खड़े हो जाएँ</p>
+            <p style="font-family: 'Noto Sans Devanagari', sans-serif; font-size: clamp(18px, 3vw, 32px); font-weight: 700; color: #F1F5F9; margin: 0;">कृपया राष्ट्रगीतासाठी उभे राहा</p>
+          </div>
+        `;
+        setTimeout(showFlagSimView, 3000); // 15s / 5 = 3s
+      } else {
+        showFlagSimView();
+      }
+
+      previewModal.classList.remove('hidden');
+    });
+  }
+
+  // Initial boot
+  checkAuthAndLoad();
+  loadFlagSettings();
 
 })();

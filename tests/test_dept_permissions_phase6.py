@@ -1,7 +1,9 @@
-"""Tests for Phase 6: Department-Level Permissions and Role Boundaries."""
+import os
 import pytest
 from app import unified_app
 from storage import storage
+
+TEST_ADMIN_PASSWORD = os.environ.get("TEST_ADMIN_PASSWORD") or os.environ.get("ADMIN_PASSWORD", "vnotice2026")
 
 @pytest.fixture
 def client():
@@ -39,7 +41,7 @@ def test_user_creation_and_credential_verification():
     assert invalid is None
 
 def test_login_shared_password_as_super_admin(client):
-    res = client.post("/api/login", json={"password": "vnotice2026"})
+    res = client.post("/api/login", json={"password": TEST_ADMIN_PASSWORD})
     assert res.status_code == 200
     data = res.get_json()
     assert data["success"] is True
@@ -144,7 +146,7 @@ def test_dept_admin_granted_all_can_broadcast_college_wide(client):
 
 def test_dept_admin_cannot_edit_or_delete_outside_department(client):
     # Create a BIOM notice as super_admin
-    client.post("/api/login", json={"password": "vnotice2026"})
+    client.post("/api/login", json={"password": TEST_ADMIN_PASSWORD})
     csrf = get_csrf(client)
     res_biom = client.post(
         "/api/notices",

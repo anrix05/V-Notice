@@ -31,6 +31,22 @@
   font-display: swap;
 }
 
+@font-face {
+  font-family: 'Noto Sans Devanagari';
+  src: url('/static/fonts/NotoSansDevanagari-Regular.woff2') format('woff2');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Noto Sans Devanagari';
+  src: url('/static/fonts/NotoSansDevanagari-Bold.woff2') format('woff2');
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
 /* ==========================================================================
    V NOTICE — Minimal Digital Signage Stylesheet (Port 5000)
    Designed for 800×480 Raspberry Pi 7-inch Display
@@ -119,6 +135,24 @@ body.show-cursor {
   gap: 12px;
 }
 
+/* Display Brand Logo System */
+:root {
+  --logo-sheet: #F5F1E8;
+  --logo-cut: #111318;
+  --logo-accent: #B08D57;
+  /* Legacy compatibility aliases */
+  --display-logo-tile: transparent;
+  --display-logo-border: transparent;
+  --display-logo-letters: #111318;
+  --display-logo-diagonal: #B08D57;
+}
+
+[data-display-logo="obsidian"] {
+  --logo-sheet: #F5F1E8;
+  --logo-cut: #111318;
+  --logo-accent: #B08D57;
+}
+
 .logo-mark {
   width: 32px;
   height: 32px;
@@ -138,9 +172,45 @@ body.show-cursor {
 }
 
 .logo-text {
+  font-family: 'Outfit', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   font-size: 18px;
-  font-weight: 600;
+  font-weight: 700;
+  letter-spacing: -0.01em;
   color: var(--text);
+}
+
+/* Fold Corner 2.4s Subtle Brightness Pulse on Display ONLY */
+@keyframes vnotice-fold-pulse {
+  0%, 100% {
+    filter: brightness(1);
+    opacity: 0.95;
+  }
+  50% {
+    filter: brightness(1.35);
+    opacity: 1;
+  }
+}
+
+.display-header .vnotice-fold {
+  animation: vnotice-fold-pulse 2.4s ease-in-out infinite;
+  transform-origin: center;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .display-header .vnotice-fold {
+    animation: none !important;
+  }
+}
+
+/* Urgent Takeover Logo State: Fold corner turns #EF4444 */
+.display-urgent-dot {
+  display: none;
+}
+
+.urgent-state #display-header-logo .vnotice-fold,
+#display-header-logo.urgent-logo-active .vnotice-fold {
+  fill: #EF4444 !important;
+  animation: none !important;
 }
 
 .offline-badge {
@@ -220,10 +290,20 @@ body.show-cursor {
   gap: 4px;
 }
 
+#time-digits {
+  font-variant-numeric: tabular-nums;
+  display: inline-block;
+  min-width: 3.2ch;
+  text-align: right;
+}
+
 .clock-period {
   font-size: 15px;
   font-weight: 500;
   color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  display: inline-block;
+  min-width: 2.2ch;
 }
 
 .clock-date {
@@ -231,6 +311,7 @@ body.show-cursor {
   font-weight: 400;
   color: var(--muted);
   line-height: 1.2;
+  font-variant-numeric: tabular-nums;
 }
 
 /* ==========================================================================
@@ -250,18 +331,37 @@ body.show-cursor {
 .stage-panel {
   flex: 1 1 64%;
   background-color: var(--panel);
-  border: 1px solid var(--line);
+  border: 1px solid rgba(59, 130, 246, 0.4);
+  box-shadow: 0 0 20px rgba(59, 130, 246, 0.15);
   border-radius: var(--radius-panel);
   display: flex;
   flex-direction: column;
   position: relative;
   overflow: hidden;
-  transition: border-color 0.2s ease;
+  transition: border-color 350ms ease, box-shadow 350ms ease;
 }
 
-/* Urgent takeover stage outline */
+.stage-panel.glow-info {
+  border: 1px solid rgba(59, 130, 246, 0.4);
+  box-shadow: 0 0 24px rgba(59, 130, 246, 0.25);
+}
+
+.stage-panel.glow-urgent,
 .stage-panel.urgent-state {
-  border: 2px solid var(--red);
+  border: 1px solid rgba(239, 68, 68, 0.4);
+  box-shadow: 0 0 28px rgba(239, 68, 68, 0.35);
+}
+
+.stage-panel.glow-normal {
+  border: 1px solid rgba(148, 163, 184, 0.25);
+  box-shadow: 0 0 16px rgba(0, 0, 0, 0.3);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .stage-panel {
+    transition: none !important;
+    box-shadow: none !important;
+  }
 }
 
 /* Meta Row (20px padding) */
@@ -456,17 +556,17 @@ body.show-cursor {
 }
 
 .qr-canvas-box {
-  width: 72px;
-  height: 72px;
+  width: 82px;
+  height: 82px;
   background: #FFFFFF;
-  border-radius: 6px;
-  padding: 3px;
+  border-radius: 8px;
+  padding: 5px;
   display: flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
   overflow: hidden;
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
 }
 
 .qr-canvas-box canvas,
@@ -494,9 +594,7 @@ body.show-cursor {
   font-size: 11.5px;
   color: var(--muted);
   line-height: 1.25;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  white-space: normal;
 }
 
 .qr-pill-hint {
@@ -611,6 +709,14 @@ body.show-cursor {
   overflow: hidden;
 }
 
+.rail-left-wrap {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
 .rail-header {
   display: flex;
   align-items: center;
@@ -657,6 +763,14 @@ body.show-cursor {
   align-items: center;
   gap: 6px;
   letter-spacing: -0.01em;
+}
+
+.rail-more-icon {
+  width: 20px;
+  height: 20px;
+  min-width: 20px;
+  min-height: 20px;
+  flex-shrink: 0;
 }
 
 .rail-item {
@@ -1218,45 +1332,16 @@ body.show-cursor {
 }
 
 .logo-text {
-  font-family: 'Outfit', var(--font-stack);
+  font-family: 'Outfit', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   font-weight: 700;
   font-size: 1.15rem;
   letter-spacing: -0.01em;
+  color: #F8FAFC;
   display: inline-flex;
   align-items: center;
 }
 
-.logo-text .brand-v {
-  color: #FFFFFF;
-  margin-right: 5px;
-}
-
-.logo-text .brand-name {
-  color: var(--text-secondary-bright);
-}
-
-/* Soft Badge Pulse on Display Kiosk */
-@keyframes vnoticeBadgePulse {
-  0%, 100% {
-    transform: scale(1);
-    opacity: 1;
-  }
-  50% {
-    transform: scale(1.22);
-    opacity: 0.85;
-  }
-}
-
-.display-header .vnotice-badge-dot {
-  transform-origin: 77px 23px;
-  animation: vnoticeBadgePulse 2.6s ease-in-out infinite;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .display-header .vnotice-badge-dot {
-    animation: none !important;
-  }
-}
+/* Amber diagonal brightness pulse defined above in Brand Logo System */
 
 /* ==========================================================================
    Step 2: Display Hierarchy Refinements
@@ -1307,8 +1392,13 @@ body.show-cursor {
   color: #FFFFFF;
   border-left: 6px solid var(--blue);
   padding-left: clamp(16px, 2.5vw, 36px);
+  padding-bottom: 0.12em;
   margin-bottom: clamp(16px, 2.2vw, 32px);
   word-break: break-word;
+  display: block;
+  -webkit-line-clamp: unset;
+  -webkit-box-orient: unset;
+  overflow: visible;
 }
 
 .notice-text .notice-body {
@@ -1318,6 +1408,10 @@ body.show-cursor {
   color: #CBD5E1;
   padding-left: clamp(22px, 2.8vw, 42px);
   max-width: 90%;
+  display: block;
+  -webkit-line-clamp: unset;
+  -webkit-box-orient: unset;
+  overflow: visible;
 }
 
 /* Tasteful Deterministic Text Background Themes (WCAG Contrast > 8:1) */
@@ -1410,6 +1504,7 @@ body.show-cursor {
   align-items: center;
   gap: 14px;
   margin-top: auto;
+  flex-shrink: 0;
 }
 
 .qr-canvas-box {
@@ -1422,6 +1517,14 @@ body.show-cursor {
   flex-shrink: 0;
 }
 
+.qr-canvas-box canvas,
+.qr-canvas-box img {
+  display: block;
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+}
+
 .qr-label-head {
   font-size: 0.95rem;
   font-weight: 700;
@@ -1431,6 +1534,54 @@ body.show-cursor {
 .qr-label-sub {
   font-size: 0.8rem;
   color: var(--muted);
+}
+
+@media (max-height: 520px) {
+  .rail-panel {
+    padding: 8px 10px !important;
+  }
+  .rail-header {
+    padding-bottom: 6px !important;
+  }
+  .rail-item {
+    padding: 4px 0 !important;
+    gap: 8px !important;
+  }
+  .rail-item-title {
+    font-size: 13px !important;
+    -webkit-line-clamp: 1 !important;
+  }
+  .rail-item-meta {
+    font-size: 11px !important;
+  }
+  .rail-more-count {
+    font-size: 0.85rem !important;
+    padding: 4px 6px !important;
+    gap: 6px !important;
+  }
+  .rail-qr-card {
+    padding: 6px 10px !important;
+    gap: 10px !important;
+    margin-top: 4px !important;
+  }
+  .qr-canvas-box {
+    width: 62px !important;
+    height: 62px !important;
+    padding: 4px !important;
+  }
+  .qr-canvas-box canvas,
+  .qr-canvas-box img {
+    width: 54px !important;
+    height: 54px !important;
+  }
+  .qr-label-head {
+    font-size: 0.82rem !important;
+  }
+  .qr-label-sub {
+    font-size: 0.70rem !important;
+    line-height: 1.15 !important;
+    white-space: normal !important;
+  }
 }
 
 /* 6. "+ N more in rotation" */
@@ -1488,8 +1639,8 @@ body.show-cursor {
 }
 
 .clock-sync-dot.sync-healthy {
-  background-color: #F59E0B;
-  box-shadow: 0 0 6px rgba(245, 158, 11, 0.7);
+  background-color: #10B981;
+  box-shadow: 0 0 6px rgba(16, 185, 129, 0.7);
 }
 
 .clock-sync-dot.sync-stale {
@@ -1902,5 +2053,130 @@ body.show-cursor {
   .ticker-content {
     font-size: 16px;
   }
+}
+
+/* ==========================================================================
+   Video Sound & Daily Flag Screen Styles
+   ========================================================================== */
+
+.stage-speaker-indicator {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 6px;
+  background: rgba(30, 41, 59, 0.85);
+  border: 1px solid rgba(59, 130, 246, 0.5);
+  color: #60A5FA;
+  margin-left: 6px;
+  vertical-align: middle;
+  box-shadow: 0 0 10px rgba(59, 130, 246, 0.25);
+  animation: speaker-pulse 2s infinite ease-in-out;
+}
+
+.stage-speaker-indicator.hidden {
+  display: none !important;
+}
+
+@keyframes speaker-pulse {
+  0%, 100% { opacity: 0.85; transform: scale(1); }
+  50% { opacity: 1; transform: scale(1.08); }
+}
+
+.flag-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  background-color: #0B1020;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100vw;
+  height: 100vh;
+  overflow: hidden;
+  transition: opacity 0.4s ease;
+}
+
+.flag-overlay.hidden {
+  display: none !important;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.flag-screen {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background-color: #0B1020;
+}
+
+.flag-screen.hidden {
+  display: none !important;
+}
+
+.flag-svg {
+  max-width: 100%;
+  max-height: 100%;
+  aspect-ratio: 3 / 2;
+  object-fit: contain;
+  display: block;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.standup-screen {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background-color: #0B1020;
+  padding: 40px;
+  text-align: center;
+}
+
+.standup-screen.hidden {
+  display: none !important;
+}
+
+.standup-content {
+  display: flex;
+  flex-direction: column;
+  gap: 2.2rem;
+  max-width: 1200px;
+}
+
+.standup-line {
+  margin: 0;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  line-height: 1.35;
+}
+
+.standup-en {
+  font-family: 'Outfit', 'Inter', system-ui, -apple-system, sans-serif;
+  font-size: clamp(2.2rem, 4.5vw, 4.5rem);
+  color: #F8FAFC;
+}
+
+.standup-hi,
+.standup-mr {
+  font-family: 'Noto Sans Devanagari', 'Inter', system-ui, -apple-system, sans-serif;
+  font-size: clamp(2rem, 4vw, 4rem);
+  color: #F1F5F9;
+}
+
+body.flag-active .display-header,
+body.flag-active #rail-panel,
+body.flag-active .display-ticker,
+body.flag-active #clock-box,
+body.flag-active #stage-qr-badge {
+  opacity: 0 !important;
+  visibility: hidden !important;
+  pointer-events: none !important;
+  transition: opacity 0.3s ease, visibility 0.3s ease;
 }
 

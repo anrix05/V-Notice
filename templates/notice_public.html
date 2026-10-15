@@ -1,0 +1,1086 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="robots" content="noindex, nofollow">
+  <meta name="theme-color" content="#0B1020">
+  <title>{{ og_title if og_title else 'V Notice' }}</title>
+
+  <!-- Favicons -->
+  <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
+  <link rel="icon" type="image/png" sizes="32x32" href="/static/favicon.png">
+  <link rel="apple-touch-icon" sizes="180x180" href="/static/apple-touch-icon.png">
+
+  <!-- Open Graph / Twitter Card Tags -->
+  <meta property="og:type" content="article">
+  <meta property="og:title" content="{{ og_title }}">
+  <meta property="og:description" content="{{ og_description }}">
+  <meta property="og:image" content="{{ og_image }}">
+  {% if notice and is_active %}
+  <meta property="og:url" content="{{ request.url if request else '' }}">
+  {% endif %}
+  <meta property="og:site_name" content="V Notice">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="{{ og_title }}">
+  <meta name="twitter:description" content="{{ og_description }}">
+  <meta name="twitter:image" content="{{ og_image }}">
+
+  <style>
+    /* Critical Inline Design System Tokens */
+    :root {
+      --bg: #0B1020;
+      --panel: #162238;
+      --panel-raised: #1C2B45;
+      --line: #24344F;
+      --text: #F8FAFC;
+      --text-muted: #94A3B8;
+      --accent: #2563EB;
+      --accent-hover: #1D4ED8;
+      --accent-light: rgba(37, 99, 235, 0.16);
+      --amber: #F59E0B;
+      --amber-bg: rgba(245, 158, 11, 0.15);
+      --red: #DC2626;
+      --red-bg: rgba(220, 38, 38, 0.15);
+      --green: #10B981;
+      --green-bg: rgba(16, 185, 129, 0.15);
+      --radius-sm: 8px;
+      --radius-md: 14px;
+      --radius-lg: 20px;
+      --radius-pill: 9999px;
+      --shadow: 0 16px 40px rgba(0, 0, 0, 0.45);
+      --font-body: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      --font-heading: 'Outfit', system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+      --logo-sheet: #F5F1E8;
+      --logo-cut: #111318;
+      --logo-accent: #B08D57;
+    }
+
+    @media (prefers-color-scheme: light) {
+      :root {
+        --bg: #F8FAFC;
+        --panel: #FFFFFF;
+        --panel-raised: #F1F5F9;
+        --line: #CBD5E1;
+        --text: #0F172A;
+        --text-muted: #334155; /* 7:1+ contrast on white */
+        --accent: #1D4ED8;     /* 5.9:1 contrast on white */
+        --accent-hover: #1E40AF;
+        --accent-light: rgba(29, 78, 216, 0.12);
+        --amber: #92400E;     /* 5.5:1 contrast */
+        --amber-bg: rgba(146, 64, 14, 0.12);
+        --red: #991B1B;       /* 6.5:1 contrast */
+        --red-bg: rgba(153, 27, 27, 0.12);
+        --green: #065F46;     /* 5.8:1 contrast */
+        --green-bg: rgba(6, 95, 70, 0.12);
+        --shadow: 0 12px 32px rgba(15, 23, 42, 0.08);
+        --logo-sheet: #111318;
+        --logo-cut: #F5F1E8;
+        --logo-accent: #B08D57;
+      }
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      background-color: var(--bg);
+      color: var(--text);
+      font-family: var(--font-body);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      line-height: 1.5;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    /* Skip link for screen reader keyboard users */
+    .skip-link {
+      position: absolute;
+      top: -40px;
+      left: 16px;
+      background: var(--accent);
+      color: #FFFFFF;
+      padding: 8px 16px;
+      border-radius: var(--radius-sm);
+      z-index: 1000;
+      text-decoration: none;
+      font-weight: 600;
+      transition: top 0.2s ease;
+    }
+    .skip-link:focus {
+      top: 16px;
+    }
+
+    /* App Bar (Header) */
+    .app-header {
+      width: 100%;
+      max-width: 680px;
+      padding: 16px 20px 12px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+    }
+
+    .brand-group {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      text-decoration: none;
+      color: inherit;
+    }
+
+    .brand-mark {
+      width: 32px;
+      height: 32px;
+      flex-shrink: 0;
+    }
+
+    .brand-name {
+      font-family: var(--font-heading);
+      font-size: 19px;
+      font-weight: 700;
+      letter-spacing: -0.01em;
+      color: var(--text);
+    }
+
+    .dept-chip {
+      display: inline-flex;
+      align-items: center;
+      padding: 4px 10px;
+      background-color: var(--panel-raised);
+      border: 1px solid var(--line);
+      border-radius: var(--radius-pill);
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.03em;
+      color: var(--text);
+      text-transform: uppercase;
+    }
+
+    /* Admin Preview Banner */
+    .admin-preview-banner {
+      width: 100%;
+      max-width: 680px;
+      background-color: var(--amber-bg);
+      border: 1px solid var(--amber);
+      color: var(--amber);
+      padding: 8px 16px;
+      border-radius: var(--radius-sm);
+      font-size: 13px;
+      font-weight: 600;
+      margin-bottom: 12px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    /* Main Container & Notice Card */
+    .page-main {
+      width: 100%;
+      max-width: 680px;
+      padding: 0 16px 32px;
+      flex: 1;
+    }
+
+    .notice-card {
+      background-color: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: var(--radius-lg);
+      overflow: hidden;
+      box-shadow: var(--shadow);
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* Media Area */
+    .media-area {
+      width: 100%;
+      position: relative;
+      background-color: #000000;
+      overflow: hidden;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .notice-img {
+      width: 100%;
+      height: auto;
+      max-height: 520px;
+      object-fit: contain;
+      display: block;
+      cursor: zoom-in;
+    }
+
+    .notice-video {
+      width: 100%;
+      max-height: 520px;
+      background-color: #000000;
+      display: block;
+    }
+
+    /* Deterministic Gradient Tiles for Text Notices */
+    .text-notice-tile {
+      width: 100%;
+      min-height: 220px;
+      padding: 32px 24px;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      color: #FFFFFF;
+      position: relative;
+    }
+    .tile-theme-0 { background: radial-gradient(circle at 10% 20%, #172554 0%, #0F172A 100%); }
+    .tile-theme-1 { background: radial-gradient(circle at 10% 20%, #1E1B4B 0%, #0F172A 100%); }
+    .tile-theme-2 { background: radial-gradient(circle at 10% 20%, #042F2E 0%, #0F172A 100%); }
+    .tile-theme-3 { background: radial-gradient(circle at 10% 20%, #1E293B 0%, #0A0F1D 100%); }
+
+    .tile-dept-tag {
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: #F59E0B;
+      margin-bottom: 12px;
+    }
+
+    .tile-headline {
+      font-family: var(--font-heading);
+      font-size: 26px;
+      font-weight: 700;
+      line-height: 1.25;
+      letter-spacing: -0.01em;
+      color: #F8FAFC;
+    }
+
+    /* Media Error Box */
+    .media-error-box {
+      padding: 36px 20px;
+      background-color: var(--panel-raised);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 12px;
+      text-align: center;
+      width: 100%;
+    }
+    .media-error-box.hidden { display: none; }
+    .media-error-icon {
+      width: 40px;
+      height: 40px;
+      color: var(--amber);
+    }
+    .media-error-text {
+      font-size: 14px;
+      color: var(--text-muted);
+    }
+
+    /* Content Area */
+    .card-body {
+      padding: 24px 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    /* Badge Row */
+    .badge-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .pill-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 10px;
+      border-radius: var(--radius-pill);
+      font-size: 12px;
+      font-weight: 600;
+      line-height: 1.2;
+    }
+
+    .pill-urgent {
+      background-color: var(--red);
+      color: #FFFFFF;
+    }
+
+    .pill-info {
+      background-color: var(--accent-light);
+      color: var(--accent);
+      border: 1px solid var(--accent);
+    }
+
+    .pill-normal {
+      background-color: var(--panel-raised);
+      color: var(--text-muted);
+      border: 1px solid var(--line);
+    }
+
+    .pill-live {
+      background-color: var(--green-bg);
+      color: var(--green);
+      border: 1px solid var(--green);
+    }
+
+    .live-dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background-color: var(--green);
+      animation: pulse-dot 2s infinite;
+    }
+
+    @keyframes pulse-dot {
+      0% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.4; transform: scale(0.85); }
+      100% { opacity: 1; transform: scale(1); }
+    }
+
+    .pill-validity {
+      background-color: var(--panel-raised);
+      color: var(--text-muted);
+      border: 1px solid var(--line);
+      font-size: 12px;
+    }
+
+    /* Notice Title */
+    .notice-title {
+      font-family: var(--font-heading);
+      font-size: 22px;
+      font-weight: 700;
+      line-height: 1.3;
+      letter-spacing: -0.01em;
+      color: var(--text);
+    }
+
+    @media (min-width: 480px) {
+      .notice-title {
+        font-size: 26px;
+      }
+    }
+
+    /* Posted Info */
+    .posted-line {
+      font-size: 13px;
+      color: var(--text-muted);
+      font-weight: 500;
+    }
+
+    /* Details Text */
+    .details-text {
+      font-size: 15.5px;
+      line-height: 1.65;
+      color: var(--text);
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+
+    /* Cellular Warning Notice */
+    .cellular-warning {
+      background-color: var(--amber-bg);
+      border: 1px solid var(--amber);
+      color: var(--text);
+      padding: 12px 14px;
+      border-radius: var(--radius-sm);
+      font-size: 13px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .cellular-warning.hidden { display: none; }
+    .cellular-actions {
+      display: flex;
+      gap: 8px;
+    }
+
+    /* Action Buttons (Thumb-sized, 48px height) */
+    .action-group {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      margin-top: 8px;
+    }
+
+    .action-btn {
+      min-height: 48px;
+      padding: 12px 20px;
+      border-radius: var(--radius-md);
+      font-size: 15px;
+      font-weight: 600;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      cursor: pointer;
+      text-decoration: none;
+      border: none;
+      transition: background-color 0.15s ease, transform 0.1s ease;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    .action-btn:active {
+      transform: scale(0.985);
+    }
+
+    .btn-primary {
+      background-color: var(--accent);
+      color: #FFFFFF;
+    }
+    .btn-primary:hover {
+      background-color: var(--accent-hover);
+    }
+
+    .btn-secondary {
+      background-color: var(--panel-raised);
+      color: var(--text);
+      border: 1px solid var(--line);
+    }
+    .btn-secondary:hover {
+      background-color: var(--panel);
+      border-color: var(--accent);
+    }
+
+    .btn-sm {
+      min-height: 36px;
+      padding: 6px 14px;
+      font-size: 13px;
+    }
+
+    /* Focus visible */
+    button:focus-visible, a:focus-visible {
+      outline: 2px solid var(--accent);
+      outline-offset: 2px;
+    }
+
+    /* Footer */
+    .card-footer {
+      padding: 16px 20px;
+      background-color: var(--panel-raised);
+      border-top: 1px solid var(--line);
+      font-size: 12.5px;
+      color: var(--text-muted);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .footer-host {
+      font-weight: 500;
+    }
+
+    /* Inactive Notice Card (404) */
+    .inactive-card {
+      padding: 48px 24px;
+      text-align: center;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .inactive-icon {
+      width: 48px;
+      height: 48px;
+      color: var(--text-muted);
+      margin-bottom: 4px;
+    }
+
+    .inactive-title {
+      font-family: var(--font-heading);
+      font-size: 22px;
+      font-weight: 700;
+      color: var(--text);
+    }
+
+    .inactive-desc {
+      font-size: 15px;
+      color: var(--text-muted);
+      max-width: 440px;
+      line-height: 1.5;
+    }
+
+    /* Lightbox Modal for Tap to Zoom */
+    .lightbox-modal {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background-color: rgba(0, 0, 0, 0.92);
+      z-index: 9999;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 16px;
+      cursor: zoom-out;
+    }
+    .lightbox-modal.hidden { display: none; }
+
+    .lightbox-img {
+      max-width: 100%;
+      max-height: 94vh;
+      object-fit: contain;
+      border-radius: var(--radius-sm);
+      cursor: default;
+    }
+
+    .lightbox-close-btn {
+      position: absolute;
+      top: 16px;
+      right: 16px;
+      width: 44px;
+      height: 44px;
+      border-radius: 50%;
+      background: rgba(255, 255, 255, 0.2);
+      color: #FFFFFF;
+      border: none;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      font-size: 20px;
+    }
+
+    /* Toast Notification */
+    .toast-container {
+      position: fixed;
+      bottom: 24px;
+      left: 50%;
+      transform: translateX(-50%);
+      background-color: var(--text);
+      color: var(--bg);
+      padding: 10px 20px;
+      border-radius: var(--radius-pill);
+      font-size: 14px;
+      font-weight: 600;
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
+      z-index: 10000;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      transition: opacity 0.2s ease, transform 0.2s ease;
+      pointer-events: none;
+    }
+    .toast-container.hidden {
+      opacity: 0;
+      transform: translate(-50%, 16px);
+      display: none;
+    }
+
+    /* Reduced Motion */
+    @media (prefers-reduced-motion: reduce) {
+      * {
+        animation: none !important;
+        transition: none !important;
+      }
+    }
+  </style>
+</head>
+<body>
+  <a href="#main-content" class="skip-link">Skip to content</a>
+
+  <!-- App Bar -->
+  <header class="app-header" role="banner">
+    <div class="brand-group">
+      <svg class="brand-mark" viewBox="0 0 500 500" fill="none" aria-hidden="true">
+        <g transform="translate(70, 70)">
+          <path d="M40 35 H245 L325 115 V345 H40 Z" fill="var(--logo-sheet, #F5F1E8)" class="vnotice-sheet"/>
+          <path d="M245 35 V115 H325 Z" fill="var(--logo-accent, #B08D57)" class="vnotice-fold"/>
+          <path d="M82 112 H128 L182 260 L236 112 H282 L205 315 H159 Z" fill="var(--logo-cut, #111318)" class="vnotice-v"/>
+          <path d="M82 342 H282" stroke="var(--logo-accent, #B08D57)" stroke-width="8" stroke-linecap="square" class="vnotice-line"/>
+        </g>
+      </svg>
+      <span class="brand-name">V Notice</span>
+    </div>
+    {% if notice and is_active %}
+      <span class="dept-chip" aria-label="Department">{{ notice.clean_dept }}</span>
+    {% endif %}
+  </header>
+
+  <!-- Main View Area -->
+  <main class="page-main" id="main-content" role="main">
+    {% if is_admin_preview %}
+      <div class="admin-preview-banner" role="status">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+          <circle cx="12" cy="12" r="10"></circle>
+          <line x1="12" y1="8" x2="12" y2="12"></line>
+          <line x1="12" y1="16" x2="12.01" y2="16"></line>
+        </svg>
+        <span>Admin Preview · This notice is currently {{ notice.status }}</span>
+      </div>
+    {% endif %}
+
+    {% if notice and is_active %}
+      <article class="notice-card" aria-labelledby="notice-heading">
+        <!-- Media Area -->
+        <div class="media-area" id="media-container">
+          {% if notice.type == 'image' and notice.media %}
+            <img 
+              src="{{ notice.media if notice.media.startswith('http') else '/media/' + notice.media }}" 
+              alt="{{ notice.title }}" 
+              class="notice-img" 
+              id="notice-media-img"
+              loading="lazy"
+              onclick="openLightbox()"
+              onerror="handleMediaError()"
+            >
+          {% elif notice.type == 'video' and notice.media %}
+            <video 
+              src="{{ notice.media if notice.media.startswith('http') else '/media/' + notice.media }}" 
+              controls 
+              preload="metadata" 
+              muted 
+              playsinline
+              poster="{{ '/media/' + notice.media + '.poster.jpg' if not notice.media.startswith('http') else '' }}"
+              class="notice-video"
+              id="notice-media-video"
+              onerror="handleMediaError()"
+            ></video>
+          {% else %}
+            <!-- Text Notice Deterministic Gradient Headline Tile -->
+            <div class="text-notice-tile tile-theme-{{ notice.gradient_theme_idx }}">
+              <div class="tile-dept-tag">{{ notice.clean_dept }} Notice</div>
+              <div class="tile-headline">{{ notice.title }}</div>
+            </div>
+          {% endif %}
+
+          <!-- Media Error State -->
+          <div class="media-error-box hidden" id="media-error-box">
+            <svg class="media-error-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+              <circle cx="12" cy="12" r="10"></circle>
+              <line x1="12" y1="8" x2="12" y2="12"></line>
+              <line x1="12" y1="16" x2="12.01" y2="16"></line>
+            </svg>
+            <p class="media-error-text">Media could not be loaded</p>
+            <button type="button" class="action-btn btn-secondary btn-sm" onclick="retryMediaLoad()">Retry</button>
+          </div>
+        </div>
+
+        <!-- Details & Actions Area -->
+        <div class="card-body">
+          <!-- Badge Row -->
+          <div class="badge-row">
+            <span class="pill-badge pill-{{ notice.priority }}" aria-label="Priority {{ notice.priority }}">
+              {{ notice.priority | capitalize }}
+            </span>
+            <span class="pill-badge pill-live" aria-label="Status live">
+              <span class="live-dot" aria-hidden="true"></span>
+              <span>Live</span>
+            </span>
+            <span class="pill-badge pill-validity">
+              {{ notice.valid_till_str }}
+            </span>
+          </div>
+
+          <!-- Title -->
+          <h1 class="notice-title" id="notice-heading">{{ notice.title }}</h1>
+
+          <!-- Posted Line -->
+          <div class="posted-line">
+            Posted {{ notice.posted_date_str }} by {{ notice.clean_dept }}
+          </div>
+
+          <!-- Body Text -->
+          {% if notice.body %}
+            <div class="details-text">{{ notice.body }}</div>
+          {% endif %}
+
+          <!-- Cellular Data Confirmation Box (hidden by default) -->
+          <div class="cellular-warning hidden" id="cellular-warning-box" role="alert">
+            <p id="cellular-warning-msg">This file is {{ notice.file_size_formatted }}. Download over mobile data?</p>
+            <div class="cellular-actions">
+              <button type="button" class="action-btn btn-primary btn-sm" onclick="proceedCellularDownload()">Download</button>
+              <button type="button" class="action-btn btn-secondary btn-sm" onclick="cancelCellularDownload()">Cancel</button>
+            </div>
+          </div>
+
+          <!-- Action Buttons (Thumb-sized, 48px height) -->
+          <div class="action-group">
+            {% if notice.type in ('image', 'video') and notice.media %}
+              <!-- Image / Video Notice Actions -->
+              <button 
+                type="button" 
+                class="action-btn btn-primary" 
+                id="btn-save-media" 
+                onclick="handleSaveMedia()"
+                aria-label="Save {{ 'image' if notice.type == 'image' else 'video' }}"
+              >
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                  <polyline points="7 10 12 15 17 10"></polyline>
+                  <line x1="12" y1="15" x2="12" y2="3"></line>
+                </svg>
+                <span>Save {{ 'image' if notice.type == 'image' else 'video' }}{% if notice.file_size_formatted %} ({{ notice.file_size_formatted }}){% endif %}</span>
+              </button>
+
+              <button 
+                type="button" 
+                class="action-btn btn-secondary" 
+                id="btn-share-notice" 
+                onclick="handleShareNotice()"
+                aria-label="Share notice"
+              >
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                  <circle cx="18" cy="5" r="3"></circle>
+                  <circle cx="6" cy="12" r="3"></circle>
+                  <circle cx="18" cy="19" r="3"></circle>
+                  <line x1="8.59" y1="13.51" x2="15.42" y2="17.49"></line>
+                  <line x1="15.41" y1="6.51" x2="8.59" y2="10.49"></line>
+                </svg>
+                <span>Share</span>
+              </button>
+            {% else %}
+              <!-- Text Notice Actions -->
+              <button 
+                type="button" 
+                class="action-btn btn-primary" 
+                id="btn-share-notice" 
+                onclick="handleShareNotice()"
+                aria-label="Share notice"
+              >
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                  <circle cx="18" cy="5" r="3"></circle>
+                  <circle cx="6" cy="12" r="3"></circle>
+                  <circle cx="18" cy="19" r="3"></circle>
+                  <line x1="8.59" y1="13.51" x2="15.42" y2="17.49"></line>
+                  <line x1="15.41" y1="6.51" x2="8.59" y2="10.49"></line>
+                </svg>
+                <span>Share</span>
+              </button>
+
+              <button 
+                type="button" 
+                class="action-btn btn-secondary" 
+                id="btn-copy-text" 
+                onclick="handleCopyText()"
+                aria-label="Copy text"
+              >
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                  <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                  <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                </svg>
+                <span>Copy text</span>
+              </button>
+            {% endif %}
+
+            <!-- Add to Calendar (Shown ONLY if start and end dates are present) -->
+            {% if notice.start and notice.end %}
+              <button 
+                type="button" 
+                class="action-btn btn-secondary" 
+                id="btn-add-calendar" 
+                onclick="downloadCalendarEvent()"
+                aria-label="Add to calendar"
+              >
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                  <rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect>
+                  <line x1="16" y1="2" x2="16" y2="6"></line>
+                  <line x1="8" y1="2" x2="8" y2="6"></line>
+                  <line x1="3" y1="10" x2="21" y2="10"></line>
+                  <line x1="12" y1="14" x2="12" y2="18"></line>
+                  <line x1="10" y1="16" x2="14" y2="16"></line>
+                </svg>
+                <span>Add to calendar</span>
+              </button>
+            {% endif %}
+          </div>
+        </div>
+
+        <!-- Footer -->
+        <footer class="card-footer" role="contentinfo">
+          <span>Official Campus Announcement</span>
+          <span class="footer-host">{{ request.host if request else 'v-notice.local' }}</span>
+        </footer>
+      </article>
+
+    {% else %}
+      <!-- Generic 404 Inactive Page (Identical for scheduled, expired, deleted, unknown) -->
+      <article class="notice-card" aria-labelledby="inactive-heading">
+        <div class="inactive-card">
+          <svg class="inactive-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" aria-hidden="true">
+            <circle cx="12" cy="12" r="10"></circle>
+            <line x1="12" y1="8" x2="12" y2="12"></line>
+            <line x1="12" y1="16" x2="12.01" y2="16"></line>
+          </svg>
+          <h1 class="inactive-title" id="inactive-heading">This notice is no longer active</h1>
+          <p class="inactive-desc">
+            This announcement has expired or was removed from the campus board. Check the live display on campus for active announcements.
+          </p>
+        </div>
+        <footer class="card-footer" role="contentinfo">
+          <span>V Notice Smart Signage</span>
+          <span class="footer-host">{{ request.host if request else 'v-notice.local' }}</span>
+        </footer>
+      </article>
+    {% endif %}
+  </main>
+
+  <!-- Lightbox Modal for Tap to Zoom -->
+  {% if notice and notice.type == 'image' and notice.media %}
+    <div class="lightbox-modal hidden" id="lightbox-modal" role="dialog" aria-modal="true" aria-label="Expanded Image View" onclick="closeLightbox()">
+      <button type="button" class="lightbox-close-btn" aria-label="Close image zoom" onclick="closeLightbox()">&times;</button>
+      <img 
+        src="{{ notice.media if notice.media.startswith('http') else '/media/' + notice.media }}" 
+        alt="{{ notice.title }}" 
+        class="lightbox-img" 
+        id="lightbox-img"
+        onclick="event.stopPropagation()"
+      >
+    </div>
+  {% endif %}
+
+  <!-- Toast Notification (Live region for accessibility) -->
+  <div class="toast-container hidden" id="toast-box" role="status" aria-live="polite"></div>
+
+  <!-- Client JavaScript (< 15KB) -->
+  <script>
+    const noticeData = {
+      id: {{ (notice.id|tojson) if notice else 'null' }},
+      title: {{ (notice.title|tojson) if notice else '""' }},
+      body: {{ (notice.body|tojson) if notice else '""' }},
+      type: {{ (notice.type|tojson) if notice else '"text"' }},
+      media: {{ (notice.media|tojson) if notice and notice.media else 'null' }},
+      downloadSlug: {{ (notice.download_slug|tojson) if notice else '"notice"' }},
+      fileSizeBytes: {{ (notice.file_size_bytes|tojson) if notice else '0' }},
+      startMs: {{ (notice.start|tojson) if notice and notice.start else 'null' }},
+      endMs: {{ (notice.end|tojson) if notice and notice.end else 'null' }}
+    };
+
+    // Toast notification helper
+    let toastTimer = null;
+    function showToast(message) {
+      const toast = document.getElementById('toast-box');
+      if (!toast) return;
+      toast.textContent = message;
+      toast.classList.remove('hidden');
+      if (toastTimer) clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => {
+        toast.classList.add('hidden');
+      }, 3000);
+    }
+
+    // Media error handling
+    function handleMediaError() {
+      const errorBox = document.getElementById('media-error-box');
+      const mediaImg = document.getElementById('notice-media-img');
+      const mediaVideo = document.getElementById('notice-media-video');
+      if (mediaImg) mediaImg.style.display = 'none';
+      if (mediaVideo) mediaVideo.style.display = 'none';
+      if (errorBox) errorBox.classList.remove('hidden');
+    }
+
+    function retryMediaLoad() {
+      const errorBox = document.getElementById('media-error-box');
+      const mediaImg = document.getElementById('notice-media-img');
+      const mediaVideo = document.getElementById('notice-media-video');
+      const cacheBust = '?t=' + Date.now();
+      if (errorBox) errorBox.classList.add('hidden');
+      if (mediaImg) {
+        mediaImg.style.display = 'block';
+        const src = mediaImg.src.split('?')[0];
+        mediaImg.src = src + cacheBust;
+      }
+      if (mediaVideo) {
+        mediaVideo.style.display = 'block';
+        const src = mediaVideo.src.split('?')[0];
+        mediaVideo.src = src + cacheBust;
+        mediaVideo.load();
+      }
+    }
+
+    // Tap to Zoom Image Lightbox
+    function openLightbox() {
+      const modal = document.getElementById('lightbox-modal');
+      if (modal) {
+        modal.classList.remove('hidden');
+        document.body.style.overflow = 'hidden';
+      }
+    }
+
+    function closeLightbox() {
+      const modal = document.getElementById('lightbox-modal');
+      if (modal) {
+        modal.classList.add('hidden');
+        document.body.style.overflow = '';
+      }
+    }
+
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') closeLightbox();
+    });
+
+    // Save Behavior
+    function isCellularConnection() {
+      if (!navigator.connection) return false;
+      const type = navigator.connection.type;
+      const saveData = navigator.connection.saveData;
+      return type === 'cellular' || saveData === true;
+    }
+
+    function handleSaveMedia() {
+      if (!noticeData.id) return;
+      // Check 25 MB cellular warning
+      const isOver25MB = noticeData.fileSizeBytes > (25 * 1024 * 1024);
+      if (isOver25MB && isCellularConnection()) {
+        const warningBox = document.getElementById('cellular-warning-box');
+        if (warningBox) {
+          warningBox.classList.remove('hidden');
+          return;
+        }
+      }
+      triggerSaveDownload();
+    }
+
+    function proceedCellularDownload() {
+      const warningBox = document.getElementById('cellular-warning-box');
+      if (warningBox) warningBox.classList.add('hidden');
+      triggerSaveDownload();
+    }
+
+    function cancelCellularDownload() {
+      const warningBox = document.getElementById('cellular-warning-box');
+      if (warningBox) warningBox.classList.add('hidden');
+    }
+
+    async function triggerSaveDownload() {
+      const fileUrl = `/n/${noticeData.id}/file`;
+      
+      // Try Web Share Level 2 (files) on supported mobile browsers
+      if (navigator.canShare) {
+        try {
+          const response = await fetch(fileUrl);
+          if (response.ok) {
+            const blob = await response.blob();
+            const file = new File([blob], noticeData.downloadSlug, { type: blob.type });
+            if (navigator.canShare({ files: [file] })) {
+              await navigator.share({
+                files: [file],
+                title: noticeData.title
+              });
+              showToast('Saved');
+              return;
+            }
+          }
+        } catch (e) {
+          // If share was cancelled or failed, fall through to direct file link download
+        }
+      }
+
+      // Standard fallback: direct download via /n/<id>/file
+      const a = document.createElement('a');
+      a.href = fileUrl;
+      a.download = noticeData.downloadSlug;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      showToast('Saved');
+    }
+
+    // Share Handler
+    async function handleShareNotice() {
+      const shareUrl = window.location.href.split('?')[0];
+      if (navigator.share) {
+        try {
+          await navigator.share({
+            title: noticeData.title || 'V Notice',
+            text: noticeData.body || 'Campus Notice',
+            url: shareUrl
+          });
+          return;
+        } catch (e) {
+          // Fallback to clipboard if dismissed or error
+        }
+      }
+
+      // Clipboard fallback
+      try {
+        await navigator.clipboard.writeText(shareUrl);
+        showToast('Link copied');
+      } catch (e) {
+        const input = document.createElement('input');
+        input.value = shareUrl;
+        document.body.appendChild(input);
+        input.select();
+        document.execCommand('copy');
+        document.body.removeChild(input);
+        showToast('Link copied');
+      }
+    }
+
+    // Copy Text Handler
+    async function handleCopyText() {
+      const textToCopy = `${noticeData.title}\n\n${noticeData.body}`.trim();
+      try {
+        await navigator.clipboard.writeText(textToCopy);
+        showToast('Text copied');
+      } catch (e) {
+        const textarea = document.createElement('textarea');
+        textarea.value = textToCopy;
+        document.body.appendChild(textarea);
+        textarea.select();
+        document.execCommand('copy');
+        document.body.removeChild(textarea);
+        showToast('Text copied');
+      }
+    }
+
+    // Add to Calendar Generator (.ics)
+    function downloadCalendarEvent() {
+      if (!noticeData.startMs || !noticeData.endMs) return;
+
+      const formatIcsTime = (ms) => {
+        const d = new Date(ms);
+        return d.toISOString().replace(/[-:]/g, '').split('.')[0] + 'Z';
+      };
+
+      const escapeIcs = (str) => {
+        return (str || '')
+          .replace(/\\/g, '\\\\')
+          .replace(/;/g, '\\;')
+          .replace(/,/g, '\\,')
+          .replace(/\n/g, '\\n');
+      };
+
+      const icsLines = [
+        'BEGIN:VCALENDAR',
+        'VERSION:2.0',
+        'PRODID:-//V Notice//Campus Announcement//EN',
+        'CALSCALE:GREGORIAN',
+        'BEGIN:VEVENT',
+        `UID:${noticeData.id}-${noticeData.startMs}@vnotice.local`,
+        `DTSTAMP:${formatIcsTime(Date.now())}`,
+        `DTSTART:${formatIcsTime(noticeData.startMs)}`,
+        `DTEND:${formatIcsTime(noticeData.endMs)}`,
+        `SUMMARY:${escapeIcs(noticeData.title)}`,
+        `DESCRIPTION:${escapeIcs(noticeData.body)}`,
+        'STATUS:CONFIRMED',
+        'END:VEVENT',
+        'END:VCALENDAR'
+      ];
+
+      const blob = new Blob([icsLines.join('\r\n')], { type: 'text/calendar;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${noticeData.downloadSlug}.ics`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      showToast('Calendar event downloaded');
+    }
+  </script>
+</body>
+</html>

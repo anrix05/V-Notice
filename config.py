@@ -117,5 +117,10 @@ SSE_ENABLED = os.environ.get('SSE_ENABLED', 'false').lower() in ('true', '1', 'y
 
 
 # Observability & Version (Phase 7)
-VERSION = '2.1.0'
+VERSION = '2.2.0'
 LOG_LEVEL = os.environ.get('LOG_LEVEL', 'INFO').upper()
+
+# Feature Flags
+VIDEO_SOUND_ENABLED = os.environ.get('VIDEO_SOUND_ENABLED', 'true').lower() in ('true', '1', 'yes')
+FLAG_EVENT_ENABLED = os.environ.get('FLAG_EVENT_ENABLED', 'true').lower() in ('true', '1', 'yes')
+FLAG_TRIGGER_TOKEN = os.environ.get('FLAG_TRIGGER_TOKEN', '')

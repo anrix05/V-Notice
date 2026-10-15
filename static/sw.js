@@ -6,21 +6,22 @@
  *  - API (/api/notices, /api/system-info): Stale-While-Revalidate
  */
 
-const SHELL_CACHE = 'vnotice-shell-v2';
+const SHELL_CACHE = 'vnotice-shell-v6';
 const MEDIA_CACHE = 'vnotice-media-v1';
-const API_CACHE = 'vnotice-api-v1';
+const API_CACHE = 'vnotice-api-v2';
 const MAX_MEDIA_ITEMS = 50;
 
 const SHELL_ASSETS = [
   '/',
-  '/admin',
   '/display',
   '/manifest.webmanifest',
   '/static/manifest.json',
-  '/static/css/admin.css?v=8',
-  '/static/js/admin.js?v=8',
-  '/static/css/display.css?v=8',
-  '/static/js/display.js?v=8',
+  '/static/css/admin.css?v=9',
+  '/static/js/admin.js?v=9',
+  '/static/css/display.css?v=9',
+  '/static/js/display.js?v=9',
+  '/static/js/flag_scheduler.js?v=9',
+  '/static/brand/indian-flag.svg',
   '/static/js/qrcode.min.js',
   '/static/icons/icon-192.png',
   '/static/icons/icon-512.png',
@@ -29,7 +30,9 @@ const SHELL_ASSETS = [
   '/static/fonts/Inter-Regular.woff2',
   '/static/fonts/Inter-Bold.woff2',
   '/static/fonts/Outfit-Regular.woff2',
-  '/static/fonts/Outfit-Bold.woff2'
+  '/static/fonts/Outfit-Bold.woff2',
+  '/static/fonts/NotoSansDevanagari-Regular.woff2',
+  '/static/fonts/NotoSansDevanagari-Bold.woff2'
 ];
 
 self.addEventListener('install', (event) => {
@@ -39,7 +42,7 @@ self.addEventListener('install', (event) => {
       return Promise.allSettled(
         SHELL_ASSETS.map((url) =>
           fetch(url).then((res) => {
-            if (res.ok) {
+            if (res.ok && res.status !== 206) {
               return cache.put(url, res);
             }
           }).catch((err) => {
@@ -116,7 +119,22 @@ self.addEventListener('fetch', (event) => {
   const req = event.request;
   if (req.method !== 'GET') return;
 
+  // 0a. Never cache requests with a Range header - pass through to network
+  if (req.headers.has('range')) {
+    return;
+  }
+
   const url = new URL(req.url);
+
+  // 0b. Never touch admin routes (display must not touch admin routes)
+  if (url.pathname.startsWith('/admin')) {
+    return;
+  }
+
+  // 0c. Network-only for /api/events/* (flag schedule, SSE, manual overrides)
+  if (url.pathname.startsWith('/api/events')) {
+    return;
+  }
 
   // 1. Media requests (/media/*): Cache-first bounded
   if (url.pathname.startsWith('/media/')) {
@@ -126,7 +144,7 @@ self.addEventListener('fetch', (event) => {
         if (cached) return cached;
         try {
           const networkRes = await fetch(req);
-          if (networkRes && networkRes.ok) {
+          if (networkRes && networkRes.ok && networkRes.status !== 206) {
             cache.put(req, networkRes.clone());
             trimCache(MEDIA_CACHE, MAX_MEDIA_ITEMS);
           }
@@ -156,13 +174,13 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // 3. Public Kiosk API requests: Stale-While-Revalidate for kiosk display resilience only
+  // 3. Public Kiosk API requests: Network-first with cache fallback (fresh updates online, resilient fallback offline)
   if (url.pathname.startsWith('/api/notices') || url.pathname.startsWith('/api/system-info')) {
     event.respondWith(
       caches.open(API_CACHE).then(async (cache) => {
-        const cachedPromise = cache.match(req);
-        const networkPromise = fetch(req).then((networkRes) => {
-          if (networkRes && networkRes.ok) {
+        try {
+          const networkRes = await fetch(req);
+          if (networkRes && networkRes.ok && networkRes.status !== 206) {
             cache.put(req, networkRes.clone());
             if (url.pathname.startsWith('/api/notices')) {
               networkRes.clone().json().then((data) => {
@@ -171,26 +189,21 @@ self.addEventListener('fetch', (event) => {
             }
           }
           return networkRes;
-        }).catch(() => null);
-
-        const cachedRes = await cachedPromise;
-        if (cachedRes) {
-          networkPromise;
-          return cachedRes;
+        } catch (err) {
+          const cachedRes = await cache.match(req);
+          if (cachedRes) return cachedRes;
+          return new Response('[]', { headers: { 'Content-Type': 'application/json' } });
         }
-        const netRes = await networkPromise;
-        if (netRes) return netRes;
-        return new Response('[]', { headers: { 'Content-Type': 'application/json' } });
       })
     );
     return;
   }
 
-  // 3. Navigation / Shell / Static assets: Network-first with cache fallback
-  if (req.mode === 'navigate' || url.pathname.startsWith('/static/') || url.pathname === '/' || url.pathname === '/display' || url.pathname.startsWith('/admin')) {
+  // 4. Navigation / Shell / Static assets: Network-first with cache fallback
+  if (req.mode === 'navigate' || url.pathname.startsWith('/static/') || url.pathname === '/' || url.pathname === '/display') {
     event.respondWith(
       fetch(req).then(async (networkRes) => {
-        if (networkRes && networkRes.ok) {
+        if (networkRes && networkRes.ok && networkRes.status !== 206) {
           const cache = await caches.open(SHELL_CACHE);
           cache.put(req, networkRes.clone());
         }
@@ -200,9 +213,6 @@ self.addEventListener('fetch', (event) => {
         const match = await cache.match(req);
         if (match) return match;
         if (req.mode === 'navigate') {
-          if (url.pathname.startsWith('/admin')) {
-            return (await cache.match('/admin')) || (await cache.match('/'));
-          }
           return (await cache.match('/display')) || (await cache.match('/'));
         }
         return new Response('Offline', { status: 503, statusText: 'Offline' });

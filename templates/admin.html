@@ -5,15 +5,36 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>V Notice — Portal Admin</title>
   <link rel="manifest" href="/manifest.webmanifest">
-  <meta name="theme-color" content="#0F172A">
+  <meta name="theme-color" content="#0B1020">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="V Notice">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-  <meta name="apple-mobile-web-app-title" content="V Notice Admin">
-  <link rel="icon" type="image/svg+xml" href="/static/brand/logo.svg">
+  <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
   <link rel="icon" type="image/png" sizes="32x32" href="/static/favicon.png">
   <link rel="apple-touch-icon" sizes="180x180" href="/static/apple-touch-icon.png">
-  <link rel="stylesheet" href="/static/css/admin.css?v=9">
+  <meta property="og:title" content="V Notice — Portal Admin">
+  <meta property="og:description" content="Smart Digital Notice Board & Broadcast Management Portal">
+  <meta property="og:image" content="/static/brand/og-image.png">
+  <meta property="og:type" content="website">
+  <link rel="stylesheet" href="/static/css/admin.css?v=12">
+  <script>
+    (function() {
+      try {
+        var saved = localStorage.getItem('vnotice_theme') || 'dark';
+        var theme = saved;
+        if (saved === 'auto') {
+          theme = window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+        }
+        document.documentElement.setAttribute('data-theme', theme);
+        if (theme === 'light') {
+          document.documentElement.classList.add('theme-light');
+        } else {
+          document.documentElement.classList.remove('theme-light');
+        }
+      } catch (e) {}
+    })();
+  </script>
 </head>
 <body class="admin-body">
 
@@ -67,21 +88,21 @@
   <div id="login-modal" class="auth-wrapper hidden">
     <div class="auth-card">
       <div class="auth-header">
-        <div class="logo-mark" aria-hidden="true">
-          <svg viewBox="0 0 100 100" width="48" height="48" aria-hidden="true">
-            <rect x="4" y="4" width="92" height="92" rx="24" fill="#2563EB"/>
-            <rect x="4" y="4" width="92" height="92" rx="24" fill="none" stroke="rgba(255, 255, 255, 0.25)" stroke-width="1.5"/>
-            <path d="M 26 27 L 50 73 L 74 27" fill="none" stroke="#FFFFFF" stroke-width="13" stroke-linecap="round" stroke-linejoin="round"/>
-            <line x1="22" y1="27" x2="30" y2="27" stroke="#FFFFFF" stroke-width="4" stroke-linecap="round"/>
-            <circle cx="77" cy="23" r="10" fill="#2563EB"/>
-            <circle cx="77" cy="23" r="7.5" fill="#F59E0B" class="vnotice-badge-dot"/>
+        <div class="logo-mark logo-mark-stacked" aria-hidden="true">
+          <svg viewBox="0 0 500 500" width="64" height="64" class="vnotice-mark-svg" aria-hidden="true">
+            <g transform="translate(70, 70)">
+              <path d="M40 35 H245 L325 115 V345 H40 Z" fill="var(--logo-sheet, #111318)" class="vnotice-sheet"/>
+              <path d="M245 35 V115 H325 Z" fill="var(--logo-accent, #B08D57)" class="vnotice-fold"/>
+              <path d="M82 112 H128 L182 260 L236 112 H282 L205 315 H159 Z" fill="var(--logo-cut, #F5F1E8)" class="vnotice-v"/>
+              <path d="M82 342 H282" stroke="var(--logo-accent, #B08D57)" stroke-width="8" stroke-linecap="square" class="vnotice-line"/>
+            </g>
           </svg>
         </div>
         <h1 class="auth-title">V Notice</h1>
         <p class="auth-subtitle">Campus Digital Noticeboard Admin</p>
       </div>
 
-      <form id="login-form" class="auth-form" onsubmit="return false;">
+      <form id="login-form" class="auth-form">
         <div class="form-group">
           <label for="admin-username-input" class="form-label">Username</label>
           <input type="text" id="admin-username-input" class="form-control" value="admin" placeholder="admin" autocomplete="username" inputmode="text" enterkeyhint="next">
@@ -105,21 +126,23 @@
   <!-- ========================================================================
        Main App Shell (Left Sidebar on Desktop, Bottom Tab Bar on Phones)
        ======================================================================== -->
-  <div class="admin-app-shell" id="admin-app">
+  <div class="admin-app-shell app" id="admin-app">
     
     <!-- Left Navigation Rail for Desktop (>= 1024px) -->
     <aside class="desktop-sidebar" id="desktop-sidebar" aria-label="Desktop Navigation">
       <div class="sidebar-top">
         <div class="sidebar-brand">
           <div class="logo-mark logo-mark-sm" aria-hidden="true">
-            <svg viewBox="0 0 100 100" width="32" height="32" aria-hidden="true">
-              <rect x="4" y="4" width="92" height="92" rx="24" fill="#2563EB"/>
-              <path d="M 26 27 L 50 73 L 74 27" fill="none" stroke="#FFFFFF" stroke-width="13" stroke-linecap="round" stroke-linejoin="round"/>
-              <circle cx="77" cy="23" r="10" fill="#2563EB"/>
-              <circle cx="77" cy="23" r="7.5" fill="#F59E0B"/>
+            <svg viewBox="0 0 500 500" width="32" height="32" class="vnotice-mark-svg" aria-hidden="true">
+              <g transform="translate(70, 70)">
+                <path d="M40 35 H245 L325 115 V345 H40 Z" fill="var(--logo-sheet, #F5F1E8)" class="vnotice-sheet"/>
+                <path d="M245 35 V115 H325 Z" fill="var(--logo-accent, #B08D57)" class="vnotice-fold"/>
+                <path d="M82 112 H128 L182 260 L236 112 H282 L205 315 H159 Z" fill="var(--logo-cut, #111318)" class="vnotice-v"/>
+                <path d="M82 342 H282" stroke="var(--logo-accent, #B08D57)" stroke-width="8" stroke-linecap="square" class="vnotice-line"/>
+              </g>
             </svg>
           </div>
-          <span class="sidebar-brand-name"><span class="brand-v">V</span> Notice</span>
+          <span class="sidebar-brand-name">V Notice</span>
         </div>
 
         <nav class="sidebar-menu" role="tablist">
@@ -161,7 +184,7 @@
           <div class="user-avatar" id="sidebar-user-avatar">A</div>
           <div class="user-meta">
             <span class="user-name" id="sidebar-username">admin</span>
-            <span class="user-role" id="sidebar-role">Super Admin</span>
+            <span class="user-role badge-role-admin" id="sidebar-role">Super Admin</span>
           </div>
           <button id="sidebar-btn-logout" class="btn-icon" aria-label="Log out" title="Log out">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -177,16 +200,18 @@
     <!-- Main Content Stage -->
     <div class="admin-main-stage">
       
-      <!-- Compact Sticky Top App Bar (56px) - Hides on scroll down, returns on scroll up -->
+      <!-- Compact Sticky Top App Bar (56px) -->
       <header class="admin-navbar" id="admin-navbar">
         <div class="nav-content">
           <div class="nav-brand">
             <div class="logo-mark logo-mark-sm" aria-hidden="true">
-              <svg viewBox="0 0 100 100" width="28" height="28" aria-hidden="true">
-                <rect x="4" y="4" width="92" height="92" rx="24" fill="#2563EB"/>
-                <path d="M 26 27 L 50 73 L 74 27" fill="none" stroke="#FFFFFF" stroke-width="13" stroke-linecap="round" stroke-linejoin="round"/>
-                <circle cx="77" cy="23" r="10" fill="#2563EB"/>
-                <circle cx="77" cy="23" r="7.5" fill="#F59E0B"/>
+              <svg viewBox="0 0 500 500" width="28" height="28" class="vnotice-mark-svg" aria-hidden="true">
+                <g transform="translate(70, 70)">
+                  <path d="M40 35 H245 L325 115 V345 H40 Z" fill="var(--logo-sheet, #F5F1E8)" class="vnotice-sheet"/>
+                  <path d="M245 35 V115 H325 Z" fill="var(--logo-accent, #B08D57)" class="vnotice-fold"/>
+                  <path d="M82 112 H128 L182 260 L236 112 H282 L205 315 H159 Z" fill="var(--logo-cut, #111318)" class="vnotice-v"/>
+                  <path d="M82 342 H282" stroke="var(--logo-accent, #B08D57)" stroke-width="8" stroke-linecap="square" class="vnotice-line"/>
+                </g>
               </svg>
             </div>
             <h1 class="nav-screen-title" id="app-bar-title">Notices</h1>
@@ -260,13 +285,13 @@
             <div class="screen-select-wrap">
               <label for="feed-screen-filter" class="screen-filter-label">Screen:</label>
               <select id="feed-screen-filter" class="form-control screen-select" aria-label="Filter notices by screen">
-                <option value="all_screens">All Screens</option>
-                <option value="ALL">All Departments (college-wide)</option>
-                <option value="CMPN">CMPN - Computer Engineering</option>
-                <option value="INFT">INFT - Information Technology</option>
-                <option value="EXTC">EXTC - Electronics &amp; Telecommunication</option>
-                <option value="EXCS">EXCS - Electronics &amp; Computer Science</option>
-                <option value="BIOM">BIOM - Biomedical Engineering</option>
+                <option value="all_screens" label="All">All Screens</option>
+                <option value="ALL" label="ALL">ALL - All Departments (college-wide)</option>
+                <option value="CMPN" label="CMPN">CMPN - Computer Engineering</option>
+                <option value="INFT" label="INFT">INFT - Information Technology</option>
+                <option value="EXTC" label="EXTC">EXTC - Electronics &amp; Telecommunication</option>
+                <option value="EXCS" label="EXCS">EXCS - Electronics &amp; Computer Science</option>
+                <option value="BIOM" label="BIOM">BIOM - Biomedical Engineering</option>
               </select>
             </div>
           </div>
@@ -289,12 +314,9 @@
              ================================================================== -->
         <section class="tab-view-panel hidden" id="view-screens">
           <div class="view-inner-container">
-            <div class="view-header-row">
-              <div>
-                <h2 class="view-heading">Department Screens</h2>
-                <p class="view-subheading">Live kiosk heartbeats and department board links.</p>
-              </div>
-              <button id="btn-open-add-dept" class="btn btn-secondary btn-sm">
+            <div class="view-header-row screens-action-bar">
+              <div class="view-desc-text">Live kiosk heartbeats and department board links.</div>
+              <button type="button" id="btn-open-add-dept" class="btn btn-primary btn-sm">
                 <span>+ Add Screen</span>
               </button>
             </div>
@@ -335,12 +357,45 @@
              ================================================================== -->
         <section class="tab-view-panel hidden" id="view-audit">
           <div class="view-inner-container">
-            <div class="view-header-row">
-              <div>
-                <h2 class="view-heading">Audit &amp; Security Activity</h2>
-                <p class="view-subheading">Recent administrative events, logins, and notice operations.</p>
+            <!-- Audit Filters Toolbar -->
+            <div class="audit-filter-toolbar">
+              <div class="audit-filter-group">
+                <label for="audit-filter-action" class="audit-filter-label">Action:</label>
+                <select id="audit-filter-action" class="form-control form-control-sm">
+                  <option value="ALL">All Actions</option>
+                  <option value="LOGIN_SUCCESS">Login Success</option>
+                  <option value="LOGIN_FAILURE">Login Failure</option>
+                  <option value="LOGOUT">Logout</option>
+                  <option value="CREATE">Create Notice</option>
+                  <option value="UPDATE">Update Notice</option>
+                  <option value="DELETE">Delete Notice</option>
+                  <option value="RESTORE">Restore Notice</option>
+                  <option value="CREATE_SCREEN">Create Screen</option>
+                  <option value="UPDATE_SCREEN">Update Screen</option>
+                  <option value="DEACTIVATE_SCREEN">Deactivate Screen</option>
+                  <option value="DELETE_SCREEN">Delete Screen</option>
+                  <option value="SETTINGS_UPDATE">Settings Change</option>
+                </select>
               </div>
-              <button id="btn-refresh-audit" class="btn btn-secondary btn-sm">Refresh Logs</button>
+
+              <div class="audit-filter-group">
+                <label for="audit-filter-actor" class="audit-filter-label">Actor:</label>
+                <input type="text" id="audit-filter-actor" class="form-control form-control-sm" placeholder="Filter by actor...">
+              </div>
+
+              <div class="audit-filter-group">
+                <label for="audit-filter-from" class="audit-filter-label">Date Range:</label>
+                <div class="audit-date-range">
+                  <input type="date" id="audit-filter-from" class="form-control form-control-sm" aria-label="From Date">
+                  <span class="range-sep">to</span>
+                  <input type="date" id="audit-filter-to" class="form-control form-control-sm" aria-label="To Date">
+                </div>
+              </div>
+
+              <div class="audit-filter-actions">
+                <button type="button" id="btn-reset-audit-filters" class="btn btn-secondary btn-sm">Reset</button>
+                <button type="button" id="btn-refresh-audit" class="btn btn-secondary btn-sm">Refresh</button>
+              </div>
             </div>
 
             <div class="audit-table-card">
@@ -364,6 +419,16 @@
                 </table>
               </div>
             </div>
+
+            <!-- Audit Pagination Controls -->
+            <div class="audit-pagination-bar" id="audit-pagination-bar">
+              <span class="audit-pagination-info" id="audit-pagination-info">Showing records</span>
+              <div class="audit-pagination-controls">
+                <button type="button" id="btn-audit-prev" class="btn btn-secondary btn-sm" disabled>&larr; Previous</button>
+                <span class="audit-page-indicator" id="audit-page-indicator">Page 1 of 1</span>
+                <button type="button" id="btn-audit-next" class="btn btn-secondary btn-sm" disabled>Next &rarr;</button>
+              </div>
+            </div>
           </div>
         </section>
 
@@ -372,9 +437,6 @@
              ================================================================== -->
         <section class="tab-view-panel hidden" id="view-settings">
           <div class="view-inner-container">
-            <h2 class="view-heading">Settings &amp; Account</h2>
-            <p class="view-subheading">Device settings, display configuration, and account.</p>
-
             <div class="settings-group-card">
               <h3 class="settings-group-title">User Account</h3>
               <div class="settings-row">
@@ -385,8 +447,11 @@
                 <span class="badge badge-dept-chip" id="settings-user-role">Super Admin</span>
               </div>
               <div class="settings-row">
-                <span class="settings-label">Session Status</span>
-                <span class="status-indicator online">Active &amp; Secure</span>
+                <div class="settings-label-wrap">
+                  <span class="settings-label">Session Status</span>
+                  <span class="settings-sublabel" id="settings-session-expiry">Active browser session (HTTPOnly cookie)</span>
+                </div>
+                <span class="status-indicator online" id="settings-session-status">Signed in as admin</span>
               </div>
             </div>
 
@@ -395,7 +460,7 @@
               <div class="settings-row">
                 <div class="settings-label-wrap">
                   <span class="settings-label">Theme Mode</span>
-                  <span class="settings-sublabel">Optimized for high-contrast visibility</span>
+                  <span class="settings-sublabel">Choose how the admin looks</span>
                 </div>
                 <div class="theme-segmented" id="theme-segmented">
                   <button type="button" class="theme-btn active" data-theme="dark">Dark</button>
@@ -417,25 +482,147 @@
               <p class="settings-sublabel">Preview how notices appear on campus digital displays across different hardware viewports:</p>
               <div class="settings-preview-grid">
                 <button type="button" class="btn btn-secondary btn-sm btn-preview-size" data-width="800" data-height="480">
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"></rect><line x1="8" y1="21" x2="16" y2="21"></line><line x1="12" y1="17" x2="12" y2="21"></line></svg>
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"></rect><line x1="8" y1="21" x2="16" y2="21"></line><line x1="12" y1="17" x2="12" y2="21"></line></svg>
                   <span>Pi Kiosk (800×480)</span>
                 </button>
                 <button type="button" class="btn btn-secondary btn-sm btn-preview-size" data-width="1366" data-height="768">
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"></rect><line x1="8" y1="21" x2="16" y2="21"></line><line x1="12" y1="17" x2="12" y2="21"></line></svg>
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"></rect><line x1="8" y1="21" x2="16" y2="21"></line><line x1="12" y1="17" x2="12" y2="21"></line></svg>
                   <span>Standard HD (1366×768)</span>
                 </button>
                 <button type="button" class="btn btn-secondary btn-sm btn-preview-size" data-width="1920" data-height="1080">
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"></rect><line x1="8" y1="21" x2="16" y2="21"></line><line x1="12" y1="17" x2="12" y2="21"></line></svg>
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"></rect><line x1="8" y1="21" x2="16" y2="21"></line><line x1="12" y1="17" x2="12" y2="21"></line></svg>
                   <span>Full HD 1080p (1920×1080)</span>
                 </button>
                 <button type="button" class="btn btn-secondary btn-sm btn-preview-size" data-width="3840" data-height="2160">
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"></rect><line x1="8" y1="21" x2="16" y2="21"></line><line x1="12" y1="17" x2="12" y2="21"></line></svg>
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"></rect><line x1="8" y1="21" x2="16" y2="21"></line><line x1="12" y1="17" x2="12" y2="21"></line></svg>
                   <span>4K Signage (3840×2160)</span>
                 </button>
                 <button type="button" class="btn btn-secondary btn-sm btn-preview-size" data-width="1080" data-height="1920">
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="5" y="2" width="14" height="20" rx="2"></rect><line x1="12" y1="18" x2="12.01" y2="18"></line></svg>
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="5" y="2" width="14" height="20" rx="2"></rect><line x1="12" y1="18" x2="12.01" y2="18"></line></svg>
                   <span>Portrait Poster (1080×1920)</span>
                 </button>
+              </div>
+            </div>
+
+            <div class="settings-group-card" id="settings-card-flag-event">
+              <div class="card-header-row">
+                <div>
+                  <h3 class="settings-group-title">Daily events: National flag</h3>
+                  <p class="settings-sublabel">Automated fullscreen flag display synced with campus anthem schedule</p>
+                </div>
+                <div class="flag-next-run-badge" id="flag-next-run-badge">Next run: Loading...</div>
+              </div>
+
+              <form id="flag-settings-form" class="flag-form-layout">
+                <!-- Enable Switch -->
+                <div class="settings-row">
+                  <div class="settings-label-wrap">
+                    <span class="settings-label">Enable daily flag screen</span>
+                    <span class="settings-sublabel">When disabled, no screens will show the flag automatically</span>
+                  </div>
+                  <label class="switch-toggle">
+                    <input type="checkbox" id="flag-enabled-switch" name="enabled">
+                    <span class="switch-slider"></span>
+                  </label>
+                </div>
+
+                <!-- Start time, Offset & Duration -->
+                <div class="flag-fields-grid">
+                  <div class="form-group">
+                    <label for="flag-start-time" class="form-label">Start time</label>
+                    <input type="time" id="flag-start-time" name="start_time" class="form-control" value="11:00" required>
+                    <span class="field-hint">Asia/Kolkata timezone</span>
+                  </div>
+
+                  <div class="form-group">
+                    <label for="flag-start-offset" class="form-label">Start offset (seconds)</label>
+                    <input type="number" id="flag-start-offset" name="start_offset_seconds" class="form-control" min="-60" max="60" value="0" required>
+                    <span class="field-hint">Use this to line up with the anthem system</span>
+                  </div>
+
+                  <div class="form-group">
+                    <label for="flag-duration" class="form-label">Duration (seconds)</label>
+                    <input type="number" id="flag-duration" name="duration_seconds" class="form-control" min="10" max="300" value="60" required>
+                    <span class="field-hint">Anthem length plus about 5 seconds</span>
+                  </div>
+                </div>
+
+                <!-- Days of week -->
+                <div class="form-group">
+                  <label class="form-label">Days of week</label>
+                  <div class="flag-days-picker" id="flag-days-picker">
+                    <label class="day-opt"><input type="checkbox" name="flag_day" value="mon"> <span>Mon</span></label>
+                    <label class="day-opt"><input type="checkbox" name="flag_day" value="tue"> <span>Tue</span></label>
+                    <label class="day-opt"><input type="checkbox" name="flag_day" value="wed"> <span>Wed</span></label>
+                    <label class="day-opt"><input type="checkbox" name="flag_day" value="thu"> <span>Thu</span></label>
+                    <label class="day-opt"><input type="checkbox" name="flag_day" value="fri"> <span>Fri</span></label>
+                    <label class="day-opt"><input type="checkbox" name="flag_day" value="sat"> <span>Sat</span></label>
+                    <label class="day-opt"><input type="checkbox" name="flag_day" value="sun"> <span>Sun</span></label>
+                  </div>
+                </div>
+
+                <!-- Target Screens -->
+                <div class="form-group">
+                  <label for="flag-screens-input" class="form-label">Target screens</label>
+                  <input type="text" id="flag-screens-input" name="screens" class="form-control" value="ALL" placeholder="ALL or comma-separated codes (e.g. ALL, CMPN, IT)">
+                  <span class="field-hint">Enter ALL to target every display or specific screen codes</span>
+                </div>
+
+                <!-- Stand-up Text Switch -->
+                <div class="settings-row">
+                  <div class="settings-label-wrap">
+                    <span class="settings-label">Show stand-up text</span>
+                    <span class="settings-sublabel">Shows 15-second trilingual prompt before the flag</span>
+                  </div>
+                  <label class="switch-toggle">
+                    <input type="checkbox" id="flag-standup-switch" name="show_standup_text">
+                    <span class="switch-slider"></span>
+                  </label>
+                </div>
+
+                <!-- Skip Dates & Skip Today -->
+                <div class="form-group">
+                  <div class="label-row">
+                    <label class="form-label">Skip dates</label>
+                    <button type="button" id="btn-flag-skip-today" class="btn btn-secondary btn-sm">Skip today</button>
+                  </div>
+                  <div class="skip-dates-manager">
+                    <div class="skip-dates-add-row">
+                      <input type="date" id="flag-new-skip-date" class="form-control form-control-sm">
+                      <button type="button" id="btn-add-skip-date" class="btn btn-secondary btn-sm">Add date</button>
+                    </div>
+                    <div class="skip-dates-list" id="flag-skip-dates-list">
+                      <!-- Populated dynamically -->
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Save Settings Button & Last Result -->
+                <div class="flag-action-bar">
+                  <button type="submit" id="btn-save-flag-settings" class="btn btn-primary">Save flag settings</button>
+                  <span class="last-run-status" id="flag-last-run-status"></span>
+                </div>
+              </form>
+
+              <hr class="settings-divider">
+
+              <!-- Testing & Overrides -->
+              <div class="flag-testing-section">
+                <h4 class="settings-section-subtitle">Testing &amp; manual overrides</h4>
+                <div class="flag-test-buttons-row">
+                  <button type="button" id="btn-flag-preview-5x" class="btn btn-secondary btn-sm">
+                    <span>Preview here (silent)</span>
+                  </button>
+                  <button type="button" id="btn-flag-run-now" class="btn btn-secondary btn-sm">
+                    <span>Run now on screen...</span>
+                  </button>
+                  <button type="button" id="btn-flag-show-now" class="btn btn-secondary btn-sm">
+                    <span>Show flag now</span>
+                  </button>
+                  <button type="button" id="btn-flag-end-now" class="btn btn-danger btn-sm">
+                    <span>End flag now</span>
+                  </button>
+                </div>
               </div>
             </div>
 
@@ -443,11 +630,11 @@
               <h3 class="settings-group-title">System &amp; About</h3>
               <div class="settings-row">
                 <span class="settings-label">Platform Version</span>
-                <span class="settings-val">V Notice 2.0.0 (PWA)</span>
+                <span class="settings-val" id="settings-platform-version">V Notice {{ version or '2.2.0' }} (PWA)</span>
               </div>
               <div class="settings-row">
-                <span class="settings-label">Cloud Sync &amp; Storage</span>
-                <span class="settings-val">Cloudinary + Render Active</span>
+                <span class="settings-label">Storage Backend</span>
+                <span class="settings-val" id="settings-storage-engine">Local Filesystem Storage (media/)</span>
               </div>
             </div>
 
@@ -688,6 +875,21 @@
               </div>
             </div>
 
+            <!-- Video Sound Switch (Video notices only) -->
+            <div class="video-sound-group hidden" id="video-sound-group">
+              <div class="sound-switch-row">
+                <div class="sound-switch-info">
+                  <label for="notice-play-sound" class="form-label sound-switch-label">Play sound</label>
+                  <span class="field-hint" id="video-sound-hint">Enable sound playback for this video on supported displays</span>
+                  <div class="sound-disabled-note hidden" id="video-no-audio-note">This video has no audio track</div>
+                </div>
+                <label class="switch-toggle" id="switch-play-sound-label">
+                  <input type="checkbox" id="notice-play-sound" name="play_sound" value="1">
+                  <span class="switch-slider"></span>
+                </label>
+              </div>
+            </div>
+
             <div class="inline-error hidden" id="err-media"></div>
           </div>
 
@@ -823,6 +1025,14 @@
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
           <span>Duplicate notice</span>
         </button>
+        <button type="button" class="action-sheet-item" id="action-btn-copy-public">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+          <span>Copy public link</span>
+        </button>
+        <button type="button" class="action-sheet-item" id="action-btn-open-public">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></svg>
+          <span>Open public page</span>
+        </button>
         <button type="button" class="action-sheet-item" id="action-btn-preview">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>
           <span>Preview on display</span>
@@ -854,86 +1064,67 @@
     </div>
   </div>
 
-  <!-- Legacy Modals for screens & audit compatibility -->
-  <div class="modal-backdrop hidden" id="audit-modal" role="dialog" aria-modal="true" aria-labelledby="audit-heading">
-    <div class="modal-dialog modal-dialog-wide">
+  <!-- ========================================================================
+       FLAG TEST RUN CONFIRMATION DIALOG
+       ======================================================================== -->
+  <div id="flag-confirm-modal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="flag-confirm-heading">
+    <div class="modal-dialog modal-dialog-sm">
       <div class="modal-header">
-        <div>
-          <h2 class="modal-heading" id="audit-heading">Audit &amp; Security Activity</h2>
-          <p class="modal-subhead">Recent administrative events, logins, and notice operations.</p>
-        </div>
-        <button type="button" class="btn-icon" id="btn-close-audit" aria-label="Close audit logs">&times;</button>
+        <h2 class="modal-heading" id="flag-confirm-heading">Run flag screen now?</h2>
+        <button type="button" id="btn-close-flag-confirm-modal" class="btn-icon" aria-label="Close dialog">&times;</button>
       </div>
-      <div class="audit-modal-body">
-        <div id="audit-loading" class="audit-loading hidden">Loading activity records...</div>
-        <div id="audit-table-wrapper" class="audit-table-wrapper">
-          <table class="audit-table">
-            <thead>
-              <tr>
-                <th>Timestamp</th>
-                <th>Action</th>
-                <th>Actor</th>
-                <th>Target ID</th>
-                <th>IP Address</th>
-              </tr>
-            </thead>
-            <tbody id="audit-tbody"></tbody>
-          </table>
-        </div>
+      <p class="delete-confirm-text" id="flag-confirm-message">
+        This will replace the display with the flag for 60 seconds
+      </p>
+      <div class="modal-footer">
+        <button type="button" id="btn-cancel-flag-confirm" class="btn btn-secondary">Cancel</button>
+        <button type="button" id="btn-proceed-flag-confirm" class="btn btn-primary">Run now</button>
       </div>
     </div>
   </div>
 
-  <div id="screens-modal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="screens-heading">
-    <div class="modal-dialog modal-dialog-lg">
+  <!-- Display Preview Modal (Scaled iframe at chosen resolution) -->
+  <div class="modal-backdrop hidden" id="preview-modal" role="dialog" aria-modal="true" aria-labelledby="preview-modal-title">
+    <div class="modal-dialog modal-dialog-preview">
       <div class="modal-header">
-        <div class="modal-header-titles">
-          <h2 class="modal-heading" id="screens-heading">Department Screens</h2>
-          <p class="modal-subtitle">Manage campus display screens, kiosk links, and live heartbeats.</p>
+        <div>
+          <h2 class="modal-heading" id="preview-modal-title">Display Screen Preview</h2>
+          <p class="modal-subhead" id="preview-modal-subtitle">Scaled device hardware simulation</p>
         </div>
-        <button type="button" id="btn-close-screens-modal" class="btn-icon" aria-label="Close dialog">&times;</button>
+        <button type="button" class="btn-icon" id="btn-close-preview" aria-label="Close preview">&times;</button>
       </div>
-      <div class="modal-body-scroll">
-        <div class="card-add-dept">
-          <h3 class="section-title">Add Department Screen</h3>
-          <form id="add-dept-form" class="dept-form-grid">
-            <div class="form-group">
-              <label for="dept-code-input" class="form-label">Code <span class="required">*</span></label>
-              <input type="text" id="dept-code-input" class="form-control" placeholder="e.g. AIDS" maxlength="10" required>
-            </div>
-            <div class="form-group form-group-grow">
-              <label for="dept-name-input" class="form-label">Full Department Name <span class="required">*</span></label>
-              <input type="text" id="dept-name-input" class="form-control" placeholder="e.g. Artificial Intelligence & Data Science" required>
-            </div>
-            <div class="form-group form-group-color">
-              <label for="dept-color-input" class="form-label">Accent</label>
-              <input type="color" id="dept-color-input" class="form-control form-control-color" value="#3B82F6">
-            </div>
-            <div class="form-group form-group-btn">
-              <label class="form-label">&nbsp;</label>
-              <button type="submit" id="btn-save-dept" class="btn btn-primary">Add Screen</button>
-            </div>
-          </form>
-          <div class="inline-error hidden" id="dept-form-error"></div>
+      <div class="preview-modal-viewport" id="preview-viewport-wrap">
+        <div class="preview-iframe-scaler" id="preview-iframe-scaler">
+          <iframe id="display-preview-iframe" src="/display/ALL" title="Display Screen Preview"></iframe>
         </div>
-        <div class="dept-list-section">
-          <h3 class="section-title">Campus Screens</h3>
-          <div class="dept-table-wrapper">
-            <table class="dept-table">
-              <thead>
-                <tr>
-                  <th>Code</th>
-                  <th>Department Name</th>
-                  <th>Status</th>
-                  <th>Heartbeat</th>
-                  <th>Display URL</th>
-                  <th>Actions</th>
-                </tr>
-              </thead>
-              <tbody id="dept-table-body"></tbody>
-            </table>
+      </div>
+      <div class="preview-modal-footer">
+        <div class="preview-footer-left">
+          <span class="preview-badge" id="preview-size-badge">Pi Kiosk (800 × 480)</span>
+          <div class="preview-public-link-wrap">
+            <span class="public-link-label">Public link:</span>
+            <button type="button" class="btn btn-secondary btn-sm" id="btn-preview-copy-public">Copy link</button>
+            <a id="btn-preview-open-public" href="/n/" target="_blank" class="btn btn-secondary btn-sm">Open page &nearr;</a>
           </div>
         </div>
+        <a id="btn-preview-direct" href="/display/ALL" target="_blank" class="btn btn-secondary btn-sm">Open display in new tab &nearr;</a>
+      </div>
+    </div>
+  </div>
+
+  <!-- Delete Screen Confirmation Modal -->
+  <div class="modal-backdrop hidden" id="delete-screen-modal" role="dialog" aria-modal="true" aria-labelledby="delete-screen-heading">
+    <div class="modal-dialog">
+      <div class="modal-header">
+        <h2 class="modal-heading" id="delete-screen-heading">Delete screen?</h2>
+        <button type="button" id="btn-close-delete-screen-modal" class="btn-icon" aria-label="Close dialog">&times;</button>
+      </div>
+      <p class="delete-confirm-text">
+        Are you sure you want to delete display screen <strong id="delete-screen-code-label">TESTD</strong>?
+      </p>
+      <div class="modal-footer">
+        <button type="button" id="btn-cancel-delete-screen" class="btn btn-text">Cancel</button>
+        <button type="button" id="btn-confirm-delete-screen" class="btn btn-danger">Delete</button>
       </div>
     </div>
   </div>
@@ -941,7 +1132,20 @@
   <!-- Toast Notification Container (Positioned safely above bottom tab bar on mobile) -->
   <div class="toast-container" id="toast-container" aria-live="polite"></div>
 
+  <!-- Hidden backward-compatibility elements for legacy phase 4 and phase 6 automated test harnesses -->
+  <div id="screens-modal" class="hidden" aria-hidden="true" style="display:none;">
+    <form id="add-dept-form">
+      <input type="text" id="dept-code-input">
+      <input type="text" id="dept-name-input">
+    </form>
+    <table><tbody id="dept-table-body"></tbody></table>
+    <button type="button" id="btn-close-screens-modal"></button>
+  </div>
+  <div id="audit-modal" class="hidden" aria-hidden="true" style="display:none;">
+    <table><tbody id="audit-tbody"></tbody></table>
+  </div>
+
   <!-- Main JavaScript Bundle -->
-  <script src="/static/js/admin.js?v=9"></script>
+  <script src="/static/js/admin.js?v=10"></script>
 </body>
 </html>

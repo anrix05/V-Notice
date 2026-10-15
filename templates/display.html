@@ -4,10 +4,14 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <title>V Notice — Campus Digital Display</title>
-  <link rel="icon" type="image/svg+xml" href="/static/brand/logo.svg">
+  <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
   <link rel="icon" type="image/png" sizes="32x32" href="/static/favicon.png">
   <link rel="apple-touch-icon" sizes="180x180" href="/static/apple-touch-icon.png">
-  <link rel="stylesheet" href="/static/css/display.css?v=8">
+  <meta property="og:title" content="V Notice — Campus Digital Display">
+  <meta property="og:description" content="Next-Gen Smart Digital Notice Board & Kiosk Broadcast Engine">
+  <meta property="og:image" content="/static/brand/og-image.png">
+  <meta property="og:type" content="website">
+  <link rel="stylesheet" href="/static/css/display.css?v=9">
 </head>
 <body class="display-screen">
 
@@ -16,21 +20,27 @@
     <!-- Top Header (56px) -->
     <header class="display-header">
       <div class="header-left">
-        <div class="logo-mark" aria-hidden="true">
-          <svg viewBox="0 0 100 100" width="32" height="32" aria-hidden="true">
-            <rect x="4" y="4" width="92" height="92" rx="24" fill="#2563EB"/>
-            <rect x="4" y="4" width="92" height="92" rx="24" fill="none" stroke="rgba(255, 255, 255, 0.25)" stroke-width="1.5"/>
-            <path d="M 26 27 L 50 73 L 74 27" fill="none" stroke="#FFFFFF" stroke-width="13" stroke-linecap="round" stroke-linejoin="round"/>
-            <line x1="22" y1="27" x2="30" y2="27" stroke="#FFFFFF" stroke-width="4" stroke-linecap="round"/>
-            <circle cx="77" cy="23" r="10" fill="#2563EB"/>
-            <circle cx="77" cy="23" r="7.5" fill="#F59E0B" class="vnotice-badge-dot"/>
+        <div class="logo-mark" id="display-header-logo" aria-hidden="true">
+          <svg viewBox="0 0 500 500" width="32" height="32" aria-hidden="true" class="vnotice-mark-svg">
+            <g transform="translate(70, 70)">
+              <path d="M40 35 H245 L325 115 V345 H40 Z" fill="var(--logo-sheet, #F5F1E8)" class="vnotice-sheet"/>
+              <path d="M245 35 V115 H325 Z" fill="var(--logo-accent, #B08D57)" class="vnotice-fold"/>
+              <path d="M82 112 H128 L182 260 L236 112 H282 L205 315 H159 Z" fill="var(--logo-cut, #111318)" class="vnotice-v"/>
+              <path d="M82 342 H282" stroke="var(--logo-accent, #B08D57)" stroke-width="8" stroke-linecap="square" class="vnotice-line"/>
+            </g>
           </svg>
         </div>
-        <span class="logo-text"><span class="brand-v">V</span> <span class="brand-name">Notice</span></span>
+        <span class="logo-text">V Notice</span>
         <div class="dept-header-pill" id="dept-header-pill" style="{% if department and department.accent_color %}--dept-accent: {{ department.accent_color }};{% endif %}">
-          <span class="dept-code" id="dept-pill-code">{{ department.code if department else (screen_code or 'ALL') }}</span>
-          <span class="dept-sep" aria-hidden="true">|</span>
-          <span class="dept-name" id="dept-pill-name">{{ department.name if department else 'All Departments (college-wide)' }}</span>
+          {% if not department or department.code == 'ALL' or screen_code == 'ALL' %}
+            <span class="dept-name" id="dept-pill-name">College-wide</span>
+            <span class="dept-code hidden" id="dept-pill-code">ALL</span>
+            <span class="dept-sep hidden" id="dept-sep" aria-hidden="true">|</span>
+          {% else %}
+            <span class="dept-code" id="dept-pill-code">{{ department.code }}</span>
+            <span class="dept-sep" id="dept-sep" aria-hidden="true">|</span>
+            <span class="dept-name" id="dept-pill-name" title="{{ department.name }}">{{ department.name }}</span>
+          {% endif %}
         </div>
         <div class="offline-badge hidden" id="offline-badge">
           <span class="offline-dot"></span>
@@ -68,6 +78,9 @@
             <span class="stage-priority hidden" id="stage-priority"></span>
             <span class="stage-audience hidden" id="stage-audience">College-wide</span>
             <span class="stage-type" id="stage-type">Text</span>
+            <span class="stage-speaker-indicator hidden" id="stage-speaker-indicator" title="Sound on" aria-label="Audio active">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><path d="M15.54 8.46a5 5 0 0 1 0 7.07"></path><path d="M19.07 4.93a10 10 0 0 1 0 14.14"></path></svg>
+            </span>
           </div>
           <div class="meta-right">
             <span class="stage-counter" id="stage-counter">Now showing 1 of 1</span>
@@ -139,11 +152,11 @@
         </div>
 
         <!-- Dedicated QR Card at bottom of rail (Decent, Minimal, No stage overlap) -->
-        <div class="rail-qr-card hidden" id="stage-qr-badge" title="Point your phone camera to download this notice">
+        <div class="rail-qr-card hidden" id="stage-qr-badge" title="Point your phone camera to view this notice">
           <div class="qr-canvas-box" id="stage-qr-canvas"></div>
           <div class="qr-label-box">
-            <span class="qr-label-head">Scan to Save</span>
-            <span class="qr-label-sub">Download notice to phone</span>
+            <span class="qr-label-head">Scan to view</span>
+            <span class="qr-label-sub">Open this notice on your phone</span>
           </div>
         </div>
       </aside>
@@ -160,10 +173,27 @@
       </div>
     </footer>
 
+    <!-- Daily Flag Overlay (Fullscreen, outranks rotation & urgent) -->
+    <div class="flag-overlay hidden" id="flag-overlay" aria-hidden="true">
+      <!-- Optional 15-second Standup Text View -->
+      <div class="standup-screen hidden" id="standup-screen">
+        <div class="standup-content">
+          <p class="standup-line standup-en">Please stand for the National Anthem</p>
+          <p class="standup-line standup-hi">कृपया राष्ट्रगान के लिए खड़े हो जाएँ</p>
+          <p class="standup-line standup-mr">कृपया राष्ट्रगीतासाठी उभे राहा</p>
+        </div>
+      </div>
+      <!-- National Flag Viewport (Scale 3:2, letterbox/pillarbox #0B1020) -->
+      <div class="flag-screen hidden" id="flag-screen">
+        <img class="flag-svg" id="flag-svg-element" src="/static/brand/indian-flag.svg" alt="National Flag of India">
+      </div>
+    </div>
+
   </div>
 
   <script src="/static/js/qrcode.min.js"></script>
-  <script src="/static/js/display.js?v=8"></script>
+  <script src="/static/js/flag_scheduler.js?v=9"></script>
+  <script src="/static/js/display.js?v=9"></script>
   <script>
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', function () {

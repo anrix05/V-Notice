@@ -15,12 +15,13 @@
   let isVideoPlaying = false;
   let isUrgentTakeover = false;
   let isOffline = false;
+  let lastSyncTimestamp = Date.now();
 
-    const syncDot = document.getElementById('clock-sync-dot');
-    if (syncDot) {
-      syncDot.className = 'clock-sync-dot sync-healthy';
-      syncDot.title = 'Live sync active';
-    }
+  const syncDot = document.getElementById('clock-sync-dot');
+  if (syncDot) {
+    syncDot.className = 'clock-sync-dot sync-healthy';
+    syncDot.title = 'Live sync active';
+  }
 
 
   // Screen Configuration (Phase 1 & 3: Department IS a screen, extracted from URL path)
@@ -37,20 +38,97 @@
   const currentScreenCode = getScreenFromPath();
   const currentScreenId = currentScreenCode;
 
-  // Heartbeat tracking (Phase 2 & 3)
+  // Audio Readiness Detection (Autoplay unlock test)
+  let audioReady = false;
+  let audioCtxInstance = null;
+  let currentPlayingNotice = null;
+
+  async function testAudioAutoplay() {
+    try {
+      const AudioCtx = window.AudioContext || window.webkitAudioContext;
+      if (AudioCtx) {
+        if (!audioCtxInstance) {
+          audioCtxInstance = new AudioCtx();
+        }
+        if (audioCtxInstance.state === 'suspended') {
+          await audioCtxInstance.resume();
+        }
+        if (audioCtxInstance.state === 'running') {
+          audioReady = true;
+          return true;
+        }
+      }
+      const testAudio = document.createElement('audio');
+      testAudio.src = '/static/audio/silent.wav';
+      testAudio.volume = 0.01;
+      testAudio.muted = false;
+      await testAudio.play();
+      testAudio.pause();
+      audioReady = true;
+      return true;
+    } catch (e) {
+      audioReady = false;
+      return false;
+    }
+  }
+
+  function syncAudioStateOnActiveVideo() {
+    if (isVideoPlaying && currentPlayingNotice && videoElement) {
+      const noticeSound = Boolean(currentPlayingNotice.play_sound);
+      const shouldPlaySound = noticeSound && currentScreenSoundEnabled && audioReady;
+      if (shouldPlaySound) {
+        videoElement.muted = false;
+        videoElement.volume = Math.max(0, Math.min(1, currentScreenSoundVolume / 100));
+        if (stageSpeakerIndicator) stageSpeakerIndicator.classList.remove('hidden');
+        videoElement.play().catch(() => {});
+      } else {
+        videoElement.muted = true;
+        videoElement.volume = 0;
+        if (stageSpeakerIndicator) stageSpeakerIndicator.classList.add('hidden');
+      }
+    }
+  }
+
+  // Heartbeat tracking (Phase 2 & 3 + Sound Readiness)
   async function sendHeartbeat() {
     try {
       await fetch('/api/heartbeat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ screen: currentScreenCode })
+        body: JSON.stringify({
+          screen: currentScreenCode,
+          audio_ready: audioReady
+        })
       });
     } catch (e) {}
   }
   setInterval(sendHeartbeat, 30000);
-  sendHeartbeat();
+
+  testAudioAutoplay().finally(() => {
+    sendHeartbeat();
+    syncAudioStateOnActiveVideo();
+  });
+
+  ['click', 'touchstart', 'keydown', 'pointerdown'].forEach(evt => {
+    window.addEventListener(evt, async () => {
+      if (!audioReady) {
+        await testAudioAutoplay();
+        sendHeartbeat();
+      }
+      syncAudioStateOnActiveVideo();
+    }, { passive: true });
+  });
+
+  // Screen sound settings
+  let currentScreenSoundEnabled = false;
+  let currentScreenSoundVolume = 70;
 
   async function loadDepartmentInfo() {
+    const deptPill = document.getElementById('dept-header-pill');
+    const deptPillCode = document.getElementById('dept-pill-code');
+    const deptPillName = document.getElementById('dept-pill-name');
+    const deptSep = document.getElementById('dept-sep');
+
     try {
       const res = await fetch('/api/screens');
       if (res.ok) {
@@ -58,21 +136,42 @@
         const screens = data.screens || [];
         const match = screens.find(s => (s.code || s.id || '').toUpperCase() === currentScreenCode);
         if (match) {
-          const deptPill = document.getElementById('dept-header-pill');
-          const deptPillCode = document.getElementById('dept-pill-code');
-          const deptPillName = document.getElementById('dept-pill-name');
-          if (deptPillCode) deptPillCode.textContent = match.code || currentScreenCode;
-          if (deptPillName) deptPillName.textContent = match.name || match.code;
-          if (deptPill && match.accent_color) {
-            deptPill.style.setProperty('--dept-accent', match.accent_color);
+          currentScreenSoundEnabled = Boolean(match.sound_enabled);
+          currentScreenSoundVolume = (typeof match.sound_volume === 'number') ? match.sound_volume : 70;
+          syncAudioStateOnActiveVideo();
+
+          if (currentScreenCode !== 'ALL') {
+            if (deptPillCode) {
+              deptPillCode.textContent = match.code || currentScreenCode;
+              deptPillCode.classList.remove('hidden');
+            }
+            if (deptSep) deptSep.classList.remove('hidden');
+            if (deptPillName) {
+              const name = match.name || match.code;
+              deptPillName.textContent = name;
+              deptPillName.title = name;
+            }
+            if (deptPill && match.accent_color) {
+              deptPill.style.setProperty('--dept-accent', match.accent_color);
+            }
           }
         }
       }
     } catch (e) {
       console.warn('Failed to load screen info:', e);
     }
+
+    if (currentScreenCode === 'ALL') {
+      if (deptPillCode) deptPillCode.classList.add('hidden');
+      if (deptSep) deptSep.classList.add('hidden');
+      if (deptPillName) {
+        deptPillName.textContent = 'College-wide';
+        deptPillName.removeAttribute('title');
+      }
+    }
   }
   loadDepartmentInfo();
+  setInterval(loadDepartmentInfo, 60000);
 
   // DOM Elements - Frame & Header
   const stagePanel = document.getElementById('stage-panel');
@@ -115,10 +214,16 @@
   const videoHeadline = document.getElementById('video-headline');
   const videoBody = document.getElementById('video-body');
   const videoAmbient = document.getElementById('video-ambient');
+  const stageSpeakerIndicator = document.getElementById('stage-speaker-indicator');
 
   const cardEmpty = document.getElementById('card-empty');
   const emptyTitle = document.getElementById('empty-title');
   const emptySubtitle = document.getElementById('empty-subtitle');
+
+  // Flag Overlay Elements
+  const flagOverlay = document.getElementById('flag-overlay');
+  const standupScreen = document.getElementById('standup-screen');
+  const flagScreen = document.getElementById('flag-screen');
 
   // Rail & Ticker
   const upNextList = document.getElementById('up-next-list');
@@ -150,6 +255,19 @@
         month: 'long',
         year: 'numeric'
       });
+    }
+
+    // Live Sync Health Dot (<60s green, stale gray)
+    const syncDot = document.getElementById('clock-sync-dot');
+    if (syncDot) {
+      const isHealthy = (Date.now() - lastSyncTimestamp) < 60000 && !isOffline;
+      if (isHealthy) {
+        syncDot.className = 'clock-sync-dot sync-healthy';
+        syncDot.title = 'Live sync active (< 60s ago)';
+      } else {
+        syncDot.className = 'clock-sync-dot sync-stale';
+        syncDot.title = isOffline ? 'Offline' : 'Sync stale (> 60s ago)';
+      }
     }
   }
   setInterval(updateClock, 1000);
@@ -193,12 +311,13 @@
       if (response.status === 304) {
         // HTTP 304 Not Modified: notices unchanged, zero DOM rebuild, zero JSON re-parsing
         isOffline = false;
+        lastSyncTimestamp = Date.now();
 
-    const syncDot = document.getElementById('clock-sync-dot');
-    if (syncDot) {
-      syncDot.className = 'clock-sync-dot sync-healthy';
-      syncDot.title = 'Live sync active';
-    }
+        const syncDot = document.getElementById('clock-sync-dot');
+        if (syncDot) {
+          syncDot.className = 'clock-sync-dot sync-healthy';
+          syncDot.title = 'Live sync active';
+        }
 
         if (offlineBadge) offlineBadge.classList.add('hidden');
         backoffDelay = basePollInterval;
@@ -213,12 +332,13 @@
       const data = await response.json();
 
       isOffline = false;
+      lastSyncTimestamp = Date.now();
 
-    const syncDot = document.getElementById('clock-sync-dot');
-    if (syncDot) {
-      syncDot.className = 'clock-sync-dot sync-healthy';
-      syncDot.title = 'Live sync active';
-    }
+      const syncDot = document.getElementById('clock-sync-dot');
+      if (syncDot) {
+        syncDot.className = 'clock-sync-dot sync-healthy';
+        syncDot.title = 'Live sync active';
+      }
 
       if (offlineBadge) offlineBadge.classList.add('hidden');
       backoffDelay = basePollInterval;
@@ -279,6 +399,11 @@
       sseSource.addEventListener('notice_update', () => {
         fetchNotices(true);
       });
+      sseSource.addEventListener('flag_changed', () => {
+        if (window.syncFlagEvent) {
+          window.syncFlagEvent(true);
+        }
+      });
       sseSource.onerror = () => {
         console.warn('[Sync] SSE connection interrupted; relying on conditional polling');
         if (sseSource) {
@@ -325,6 +450,7 @@
   function applyNotices(notices) {
     if (!Array.isArray(notices)) notices = [];
     allNotices = notices;
+    window.allNotices = allNotices;
 
     // Check for urgent notices
     const urgentNotices = notices.filter(n => (n.priority || '').toLowerCase() === 'urgent');
@@ -337,6 +463,8 @@
         isUrgentTakeover = true;
         if (stagePanel) stagePanel.classList.add('urgent-state');
         if (tickerLabel) tickerLabel.classList.add('ticker-urgent');
+        const headerLogo = document.getElementById('display-header-logo');
+        if (headerLogo) headerLogo.classList.add('urgent-logo-active');
       }
     } else {
       // Normal Mode: all active notices
@@ -345,6 +473,8 @@
         isUrgentTakeover = false;
         if (stagePanel) stagePanel.classList.remove('urgent-state');
         if (tickerLabel) tickerLabel.classList.remove('ticker-urgent');
+        const headerLogo = document.getElementById('display-header-logo');
+        if (headerLogo) headerLogo.classList.remove('urgent-logo-active');
       }
     }
 
@@ -464,13 +594,13 @@
     // If PUBLIC_BASE_URL is configured, use it. Otherwise use current origin / LAN IP
     let targetUrl;
     if (systemInfo.public_base_url) {
-      targetUrl = `${systemInfo.public_base_url}/notice/${notice.id}?download=1`;
+      targetUrl = `${systemInfo.public_base_url}/n/${notice.id}`;
     } else if (window.location.protocol === 'https:' || window.location.hostname.includes('railway.app') || window.location.hostname.includes('trycloudflare.com') || window.location.hostname.includes('onrender.com')) {
-      targetUrl = `${window.location.origin}/notice/${notice.id}?download=1`;
+      targetUrl = `${window.location.origin}/n/${notice.id}`;
     } else {
       const host = (systemInfo.lan_ip && systemInfo.lan_ip !== '127.0.0.1') ? systemInfo.lan_ip : window.location.hostname;
       const port = systemInfo.display_port ? `:${systemInfo.display_port}` : (window.location.port ? `:${window.location.port}` : ':5000');
-      targetUrl = `http://${host}${port}/notice/${notice.id}?download=1`;
+      targetUrl = `http://${host}${port}/n/${notice.id}`;
     }
 
     if (window.QRCode) {
@@ -479,7 +609,7 @@
           text: targetUrl,
           width: 180,
           height: 180,
-          colorDark: '#0F172A',
+          colorDark: '#0B1020',
           colorLight: '#FFFFFF',
           correctLevel: QRCode.CorrectLevel.M
         });
@@ -506,6 +636,9 @@
       if (mediaType.startsWith('video') || nextNotice.media.endsWith('.mp4') || nextNotice.media.endsWith('.webm') || nextNotice.type === 'video') {
         const preloader = document.createElement('video');
         preloader.preload = 'auto';
+        preloader.muted = true;
+        preloader.volume = 0;
+        preloader.playsInline = true;
         preloader.src = nextSrc;
       } else {
         const preloader = new Image();
@@ -699,11 +832,17 @@
     activeCardType = cardType;
 
     // Clean up video resources when leaving video notice
-    if (cardType !== 'video' && videoElement) {
-      videoElement.pause();
-      videoElement.removeAttribute('src');
-      videoElement.load();
-      isVideoPlaying = false;
+    if (cardType !== 'video') {
+      currentPlayingNotice = null;
+      if (videoElement) {
+        videoElement.pause();
+        videoElement.muted = true;
+        videoElement.volume = 0;
+        videoElement.removeAttribute('src');
+        videoElement.load();
+        isVideoPlaying = false;
+        if (stageSpeakerIndicator) stageSpeakerIndicator.classList.add('hidden');
+      }
     }
   }
 
@@ -727,8 +866,126 @@
     return TEXT_GRADIENTS[Math.abs(hash) % TEXT_GRADIENTS.length];
   }
 
+  function fitTextNotice() {
+    if (!cardText || !textHeadline || cardText.classList.contains('hidden')) return;
+
+    // 1. Measure real space available inside cardText after padding
+    const cardStyle = window.getComputedStyle(cardText);
+    const padTop = parseFloat(cardStyle.paddingTop) || 0;
+    const padBottom = parseFloat(cardStyle.paddingBottom) || 0;
+    const padLeft = parseFloat(cardStyle.paddingLeft) || 0;
+    const padRight = parseFloat(cardStyle.paddingRight) || 0;
+
+    const availW = cardText.clientWidth - padLeft - padRight;
+    const availH = cardText.clientHeight - padTop - padBottom;
+    if (availW <= 0 || availH <= 0) return;
+
+    const hasBody = Boolean(textBody && textBody.textContent && textBody.textContent.trim().length > 0);
+
+    // Scaling limits relative to 1080p (Requirement 4)
+    const scale = Math.max(0.2, window.innerHeight / 1080);
+    const maxHeadline = Math.round(112 * scale);
+    const minHeadline = Math.round(36 * scale);
+    const minBody = Math.round(20 * scale);
+    const maxBody = Math.round(40 * scale);
+
+    const headlineStyle = window.getComputedStyle(textHeadline);
+    const mb = hasBody ? (parseFloat(headlineStyle.marginBottom) || 0) : 0;
+    const maxHeadlineH = hasBody ? (availH * 0.55) : availH;
+
+    textHeadline.style.display = 'block';
+    textHeadline.style.webkitLineClamp = 'unset';
+    textHeadline.style.overflow = 'visible';
+    textHeadline.style.paddingBottom = '0.12em';
+    if (textBody) {
+      textBody.style.display = hasBody ? 'block' : 'none';
+      textBody.style.webkitLineClamp = 'unset';
+      textBody.style.overflow = 'visible';
+    }
+
+    function testSize(hSize) {
+      textHeadline.style.fontSize = `${hSize}px`;
+      if (textHeadline.scrollHeight > maxHeadlineH) return false;
+      if (hasBody && textBody) {
+        const bSize = Math.max(minBody, Math.min(maxBody, Math.round(hSize * 0.40)));
+        textBody.style.fontSize = `${bSize}px`;
+        const totalH = textHeadline.scrollHeight + mb + textBody.scrollHeight;
+        if (totalH > availH) return false;
+      }
+      return true;
+    }
+
+    // Binary search between minHeadline and maxHeadline (about 8 iterations)
+    let low = minHeadline;
+    let high = maxHeadline;
+    let best = minHeadline;
+
+    // Requirement 5: short headlines keep today's large look
+    if (testSize(maxHeadline)) {
+      best = maxHeadline;
+    } else {
+      for (let i = 0; i < 8; i++) {
+        const mid = Math.round((low + high) / 2);
+        if (testSize(mid)) {
+          best = mid;
+          low = mid + 1; // Try larger
+        } else {
+          high = mid - 1; // Try smaller
+        }
+        if (low > high) break;
+      }
+    }
+
+    // Apply optimal headline size
+    textHeadline.style.fontSize = `${best}px`;
+    if (hasBody && textBody) {
+      const bSize = Math.max(minBody, Math.min(maxBody, Math.round(best * 0.40)));
+      textBody.style.fontSize = `${bSize}px`;
+
+      // Requirement 6: Last resort body clamping with ellipsis if total still overflows at min sizes
+      const totalH = textHeadline.scrollHeight + mb + textBody.scrollHeight;
+      if (totalH > availH) {
+        const remainingH = availH - textHeadline.scrollHeight - mb;
+        const bLineH = parseFloat(window.getComputedStyle(textBody).lineHeight) || (bSize * 1.38);
+        const maxLines = Math.max(1, Math.floor(remainingH / bLineH));
+        textBody.style.display = '-webkit-box';
+        textBody.style.webkitBoxOrient = 'vertical';
+        textBody.style.webkitLineClamp = String(maxLines);
+        textBody.style.overflow = 'hidden';
+      } else {
+        textBody.style.display = 'block';
+        textBody.style.webkitLineClamp = 'unset';
+        textBody.style.overflow = 'visible';
+      }
+    }
+  }
+
+  let fitRafId = null;
+  function scheduleFitText() {
+    if (fitRafId) cancelAnimationFrame(fitRafId);
+    fitRafId = requestAnimationFrame(() => {
+      fitRafId = null;
+      fitTextNotice();
+    });
+  }
+
+  window.fitTextNotice = fitTextNotice;
+  window.renderTextNotice = renderTextNotice;
+
+  // Requirement 7: Re-run fit on resize, orientation change, and document.fonts.ready
+  window.addEventListener('resize', scheduleFitText, { passive: true });
+  window.addEventListener('orientationchange', scheduleFitText, { passive: true });
+  if (document.fonts && document.fonts.ready) {
+    document.fonts.ready.then(() => {
+      if (activeCardType === 'text') {
+        scheduleFitText();
+      }
+    });
+  }
+
   function renderTextNotice(notice) {
     isVideoPlaying = false;
+    currentPlayingNotice = null;
     const title = notice.title || 'Untitled Notice';
     textHeadline.textContent = title;
     textBody.textContent = notice.body || '';
@@ -738,15 +995,10 @@
       cardText.className = 'notice-view notice-text ' + getDeterministicTheme(notice.id);
     }
 
-    // Responsive font sizing based on length
     textHeadline.className = 'notice-headline';
-    if (title.length > 70) {
-      textHeadline.classList.add('headline-xs');
-    } else if (title.length > 40) {
-      textHeadline.classList.add('headline-sm');
-    }
 
     showCard('text');
+    scheduleFitText();
   }
 
   function renderImageNotice(notice) {
@@ -765,14 +1017,21 @@
   }
 
   function renderVideoNotice(notice) {
+    currentPlayingNotice = notice;
     isVideoPlaying = true;
     showCard('video');
     videoHeadline.textContent = notice.title || '';
     videoBody.textContent = notice.body || '';
 
-    // Ambient frosted backdrop for video
+    // Ambient frosted backdrop for video without rendering a second video element
     if (videoAmbient) {
-      videoAmbient.style.background = 'radial-gradient(circle at center, rgba(47, 107, 255, 0.28) 0%, rgba(22, 34, 56, 0.95) 75%)';
+      if (notice.thumbnail) {
+        videoAmbient.style.backgroundImage = `url("${notice.thumbnail}")`;
+        videoAmbient.style.background = '';
+      } else {
+        videoAmbient.style.backgroundImage = '';
+        videoAmbient.style.background = 'radial-gradient(circle at center, rgba(47, 107, 255, 0.35) 0%, rgba(15, 23, 42, 0.95) 75%)';
+      }
     }
 
     const mediaSrc = (notice.media && notice.media.startsWith('http')) ? notice.media : `/media/${encodeURIComponent(notice.media)}`;
@@ -781,8 +1040,38 @@
       videoElement.load();
     }
 
-    videoElement.muted = true;
-    videoElement.volume = 0;
+    // Capture first frame to offscreen canvas once ready (Raspberry Pi 3B+ low budget)
+    const capturePoster = () => {
+      try {
+        if (!videoElement.videoWidth || !videoElement.videoHeight) return;
+        const canvas = document.createElement('canvas');
+        canvas.width = 64;
+        canvas.height = Math.round((videoElement.videoHeight / videoElement.videoWidth) * 64) || 36;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(videoElement, 0, 0, canvas.width, canvas.height);
+        const dataUrl = canvas.toDataURL('image/jpeg', 0.6);
+        if (videoAmbient) {
+          videoAmbient.style.backgroundImage = `url("${dataUrl}")`;
+          videoAmbient.style.background = '';
+        }
+      } catch (e) {
+        // Fallback gradient remains active
+      }
+    };
+    videoElement.addEventListener('loadeddata', capturePoster, { once: true });
+
+    const noticeSound = Boolean(notice.play_sound);
+    const shouldPlaySound = noticeSound && currentScreenSoundEnabled && audioReady;
+
+    if (shouldPlaySound) {
+      videoElement.muted = false;
+      videoElement.volume = Math.max(0, Math.min(1, currentScreenSoundVolume / 100));
+      if (stageSpeakerIndicator) stageSpeakerIndicator.classList.remove('hidden');
+    } else {
+      videoElement.muted = true;
+      videoElement.volume = 0;
+      if (stageSpeakerIndicator) stageSpeakerIndicator.classList.add('hidden');
+    }
     videoElement.playsInline = true;
 
     // Single active notice: loop video
@@ -796,6 +1085,21 @@
     if (playPromise !== undefined) {
       playPromise.catch(err => {
         console.warn('Autoplay error:', err);
+        if (shouldPlaySound && !videoElement.muted) {
+          // Autoplay policy prevented unmuted playback, retry muted
+          videoElement.muted = true;
+          videoElement.volume = 0;
+          if (stageSpeakerIndicator) stageSpeakerIndicator.classList.add('hidden');
+          audioReady = false;
+          sendHeartbeat();
+          videoElement.play().catch(e2 => {
+            console.warn('Muted video playback failed:', e2);
+            isVideoPlaying = false;
+            const durationSec = notice.duration || 10;
+            rotationTimer = setTimeout(advanceNotice, durationSec * 1000);
+          });
+          return;
+        }
         isVideoPlaying = false;
         const durationSec = notice.duration || 10;
         rotationTimer = setTimeout(advanceNotice, durationSec * 1000);
@@ -803,19 +1107,35 @@
     }
 
     videoElement.onended = () => {
+      currentPlayingNotice = null;
       isVideoPlaying = false;
+      videoElement.pause();
+      videoElement.muted = true;
+      videoElement.volume = 0;
+      if (stageSpeakerIndicator) stageSpeakerIndicator.classList.add('hidden');
       advanceNotice();
     };
 
     videoElement.onerror = (err) => {
       console.warn('Video failed to load:', err);
+      currentPlayingNotice = null;
       isVideoPlaying = false;
+      videoElement.pause();
+      videoElement.muted = true;
+      videoElement.volume = 0;
+      if (stageSpeakerIndicator) stageSpeakerIndicator.classList.add('hidden');
       const durationSec = notice.duration || 10;
       rotationTimer = setTimeout(advanceNotice, durationSec * 1000);
     };
   }
 
   function advanceNotice() {
+    if (videoElement) {
+      videoElement.pause();
+      videoElement.muted = true;
+      videoElement.volume = 0;
+    }
+    if (stageSpeakerIndicator) stageSpeakerIndicator.classList.add('hidden');
     if (displayQueue.length <= 1) {
       renderStage();
       return;
@@ -875,8 +1195,8 @@
     upNextCount.textContent = `${upcomingNotices.length}`;
 
     // Dynamically scale visible upcoming notices based on viewport height:
-    // 3 on small 480p displays, 5 on 720p/900p, 6 on 1080p monitors
-    const maxVisible = window.innerHeight >= 850 ? 6 : (window.innerHeight >= 650 ? 5 : 3);
+    // 2 on <=520px displays (e.g. 800x480), 3 on small displays, 5 on 720p/900p, 6 on 1080p monitors
+    const maxVisible = window.innerHeight >= 850 ? 6 : (window.innerHeight >= 650 ? 5 : (window.innerHeight <= 520 ? 2 : 3));
     const visibleNotices = upcomingNotices.slice(0, maxVisible);
 
     visibleNotices.forEach(({ notice, position }) => {
@@ -923,11 +1243,10 @@
       const more = document.createElement('div');
       more.className = 'rail-more-count';
       more.innerHTML = `
-        <svg class="rail-more-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect>
-          <line x1="16" y1="2" x2="16" y2="6"></line>
-          <line x1="8" y1="2" x2="8" y2="6"></line>
-          <line x1="3" y1="10" x2="21" y2="10"></line>
+        <svg class="rail-more-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <polygon points="12 2 2 7 12 12 22 7 12 2"></polygon>
+          <polyline points="2 17 12 22 22 17"></polyline>
+          <polyline points="2 12 12 17 22 12"></polyline>
         </svg>
         <span>+ ${upcomingNotices.length - maxVisible} more in rotation</span>
       `;
@@ -983,6 +1302,153 @@
   fetchCampusWeather();
   scheduleNextPoll();
   setInterval(fetchCampusWeather, 1800000); // Campus weather update every 30 minutes
+
+  // ==========================================================================
+  // Daily National Flag Scheduler (Part B)
+  // ==========================================================================
+  let flagScheduler = null;
+  if (typeof FlagStateMachine !== 'undefined') {
+    flagScheduler = new FlagStateMachine({
+      onEnterStandup: () => {
+        document.body.classList.add('flag-active');
+        clearTimeout(rotationTimer);
+        if (videoElement) {
+          videoElement.pause();
+          videoElement.muted = true;
+          videoElement.volume = 0;
+        }
+        if (stageSpeakerIndicator) stageSpeakerIndicator.classList.add('hidden');
+        if (flagOverlay) flagOverlay.classList.remove('hidden');
+        if (standupScreen) standupScreen.classList.remove('hidden');
+        if (flagScreen) flagScreen.classList.add('hidden');
+      },
+      onEnterFlag: () => {
+        document.body.classList.add('flag-active');
+        clearTimeout(rotationTimer);
+        if (videoElement) {
+          videoElement.pause();
+          videoElement.muted = true;
+          videoElement.volume = 0;
+          videoElement.removeAttribute('src');
+          videoElement.load();
+        }
+        isVideoPlaying = false;
+        if (stageSpeakerIndicator) stageSpeakerIndicator.classList.add('hidden');
+        if (flagOverlay) flagOverlay.classList.remove('hidden');
+        if (standupScreen) standupScreen.classList.add('hidden');
+        if (flagScreen) flagScreen.classList.remove('hidden');
+      },
+      onExitFlag: () => {
+        document.body.classList.remove('flag-active');
+        if (flagOverlay) flagOverlay.classList.add('hidden');
+        if (standupScreen) standupScreen.classList.add('hidden');
+        if (flagScreen) flagScreen.classList.add('hidden');
+        // Requirement 4: After every flag end, re-fetch schedule so tomorrow's occurrence is armed
+        if (window.syncFlagEvent) {
+          window.syncFlagEvent(true);
+        }
+      },
+      onEnterRotation: () => {
+        document.body.classList.remove('flag-active');
+        if (flagOverlay) flagOverlay.classList.add('hidden');
+        if (standupScreen) standupScreen.classList.add('hidden');
+        if (flagScreen) flagScreen.classList.add('hidden');
+        advanceNotice();
+        if (window.syncFlagEvent) {
+          window.syncFlagEvent(true);
+        }
+      }
+    });
+    window.flagScheduler = flagScheduler;
+
+    // Load cached schedule from localStorage if offline on startup
+    try {
+      const cachedSched = localStorage.getItem(`vnotice_flag_sched_${currentScreenCode}`);
+      const cachedOffset = localStorage.getItem(`vnotice_flag_offset_${currentScreenCode}`);
+      if (cachedOffset !== null) {
+        flagScheduler.clockOffset = parseFloat(cachedOffset) || 0;
+      }
+      if (cachedSched) {
+        flagScheduler.setSchedule(JSON.parse(cachedSched));
+      }
+    } catch (e) {
+      console.warn('Could not read cached flag schedule:', e);
+    }
+
+    let flagPollTimeoutId = null;
+    let flagBackoffDelay = 3000;
+    let lastFlagEtag = null;
+    let lastFlagScheduleFetchTime = 0;
+
+    async function syncFlagEvent(forceRefresh = false) {
+      try {
+        const headers = {};
+        if (lastFlagEtag && !forceRefresh) {
+          headers['If-None-Match'] = lastFlagEtag;
+        }
+
+        const reqStart = Date.now();
+        const res = await fetch(`/api/events/today?screen=${encodeURIComponent(currentScreenCode)}`, {
+          cache: 'no-store',
+          headers
+        });
+        const reqEnd = Date.now();
+
+        if (res.status === 304) {
+          // HTTP 304 Not Modified: cheap return, schedule unchanged
+          flagBackoffDelay = 3000;
+          return;
+        }
+
+        if (res.ok) {
+          const etag = res.headers.get('ETag');
+          if (etag) lastFlagEtag = etag;
+
+          const data = await res.json();
+          lastFlagScheduleFetchTime = Date.now();
+          flagBackoffDelay = 3000;
+
+          if (data && typeof data.server_time_ms === 'number') {
+            flagScheduler.updateClockOffset(data.server_time_ms, reqStart, reqEnd);
+          }
+          flagScheduler.setSchedule(data);
+
+          try {
+            localStorage.setItem(`vnotice_flag_sched_${currentScreenCode}`, JSON.stringify(data));
+            localStorage.setItem(`vnotice_flag_offset_${currentScreenCode}`, String(flagScheduler.clockOffset || 0));
+          } catch (e) {}
+        }
+      } catch (e) {
+        console.warn('Flag schedule sync warning:', e);
+        // Exponential backoff up to 60s
+        flagBackoffDelay = Math.min(60000, Math.round(flagBackoffDelay * 1.5)) + Math.floor(Math.random() * 500);
+        // Do not wipe schedule; evaluate with existing schedule & clock offset
+        flagScheduler.evaluate();
+      }
+    }
+
+    window.syncFlagEvent = syncFlagEvent;
+
+    function scheduleNextFlagPoll() {
+      if (flagPollTimeoutId) clearTimeout(flagPollTimeoutId);
+      flagPollTimeoutId = setTimeout(async () => {
+        // Requirement 4: at least every 60 seconds, re-fetch the schedule without ETag to arm tomorrow
+        const shouldForce = (Date.now() - lastFlagScheduleFetchTime) >= 60000;
+        await syncFlagEvent(shouldForce);
+        scheduleNextFlagPoll();
+      }, flagBackoffDelay);
+    }
+
+    // Initial sync & start 3-second poll loop
+    syncFlagEvent(true).finally(() => {
+      scheduleNextFlagPoll();
+    });
+
+    // Requirement 3: Tick loop every 250ms that compares server-corrected clock
+    setInterval(() => {
+      flagScheduler.evaluate();
+    }, 250);
+  }
 
 })();
 
