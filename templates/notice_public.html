@@ -1247,24 +1247,7 @@
         const blob = await response.blob();
         const mimeType = blob.type || (noticeData.type === 'video' ? 'video/mp4' : 'image/jpeg');
 
-        // Order 1: Web Share with file (Level 2)
-        if (navigator.canShare && window.File) {
-          try {
-            const file = new File([blob], fileName, { type: mimeType });
-            if (navigator.canShare({ files: [file] })) {
-              await navigator.share({
-                files: [file],
-                title: noticeData.title
-              });
-              showToast('Saved to your device');
-              return;
-            }
-          } catch (shareErr) {
-            if (shareErr.name === 'AbortError') return; // Dismissed by user
-          }
-        }
-
-        // Order 2: Normal download of /n/<id>/file
+        // Attempt 1: Direct browser download (saves straight to device Downloads folder)
         try {
           const blobUrl = URL.createObjectURL(blob);
           const a = document.createElement('a');
@@ -1280,7 +1263,24 @@
           showToast('Saved to your device');
           return;
         } catch (dlErr) {
-          // Fall through to Order 3
+          // If direct download fails (e.g. restrictive webview), fall through to Web Share
+        }
+
+        // Attempt 2: Web Share with file (Level 2)
+        if (navigator.canShare && window.File) {
+          try {
+            const file = new File([blob], fileName, { type: mimeType });
+            if (navigator.canShare({ files: [file] })) {
+              await navigator.share({
+                files: [file],
+                title: noticeData.title
+              });
+              showToast('Saved to your device');
+              return;
+            }
+          } catch (shareErr) {
+            if (shareErr.name === 'AbortError') return; // Dismissed by user
+          }
         }
 
         // Order 3: Open in new tab with hint "Press and hold the image to save"
