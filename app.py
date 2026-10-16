@@ -712,9 +712,18 @@ def format_notice_for_display(notice):
     if n.get("media"):
         m_filename = str(n["media"])
         if not m_filename.startswith("http://") and not m_filename.startswith("https://"):
-            media_path = storage.media_storage.get_path(m_filename) if hasattr(storage.media_storage, "get_path") else Path(MEDIA_FOLDER) / m_filename
-            if media_path and media_path.exists():
-                sz = media_path.stat().st_size
+            media_path = None
+            if hasattr(storage.media_storage, "get_path"):
+                try:
+                    media_path = storage.media_storage.get_path(m_filename)
+                except Exception:
+                    media_path = None
+            if not media_path or not Path(media_path).is_file():
+                candidate = Path(MEDIA_FOLDER) / m_filename
+                if candidate.is_file():
+                    media_path = candidate
+            if media_path and Path(media_path).exists():
+                sz = Path(media_path).stat().st_size
                 n["file_size_bytes"] = sz
                 if sz < 1024 * 1024:
                     n["file_size_formatted"] = f"{round(sz / 1024, 1)} KB"
@@ -861,14 +870,26 @@ def register_public_notice_routes(app):
                 return resp
 
             # Case B: Local Media
-            media_path = storage.media_storage.get_path(media_val) if hasattr(storage.media_storage, "get_path") else Path(MEDIA_FOLDER) / media_val
-            if not media_path or not media_path.is_file():
+            media_path = None
+            if hasattr(storage.media_storage, "get_path"):
+                try:
+                    media_path = storage.media_storage.get_path(media_val)
+                except Exception:
+                    media_path = None
+            if not media_path or not Path(media_path).is_file():
+                candidate = Path(MEDIA_FOLDER) / media_val
+                if candidate.is_file():
+                    media_path = candidate
+
+            if not media_path or not Path(media_path).is_file():
                 return Response(
                     "Media file not found on server.",
                     status=404,
                     mimetype="text/plain; charset=utf-8",
                     headers={"Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff"}
                 )
+
+            media_path = Path(media_path)
 
             ext = media_path.suffix.lstrip(".").lower()
             slug = generate_download_slug(notice, ext=ext)
@@ -925,6 +946,8 @@ def register_public_notice_routes(app):
 
         if notice.get("media") and notice.get("type") == "image":
             m_filename = str(notice["media"])
+            if m_filename.startswith("http://") or m_filename.startswith("https://"):
+                return redirect(m_filename, code=302)
             media_path = Path(MEDIA_FOLDER) / m_filename
             if media_path.exists():
                 return send_from_directory(MEDIA_FOLDER, m_filename)

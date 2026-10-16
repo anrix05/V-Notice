@@ -352,3 +352,23 @@ def test_axe_zero_contrast_violations_dark_light():
             assert len(violations) == 0, f"Contrast violations in {theme} theme: {violations}"
             context.close()
         browser.close()
+
+# ==============================================================================
+# TEST 10: Mixed Storage Fallback: Local file downloaded even when Cloudinary active
+# ==============================================================================
+def test_image_notice_downloads_local_file_even_when_cloudinary_storage_active(client, local_image_notice, monkeypatch):
+    notice, expected_bytes = local_image_notice
+    # Simulate Cloudinary storage active in production (Render)
+    from storage import CloudinaryMediaStorage
+    cloudinary_backend = CloudinaryMediaStorage.__new__(CloudinaryMediaStorage)
+    cloudinary_backend.is_cloud = True
+    cloudinary_backend.uploader = None
+    cloudinary_backend.cloudinary = None
+    monkeypatch.setattr(storage, "media_storage", cloudinary_backend)
+
+    res = client.get(f"/n/{notice['id']}/file")
+    assert res.status_code == 200
+    assert res.data == expected_bytes
+    assert "attachment" in res.headers.get("Content-Disposition", "")
+    assert "ALL-robotics-competition-2026.png" in res.headers.get("Content-Disposition", "")
+

@@ -24,6 +24,7 @@ def isolated_test_environment(tmp_path_factory):
 
     config.DB_FILE = test_db
     config.MEDIA_DIR = test_media
+    config.MEDIA_FOLDER = test_media
     config.STORAGE_DIR = Path(test_dir)
 
     import storage
@@ -35,6 +36,7 @@ def isolated_test_environment(tmp_path_factory):
     try:
         import app
         app.storage = storage.storage
+        app.MEDIA_FOLDER = test_media
     except ImportError:
         pass
 

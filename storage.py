@@ -243,8 +243,10 @@ class LocalMediaStorage(MediaStorageBackend):
 
 
 class CloudinaryMediaStorage(MediaStorageBackend):
-    def __init__(self, cloudinary_url: str = None):
+    def __init__(self, cloudinary_url: str = None, media_dir: Path = None):
         self.is_cloud = True
+        import config
+        self.media_dir = Path(media_dir) if media_dir else Path(getattr(config, "MEDIA_DIR", MEDIA_DIR))
         import cloudinary
         import cloudinary.uploader
         self.cloudinary = cloudinary
@@ -365,10 +367,22 @@ class CloudinaryMediaStorage(MediaStorageBackend):
         return deleted_count
 
     def exists(self, filename: str) -> bool:
-        return bool(filename and ("res.cloudinary.com" in filename or filename.startswith("http")))
+        if not filename:
+            return False
+        if "res.cloudinary.com" in filename or filename.startswith("http"):
+            return True
+        import config
+        base_dir = getattr(self, "media_dir", None) or Path(getattr(config, "MEDIA_DIR", MEDIA_DIR))
+        p = Path(base_dir) / filename
+        return p.is_file()
 
     def get_path(self, filename: str) -> Path:
-        return None
+        if not filename or filename.startswith("http://") or filename.startswith("https://"):
+            return None
+        import config
+        base_dir = getattr(self, "media_dir", None) or Path(getattr(config, "MEDIA_DIR", MEDIA_DIR))
+        p = Path(base_dir) / filename
+        return p if p.is_file() else None
 
     def url(self, filename: str) -> str:
         return filename if filename.startswith("http") else f"/media/{filename}"

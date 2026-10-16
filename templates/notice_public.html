@@ -1218,7 +1218,7 @@
     }
 
     let isSaving = false;
-    async function triggerSaveDownload() {
+    function triggerSaveDownload() {
       if (isSaving || !noticeData.id) return;
       isSaving = true;
 
@@ -1234,66 +1234,29 @@
       const fileName = noticeData.downloadSlug;
 
       try {
-        const response = await fetch(fileUrl);
-        if (!response.ok) {
-          let errDetail = 'Media not found';
-          try {
-            const txt = await response.text();
-            if (txt && txt.length < 80) errDetail = txt.trim();
-          } catch (_) {}
-          throw new Error(errDetail);
-        }
-
-        const blob = await response.blob();
-        const mimeType = blob.type || (noticeData.type === 'video' ? 'video/mp4' : 'image/jpeg');
-
-        // Attempt 1: Direct browser download (saves straight to device Downloads folder)
-        try {
-          const blobUrl = URL.createObjectURL(blob);
-          const a = document.createElement('a');
-          a.style.display = 'none';
-          a.href = blobUrl;
-          a.download = fileName;
-          document.body.appendChild(a);
-          a.click();
-          setTimeout(() => {
-            document.body.removeChild(a);
-            URL.revokeObjectURL(blobUrl);
-          }, 1500);
-          showToast('Saved to your device');
-          return;
-        } catch (dlErr) {
-          // If direct download fails (e.g. restrictive webview), fall through to Web Share
-        }
-
-        // Attempt 2: Web Share with file (Level 2)
-        if (navigator.canShare && window.File) {
-          try {
-            const file = new File([blob], fileName, { type: mimeType });
-            if (navigator.canShare({ files: [file] })) {
-              await navigator.share({
-                files: [file],
-                title: noticeData.title
-              });
-              showToast('Saved to your device');
-              return;
-            }
-          } catch (shareErr) {
-            if (shareErr.name === 'AbortError') return; // Dismissed by user
-          }
-        }
-
-        // Order 3: Open in new tab with hint "Press and hold the image to save"
-        window.open(fileUrl, '_blank');
-        showToast('Press and hold the image to save');
+        // Direct browser download via hidden anchor
+        // /n/<id>/file serves Content-Disposition: attachment with correct filename & MIME
+        const a = document.createElement('a');
+        a.style.display = 'none';
+        a.href = fileUrl;
+        a.setAttribute('download', fileName);
+        document.body.appendChild(a);
+        a.click();
+        setTimeout(() => {
+          try { document.body.removeChild(a); } catch (_) {}
+        }, 1500);
+        showToast('Saving to your device...');
       } catch (err) {
-        showToast('Download failed: ' + (err.message || 'Error'), () => triggerSaveDownload());
+        window.open(fileUrl, '_blank');
+        showToast('Press and hold the media to save');
       } finally {
-        isSaving = false;
-        if (saveBtn) {
-          saveBtn.disabled = false;
-          if (saveText) saveText.innerHTML = originalHtml;
-        }
+        setTimeout(() => {
+          isSaving = false;
+          if (saveBtn) {
+            saveBtn.disabled = false;
+            if (saveText) saveText.innerHTML = originalHtml;
+          }
+        }, 1200);
       }
     }
 
