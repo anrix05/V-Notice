@@ -38,12 +38,20 @@
   const currentScreenCode = getScreenFromPath();
   const currentScreenId = currentScreenCode;
 
+  // Preview Mode Detection (Admin iframe previews must remain strictly silent and send no heartbeats)
+  const urlParams = new URLSearchParams(window.location.search);
+  const isPreviewMode = urlParams.get('preview') === '1' || window.self !== window.top;
+
   // Audio Readiness Detection (Autoplay unlock test)
   let audioReady = false;
   let audioCtxInstance = null;
   let currentPlayingNotice = null;
 
   async function testAudioAutoplay() {
+    if (isPreviewMode) {
+      audioReady = false;
+      return false;
+    }
     try {
       const AudioCtx = window.AudioContext || window.webkitAudioContext;
       if (AudioCtx) {
@@ -73,6 +81,14 @@
   }
 
   function syncAudioStateOnActiveVideo() {
+    if (isPreviewMode) {
+      if (videoElement) {
+        videoElement.muted = true;
+        videoElement.volume = 0;
+      }
+      if (stageSpeakerIndicator) stageSpeakerIndicator.classList.add('hidden');
+      return;
+    }
     if (isVideoPlaying && currentPlayingNotice && videoElement) {
       const noticeSound = Boolean(currentPlayingNotice.play_sound);
       const shouldPlaySound = noticeSound && currentScreenSoundEnabled && audioReady;
@@ -91,6 +107,7 @@
 
   // Heartbeat tracking (Phase 2 & 3 + Sound Readiness)
   async function sendHeartbeat() {
+    if (isPreviewMode) return;
     try {
       await fetch('/api/heartbeat', {
         method: 'POST',
@@ -102,22 +119,28 @@
       });
     } catch (e) {}
   }
-  setInterval(sendHeartbeat, 30000);
 
-  testAudioAutoplay().finally(() => {
-    sendHeartbeat();
-    syncAudioStateOnActiveVideo();
-  });
-
-  ['click', 'touchstart', 'keydown', 'pointerdown'].forEach(evt => {
-    window.addEventListener(evt, async () => {
-      if (!audioReady) {
-        await testAudioAutoplay();
-        sendHeartbeat();
-      }
+  if (!isPreviewMode) {
+    setInterval(sendHeartbeat, 30000);
+    testAudioAutoplay().finally(() => {
+      sendHeartbeat();
       syncAudioStateOnActiveVideo();
-    }, { passive: true });
-  });
+    });
+
+    ['click', 'touchstart', 'keydown', 'pointerdown'].forEach(evt => {
+      window.addEventListener(evt, async () => {
+        if (!audioReady) {
+          await testAudioAutoplay();
+          sendHeartbeat();
+        }
+        syncAudioStateOnActiveVideo();
+      }, { passive: true });
+    });
+  } else {
+    // In preview mode, ensure muted and silent state immediately
+    audioReady = false;
+    syncAudioStateOnActiveVideo();
+  }
 
   // Screen sound settings
   let currentScreenSoundEnabled = false;
@@ -1061,7 +1084,7 @@
     videoElement.addEventListener('loadeddata', capturePoster, { once: true });
 
     const noticeSound = Boolean(notice.play_sound);
-    const shouldPlaySound = noticeSound && currentScreenSoundEnabled && audioReady;
+    const shouldPlaySound = !isPreviewMode && noticeSound && currentScreenSoundEnabled && audioReady;
 
     if (shouldPlaySound) {
       videoElement.muted = false;

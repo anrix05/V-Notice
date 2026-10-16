@@ -685,8 +685,8 @@
       }
     }
 
-    const rangeStr = `${fmt(startMs)} – ${fmt(endMs)}`;
-    return `${rangeStr} ${relativeHtml ? `· ${relativeHtml}` : ''}`;
+    const rangeStr = `<div class="schedule-date-range">${fmt(startMs)} – ${fmt(endMs)}</div>`;
+    return `${rangeStr}${relativeHtml ? `<div class="schedule-rel-line">${relativeHtml}</div>` : ''}`;
   }
 
   // Gradient tile background for text notices
@@ -1319,7 +1319,7 @@
     const videoNoAudioNote = document.getElementById('video-no-audio-note');
     if (type === 'video') {
       if (videoSoundGroup) videoSoundGroup.classList.remove('hidden');
-      if (notice.has_audio === 'false') {
+      if (notice.has_audio === false || notice.has_audio === 'false') {
         if (noticePlaySound) {
           noticePlaySound.checked = false;
           noticePlaySound.disabled = true;
@@ -1369,6 +1369,7 @@
   }
 
   function closeCreateModal() {
+    stopAndDetachAllAdminMedia();
     noticeModal.classList.add('hidden');
     clearValidationErrors();
     editingNoticeId = null;
@@ -1383,6 +1384,7 @@
   }
 
   function resetCreateForm() {
+    stopAndDetachAllAdminMedia();
     createNoticeForm.reset();
     clearValidationErrors();
     clearSelectedFile();
@@ -1573,6 +1575,30 @@
     }
   }
 
+  function stopAndDetachAllAdminMedia() {
+    try {
+      const mediaEls = document.querySelectorAll('video, audio');
+      mediaEls.forEach(el => {
+        try {
+          el.pause();
+          el.muted = true;
+          el.volume = 0;
+          el.currentTime = 0;
+          el.removeAttribute('src');
+          el.load();
+        } catch (e) {}
+      });
+      if (previewMediaWrapper) {
+        previewMediaWrapper.innerHTML = '';
+      }
+      const previewIframe = document.getElementById('display-preview-iframe') || document.getElementById('preview-display-iframe');
+      if (previewIframe && previewIframe.src && !previewIframe.src.endsWith('about:blank')) {
+        previewIframe.src = 'about:blank';
+      }
+    } catch (e) {}
+  }
+  window.stopAndDetachAllAdminMedia = stopAndDetachAllAdminMedia;
+
   function attachSpeakerToggle(video, container) {
     const speakerToggle = document.createElement('button');
     speakerToggle.type = 'button';
@@ -1586,9 +1612,11 @@
       e.stopPropagation();
       video.muted = !video.muted;
       if (video.muted) {
+        video.volume = 0;
         speakerToggle.title = 'Sound off';
         speakerToggle.innerHTML = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><line x1="23" y1="9" x2="17" y2="15"></line><line x1="17" y1="9" x2="23" y2="15"></line></svg>`;
       } else {
+        video.volume = 1;
         speakerToggle.title = 'Sound on';
         speakerToggle.innerHTML = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"></path></svg>`;
         video.play().catch(() => {});
@@ -1617,10 +1645,28 @@
       const video = document.createElement('video');
       video.src = objectUrl;
       video.muted = true;
+      video.volume = 0;
       video.playsInline = true;
       video.preload = 'metadata';
+      video.loop = false;
+      video.removeAttribute('loop');
       video.onloadedmetadata = () => {
         displayRatioAndDims(video.videoWidth, video.videoHeight);
+        const noticePlaySound = document.getElementById('notice-play-sound');
+        const videoNoAudioNote = document.getElementById('video-no-audio-note');
+        if (video.audioTracks && video.audioTracks.length === 0) {
+          if (noticePlaySound) {
+            noticePlaySound.checked = false;
+            noticePlaySound.disabled = true;
+          }
+          if (videoNoAudioNote) videoNoAudioNote.classList.remove('hidden');
+        } else if (typeof video.mozHasAudio !== 'undefined' && !video.mozHasAudio) {
+          if (noticePlaySound) {
+            noticePlaySound.checked = false;
+            noticePlaySound.disabled = true;
+          }
+          if (videoNoAudioNote) videoNoAudioNote.classList.remove('hidden');
+        }
       };
       previewMediaWrapper.appendChild(video);
       attachSpeakerToggle(video, previewMediaWrapper);
@@ -1643,7 +1689,11 @@
       const video = document.createElement('video');
       video.src = url;
       video.muted = true;
+      video.volume = 0;
+      video.playsInline = true;
       video.preload = 'metadata';
+      video.loop = false;
+      video.removeAttribute('loop');
       video.onloadedmetadata = () => {
         displayRatioAndDims(video.videoWidth, video.videoHeight);
       };
@@ -1686,6 +1736,7 @@
   });
 
   function clearSelectedFile() {
+    stopAndDetachAllAdminMedia();
     mediaFileInput.value = '';
     dropPrompt.classList.remove('hidden');
     dropSelected.classList.add('hidden');
@@ -2238,11 +2289,15 @@
           const displayName = isCollegeWide ? 'College-wide' : (s.name || code);
           const fullFullName = s.name || (isAll ? 'All Departments (college-wide)' : code);
 
-          const soundStatusBadge = s.sound_enabled ? (
-            s.audio_ready
+          const isOnline = (statusClass === 'status-online');
+          let soundStatusBadge = '';
+          if (!s.last_seen || !isOnline) {
+            soundStatusBadge = `<span class="screen-sound-badge sound-not-checked" title="Sound not checked">Sound not checked</span>`;
+          } else if (s.sound_enabled) {
+            soundStatusBadge = s.audio_ready
               ? `<span class="screen-sound-badge sound-ready" title="Sound ready">Sound ready</span>`
-              : `<span class="screen-sound-badge sound-blocked" title="Sound blocked">Sound blocked</span>`
-          ) : '';
+              : `<span class="screen-sound-badge sound-blocked" title="Sound blocked">Sound blocked</span>`;
+          }
 
           return `
             <article class="screen-item-card" data-code="${escapeHtml(code)}">
@@ -2261,10 +2316,13 @@
                 <span class="screen-endpoint-text">/display/${encodeURIComponent(code)}</span>
               </div>
               <div class="screen-sound-controls">
-                <label class="screen-sound-toggle-label">
-                  <input type="checkbox" class="screen-sound-toggle" data-code="${escapeHtml(code)}" ${s.sound_enabled ? 'checked' : ''}>
-                  <span>Sound</span>
-                </label>
+                <div class="screen-sound-switch-row">
+                  <span class="screen-sound-label">Sound</span>
+                  <label class="switch-toggle" aria-label="Toggle screen sound for ${escapeHtml(code)}">
+                    <input type="checkbox" class="screen-sound-toggle" data-code="${escapeHtml(code)}" ${s.sound_enabled ? 'checked' : ''}>
+                    <span class="switch-slider"></span>
+                  </label>
+                </div>
                 <div class="screen-volume-wrap ${s.sound_enabled ? '' : 'disabled-wrap'}" ${s.sound_enabled ? '' : 'aria-disabled="true"'}>
                   <label for="vol-${escapeHtml(code)}">Volume</label>
                   <input type="range" class="screen-volume-slider" id="vol-${escapeHtml(code)}" min="0" max="100" value="${typeof s.sound_volume === 'number' ? s.sound_volume : 70}" data-code="${escapeHtml(code)}" ${s.sound_enabled ? '' : 'disabled'}>
@@ -2772,11 +2830,11 @@
   // Display Viewport Preview Switcher in Settings (Scaled Iframe Modal)
   // ==========================================================================
   const previewModal = document.getElementById('preview-modal');
-  const btnClosePreview = document.getElementById('btn-close-preview-modal');
+  const btnClosePreview = document.getElementById('btn-close-preview') || document.getElementById('btn-close-preview-modal');
   const previewBadge = document.getElementById('preview-size-badge');
-  const previewIframe = document.getElementById('preview-display-iframe');
-  const previewWrapper = document.getElementById('preview-viewport-wrapper');
-  const previewBody = document.getElementById('preview-modal-body');
+  const previewIframe = document.getElementById('display-preview-iframe') || document.getElementById('preview-display-iframe');
+  const previewWrapper = document.getElementById('preview-iframe-scaler') || document.getElementById('preview-viewport-wrapper');
+  const previewBody = document.getElementById('preview-viewport-wrap') || document.getElementById('preview-modal-body');
   let activePreviewDims = { w: 1920, h: 1080 };
 
   function updatePreviewScale(w, h) {
@@ -2804,7 +2862,7 @@
       const h = parseInt(btn.getAttribute('data-height'), 10) || 1080;
       activePreviewDims = { w, h };
       if (previewBadge) previewBadge.textContent = `${w}×${h} px`;
-      if (previewIframe) previewIframe.src = '/display/ALL';
+      if (previewIframe) previewIframe.src = '/display/ALL?preview=1';
       if (previewModal) {
         previewModal.classList.remove('hidden');
         requestAnimationFrame(() => updatePreviewScale(w, h));
@@ -2816,6 +2874,7 @@
     btnClosePreview.addEventListener('click', () => {
       if (previewModal) previewModal.classList.add('hidden');
       if (previewIframe) previewIframe.src = 'about:blank';
+      if (typeof stopAndDetachAllAdminMedia === 'function') stopAndDetachAllAdminMedia();
     });
   }
   if (previewModal) {
@@ -2823,6 +2882,7 @@
       if (e.target === previewModal) {
         previewModal.classList.add('hidden');
         if (previewIframe) previewIframe.src = 'about:blank';
+        if (typeof stopAndDetachAllAdminMedia === 'function') stopAndDetachAllAdminMedia();
       }
     });
   }
@@ -3103,6 +3163,7 @@
   let closedViaUi = false;
 
   function switchTab(tabName, options = {}) {
+    if (typeof stopAndDetachAllAdminMedia === 'function') stopAndDetachAllAdminMedia();
     const fromHistory = typeof options === 'boolean'
       ? !options
       : Boolean(options && options.fromHistory);

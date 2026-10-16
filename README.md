@@ -276,9 +276,35 @@ V Notice features an official **merged "VN" monogram** built on Concept A shared
 - **Dynamic Swapping**: Driven directly by CSS variables (`--logo-tile`, `--logo-border`, `--logo-letters`, `--logo-diagonal`) across dark and light admin themes. On kiosk displays, the amber diagonal features a subtle 2.4s pulse (disabled under `prefers-reduced-motion`).
 
 
-### ⚡ 10. Kiosk Audio Configuration & NTP Time Synchronization
-- **Chromium Autoplay Flag**: Raspberry Pi kiosks launch Chromium with `--autoplay-policy=no-user-gesture-required` (in `systemd/kiosk.sh`) to allow audio playback without prior user interaction on physical kiosks.
-- **NTP Time Synchronization**: Daily events (such as the 11:00 AM National Flag screen) require sub-second clock synchronization across all corridor kiosks. Ensure NTP is active on all Raspberry Pis:
+### ⚡ 10. Sound on Kiosks & NTP Time Synchronization
+
+#### Sound on Kiosks
+Modern web browsers (Chrome, Chromium, Edge) enforce strict autoplay policies that block unmuted audio playback unless the user has interacted with the page via a click or tap. Web application code cannot override this browser security policy from JavaScript. Therefore:
+- **Normal Browser Tab**: Opening a kiosk URL in a normal desktop or laptop browser tab requires one click anywhere on the page to unlock sound. If unclicked, the kiosk gracefully plays video notices muted, reports `"Sound blocked"` to the admin portal, and automatically unlocks sound on the first physical screen interaction without showing intrusive popups or buttons.
+- **Dedicated Kiosk Displays (Sound Without a Click)**: Physical kiosk boards should be launched with the Chromium flag `--autoplay-policy=no-user-gesture-required` and a dedicated `--user-data-dir` so unmuted audio plays seamlessly on boot without needing any manual touch or click.
+
+**Windows Launch Command**:
+```cmd
+start_display.bat https://v-notice.onrender.com/display/ALL
+```
+*(Or simply run `start_display.bat` to launch with the default college-wide display URL).*
+
+**Linux / Raspberry Pi Launch Command**:
+```bash
+./start_display.sh https://v-notice.onrender.com/display/ALL
+```
+*(Or on Raspberry Pi systems configured with systemd, [`systemd/kiosk.sh`](systemd/kiosk.sh) automatically passes this flag on boot).*
+
+**Enterprise & Managed PCs**:
+For institutional deployments with managed Chrome or Edge browsers via Group Policy or Google Admin Console, configure the **`AutoplayAllowlist`** enterprise policy:
+```json
+{
+  "AutoplayAllowlist": ["https://v-notice.onrender.com", "http://localhost:5000"]
+}
+```
+This grants automatic unmuted audio permission to the campus display URLs across all managed workstations and screens without command-line flags.
+
+#### NTP Time Synchronization
   ```bash
   # Enable and check NTP synchronization
   sudo timedatectl set-ntp true
