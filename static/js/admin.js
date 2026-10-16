@@ -3431,6 +3431,37 @@
     }
   });
 
+  // Clean Unused Media trigger
+  const btnCleanMedia = document.getElementById('btn-clean-media');
+  if (btnCleanMedia) {
+    btnCleanMedia.addEventListener('click', async () => {
+      if (!confirm('Scan and delete unused media files from storage?')) return;
+      btnCleanMedia.disabled = true;
+      const originalText = btnCleanMedia.textContent;
+      btnCleanMedia.textContent = 'Cleaning...';
+      try {
+        const res = await fetch('/api/media/clean-orphans', {
+          method: 'POST',
+          headers: {
+            'X-Password': getAdminPassword(),
+            'X-CSRF-Token': (await getCsrfToken()) || ''
+          }
+        });
+        const data = await res.json();
+        if (data.success) {
+          showToast(`Cleaned ${data.cleaned_count} unused media file(s).`);
+        } else {
+          showToast(data.error || 'Failed to clean media.');
+        }
+      } catch (err) {
+        showToast('Error cleaning media.');
+      } finally {
+        btnCleanMedia.disabled = false;
+        btnCleanMedia.textContent = originalText;
+      }
+    });
+  }
+
   // ==========================================================================
   // Theme Management (Dark / Light / Auto)
   // ==========================================================================
@@ -3624,9 +3655,11 @@
   }
 
   // ==========================================================================
-  // Daily National Flag Event Controller (Part B)
+  // Daily National Flag Event Controller (Multi-event support)
   // ==========================================================================
-  let currentFlagSettings = null;
+  let currentFlagEvents = [];
+  const expandedEventIds = new Set(['anthem']);
+  let targetRunEventId = 'anthem';
 
   async function loadFlagSettings() {
     const flagCard = document.getElementById('settings-card-flag-event');
@@ -3641,173 +3674,565 @@
       });
       if (!res.ok) return;
       const data = await res.json();
-      if (!data.success || !data.event) return;
+      if (!data.success) return;
 
-      currentFlagSettings = data.event;
-      const evt = data.event;
-
-      const enabledSwitch = document.getElementById('flag-enabled-switch');
-      const startTimeInput = document.getElementById('flag-start-time');
-      const startOffsetInput = document.getElementById('flag-start-offset');
-      const durationInput = document.getElementById('flag-duration');
-      const screensInput = document.getElementById('flag-screens-input');
-      const standupSwitch = document.getElementById('flag-standup-switch');
+      currentFlagEvents = data.events || (data.event ? [data.event] : []);
       const nextRunBadge = document.getElementById('flag-next-run-badge');
-      const lastRunStatus = document.getElementById('flag-last-run-status');
-
-      if (enabledSwitch) enabledSwitch.checked = Boolean(evt.enabled);
-      if (startTimeInput) startTimeInput.value = evt.start_time || '11:00';
-      if (startOffsetInput) startOffsetInput.value = (typeof evt.start_offset_seconds === 'number') ? evt.start_offset_seconds : 0;
-      if (durationInput) durationInput.value = (typeof evt.duration_seconds === 'number') ? evt.duration_seconds : 60;
-      if (screensInput) screensInput.value = evt.screens || 'ALL';
-      if (standupSwitch) standupSwitch.checked = Boolean(evt.show_standup_text);
-      if (nextRunBadge) nextRunBadge.textContent = `Next run: ${data.next_run || 'Not scheduled'}`;
-      if (lastRunStatus) {
-        lastRunStatus.textContent = evt.last_run_result ? `Last run: ${evt.last_run_result}` : '';
+      if (nextRunBadge) {
+        nextRunBadge.textContent = `Next run: ${data.next_run || 'Not scheduled'}`;
       }
 
-      // Populate days of week
-      const days = evt.days_of_week || ['mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
-      document.querySelectorAll('#flag-days-picker input[name="flag_day"]').forEach(cb => {
-        cb.checked = days.includes(cb.value.toLowerCase());
-      });
+      const addBtn = document.getElementById('btn-add-flag-event');
+      if (addBtn) {
+        addBtn.disabled = currentFlagEvents.length >= 6;
+        addBtn.title = currentFlagEvents.length >= 6 ? 'Maximum of 6 daily events allowed' : 'Add daily event';
+      }
 
-      renderSkipDatesList(evt.skip_dates || []);
+      renderFlagEventsList();
     } catch (e) {
       console.warn('Failed to load flag settings:', e);
     }
   }
 
-  function renderSkipDatesList(dates) {
-    const list = document.getElementById('flag-skip-dates-list');
-    if (!list) return;
-    list.innerHTML = '';
-    if (!dates || dates.length === 0) {
-      list.innerHTML = '<span style="font-size: 12px; color: var(--muted);">No skip dates configured</span>';
-      return;
+  function getDefaultPrompts(eventLabel, eventId) {
+    const l = (eventLabel || '').toLowerCase();
+    const id = (eventId || '').toLowerCase();
+    if (id === 'anthem' || l.includes('anthem') || l.includes('राष्ट्रगान')) {
+      return {
+        en: 'Please stand for the National Anthem',
+        hi: 'कृपया राष्ट्रगान के लिए खड़े हो जाएँ',
+        mr: 'कृपया राष्ट्रगीतासाठी उभे राहा'
+      };
+    } else if (id === 'vande_mataram' || l.includes('vande') || l.includes('वंदे')) {
+      return {
+        en: 'Please stand for Vande Mataram',
+        hi: 'कृपया वंदे मातरम् के लिए खड़े हो जाएँ',
+        mr: 'कृपया वंदे मातरमसाठी उभे राहा'
+      };
+    } else {
+      return {
+        en: `Please stand for ${eventLabel || 'the event'}`,
+        hi: '',
+        mr: ''
+      };
     }
-    dates.forEach(d => {
-      const tag = document.createElement('span');
-      tag.className = 'skip-date-tag';
-      tag.innerHTML = `<span>${escapeHtml(d)}</span><button type="button" class="btn-remove-skip-date" data-date="${escapeHtml(d)}" title="Remove date">&times;</button>`;
-      list.appendChild(tag);
+  }
+
+  function renderFlagEventsList() {
+    const list = document.getElementById('flag-events-list');
+    if (!list) return;
+
+    list.innerHTML = '';
+    currentFlagEvents.forEach(evt => {
+      const isAnthem = evt.id === 'anthem';
+      const isExpanded = expandedEventIds.has(evt.id);
+      const days = evt.days_of_week || ['mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
+      const screensVal = Array.isArray(evt.screens) ? evt.screens.join(', ') : (evt.screens || 'ALL');
+
+      const card = document.createElement('div');
+      card.className = `flag-event-card ${isExpanded ? 'expanded' : ''}`;
+      card.id = `flag-event-card-${evt.id}`;
+      card.setAttribute('data-event-id', evt.id);
+
+      const daysOfWeekKeys = [
+        ['mon', 'Mon'], ['tue', 'Tue'], ['wed', 'Wed'],
+        ['thu', 'Thu'], ['fri', 'Fri'], ['sat', 'Sat'], ['sun', 'Sun']
+      ];
+      const daysCheckboxesHtml = daysOfWeekKeys.map(([k, label]) => {
+        const checked = days.includes(k) ? 'checked' : '';
+        return `<label class="day-opt"><input type="checkbox" name="flag_day" value="${k}" ${checked}> <span>${label}</span></label>`;
+      }).join('');
+
+      const skipDates = Array.isArray(evt.skip_dates) ? evt.skip_dates : [];
+      const skipDatesHtml = skipDates.length === 0
+        ? '<span style="font-size: 12px; color: var(--muted);">No skip dates configured</span>'
+        : skipDates.map(d => `
+          <span class="skip-date-tag">
+            <span>${escapeHtml(d)}</span>
+            <button type="button" class="btn-remove-skip-date" data-event-id="${evt.id}" data-date="${escapeHtml(d)}" title="Remove date">&times;</button>
+          </span>
+        `).join('');
+
+      card.innerHTML = `
+        <div class="flag-event-header">
+          <div class="flag-event-summary">
+            <span class="flag-event-chevron">▶</span>
+            <span class="flag-event-title">${escapeHtml(evt.label || evt.id)}</span>
+            <span class="flag-event-time-badge">${escapeHtml(evt.start_time || '11:00')}</span>
+            <span class="flag-event-next-badge">${escapeHtml(evt.next_run || '')}</span>
+          </div>
+          <div class="flag-event-header-actions">
+            <label class="switch-toggle" onclick="event.stopPropagation()">
+              <input type="checkbox" class="flag-event-toggle" ${isAnthem ? 'id="flag-enabled-switch"' : ''} data-event-id="${evt.id}" ${evt.enabled ? 'checked' : ''}>
+              <span class="switch-slider"></span>
+            </label>
+          </div>
+        </div>
+
+        <div class="flag-event-body" style="display: ${isExpanded ? 'block' : 'none'};">
+          <form class="flag-event-item-form" data-event-id="${evt.id}">
+            <div class="form-group" style="margin-bottom: 12px;">
+              <label class="form-label">Event label</label>
+              <input type="text" name="label" class="form-control" value="${escapeHtml(evt.label || '')}" maxlength="60" required>
+            </div>
+
+            <div class="flag-fields-grid">
+              <div class="form-group">
+                <label class="form-label">Start time</label>
+                <input type="time" ${isAnthem ? 'id="flag-start-time"' : ''} name="start_time" class="form-control" value="${escapeHtml(evt.start_time || '11:00')}" required>
+                <span class="field-hint">Asia/Kolkata timezone</span>
+              </div>
+
+              <div class="form-group">
+                <label class="form-label">Start offset (seconds)</label>
+                <input type="number" ${isAnthem ? 'id="flag-start-offset"' : ''} name="start_offset_seconds" class="form-control" min="-60" max="60" value="${evt.start_offset_seconds || 0}" required>
+                <span class="field-hint">Line up with the audio system</span>
+              </div>
+
+              <div class="form-group">
+                <label class="form-label">Duration (seconds)</label>
+                <input type="number" ${isAnthem ? 'id="flag-duration"' : ''} name="duration_seconds" class="form-control" min="10" max="300" value="${evt.duration_seconds || 60}" required>
+                <span class="field-hint">Audio length plus about 5 seconds</span>
+              </div>
+            </div>
+
+            <div class="form-group">
+              <label class="form-label">Days of week</label>
+              <div class="flag-days-picker" id="${isAnthem ? 'flag-days-picker' : `flag-days-picker-${evt.id}`}">
+                ${daysCheckboxesHtml}
+              </div>
+            </div>
+
+            <div class="form-group">
+              <label class="form-label">Target screens</label>
+              <input type="text" ${isAnthem ? 'id="flag-screens-input"' : ''} name="screens" class="form-control" value="${escapeHtml(screensVal)}" placeholder="ALL or comma-separated codes (e.g. ALL, CMPN, IT)">
+              <span class="field-hint">Enter ALL to target every display or specific screen codes</span>
+            </div>
+
+            <div class="settings-row" style="margin-top: 14px;">
+              <div class="settings-label-wrap">
+                <span class="settings-label">Show stand-up text</span>
+                <span class="settings-sublabel">Shows 15-second trilingual prompt before the flag</span>
+              </div>
+              <label class="switch-toggle">
+                <input type="checkbox" ${isAnthem ? 'id="flag-standup-switch"' : ''} class="flag-standup-toggle" name="show_standup_text" ${evt.show_standup_text ? 'checked' : ''}>
+                <span class="switch-slider"></span>
+              </label>
+            </div>
+
+            <div class="standup-prompts-section">
+              <div class="standup-prompts-header">
+                <span class="form-label" style="margin: 0;">Stand-up prompt lines</span>
+                <button type="button" class="reset-standup-link btn-reset-standup" data-event-id="${evt.id}">Reset to default</button>
+              </div>
+              <div class="form-group" style="margin-bottom: 8px;">
+                <label class="field-hint">English line (max 60 characters)</label>
+                <input type="text" name="standup_en" class="form-control input-standup-en" maxlength="60" value="${escapeHtml(evt.standup_en || '')}">
+              </div>
+              <div class="form-group" style="margin-bottom: 8px;">
+                <label class="field-hint">Hindi line (max 60 characters)</label>
+                <input type="text" name="standup_hi" class="form-control input-standup-hi" maxlength="60" value="${escapeHtml(evt.standup_hi || '')}">
+              </div>
+              <div class="form-group">
+                <label class="field-hint">Marathi line (max 60 characters)</label>
+                <input type="text" name="standup_mr" class="form-control input-standup-mr" maxlength="60" value="${escapeHtml(evt.standup_mr || '')}">
+              </div>
+            </div>
+
+            <div class="form-group">
+              <div class="label-row">
+                <label class="form-label">Skip dates</label>
+                <button type="button" ${isAnthem ? 'id="btn-flag-skip-today"' : ''} class="btn btn-secondary btn-sm btn-event-skip-today" data-event-id="${evt.id}">Skip today</button>
+              </div>
+              <div class="skip-dates-manager">
+                <div class="skip-dates-add-row">
+                  <input type="date" ${isAnthem ? 'id="flag-new-skip-date"' : ''} class="form-control form-control-sm skip-date-input">
+                  <button type="button" ${isAnthem ? 'id="btn-add-skip-date"' : ''} class="btn btn-secondary btn-sm btn-add-skip-date-item" data-event-id="${evt.id}">Add date</button>
+                </div>
+                <div class="skip-dates-list" id="${isAnthem ? 'flag-skip-dates-list' : `flag-skip-dates-list-${evt.id}`}">
+                  ${skipDatesHtml}
+                </div>
+              </div>
+            </div>
+
+            <div class="flag-action-bar">
+              <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+                <button type="submit" ${isAnthem ? 'id="btn-save-flag-settings"' : ''} class="btn btn-primary btn-save-event" data-event-id="${evt.id}">Save event</button>
+                <button type="button" ${isAnthem ? 'id="btn-flag-preview-5x"' : ''} class="btn btn-secondary btn-sm btn-event-preview" data-event-id="${evt.id}">Preview here (silent)</button>
+                <button type="button" ${isAnthem ? 'id="btn-flag-run-now"' : ''} class="btn btn-secondary btn-sm btn-event-run-now" data-event-id="${evt.id}">Run now on screen...</button>
+                ${currentFlagEvents.length > 1 ? `<button type="button" class="btn btn-danger btn-sm btn-event-delete" data-event-id="${evt.id}">Delete event</button>` : ''}
+              </div>
+              <span class="last-run-status" ${isAnthem ? 'id="flag-last-run-status"' : ''}>${evt.last_run_result ? `Last run: ${escapeHtml(evt.last_run_result)}` : ''}</span>
+            </div>
+          </form>
+        </div>
+      `;
+
+      list.appendChild(card);
     });
 
-    list.querySelectorAll('.btn-remove-skip-date').forEach(btn => {
-      btn.addEventListener('click', async () => {
-        const d = btn.getAttribute('data-date');
-        if (currentFlagSettings && Array.isArray(currentFlagSettings.skip_dates)) {
-          const nextDates = currentFlagSettings.skip_dates.filter(x => x !== d);
-          await saveFlagSettingsPayload({ skip_dates: nextDates });
+    wireFlagEventsListListeners();
+  }
+
+  function wireFlagEventsListListeners() {
+    const list = document.getElementById('flag-events-list');
+    if (!list) return;
+
+    // Header accordion toggle
+    list.querySelectorAll('.flag-event-header').forEach(header => {
+      header.addEventListener('click', (e) => {
+        if (e.target.closest('.switch-toggle')) return;
+        const card = header.closest('.flag-event-card');
+        if (!card) return;
+        const evId = card.getAttribute('data-event-id');
+        const body = card.querySelector('.flag-event-body');
+        if (expandedEventIds.has(evId)) {
+          expandedEventIds.delete(evId);
+          card.classList.remove('expanded');
+          if (body) body.style.display = 'none';
+        } else {
+          expandedEventIds.add(evId);
+          card.classList.add('expanded');
+          if (body) body.style.display = 'block';
         }
+      });
+    });
+
+    // Enabled switch toggle directly from header
+    list.querySelectorAll('.flag-event-toggle').forEach(sw => {
+      sw.addEventListener('change', async (e) => {
+        e.stopPropagation();
+        const evId = sw.getAttribute('data-event-id');
+        await saveFlagEventPayload(evId, { enabled: sw.checked });
+      });
+    });
+
+    // Form submit -> save event
+    list.querySelectorAll('.flag-event-item-form').forEach(form => {
+      form.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const evId = form.getAttribute('data-event-id');
+        const data = collectEventFormData(form);
+        await saveFlagEventPayload(evId, data);
+      });
+    });
+
+    // Reset to default prompts link
+    list.querySelectorAll('.btn-reset-standup').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.preventDefault();
+        const evId = btn.getAttribute('data-event-id');
+        const form = btn.closest('.flag-event-item-form');
+        if (!form) return;
+        const labelInput = form.querySelector('input[name="label"]');
+        const eventLabel = labelInput ? labelInput.value : '';
+        const defs = getDefaultPrompts(eventLabel, evId);
+
+        const enInput = form.querySelector('input[name="standup_en"]');
+        const hiInput = form.querySelector('input[name="standup_hi"]');
+        const mrInput = form.querySelector('input[name="standup_mr"]');
+        if (enInput) enInput.value = defs.en;
+        if (hiInput) hiInput.value = defs.hi;
+        if (mrInput) mrInput.value = defs.mr;
+        showToast('Prompts reset to default.');
+      });
+    });
+
+    // Skip today button per event
+    list.querySelectorAll('.btn-event-skip-today').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const evId = btn.getAttribute('data-event-id');
+        const csrf = await getCsrfToken();
+        try {
+          const res = await fetch(`/api/admin/events/flag/${encodeURIComponent(evId)}/skip-today`, {
+            method: 'POST',
+            headers: { 'X-CSRF-Token': csrf, 'X-Password': getAdminPassword() }
+          });
+          if (res.ok) {
+            showToast('Flag screen skipped for today.');
+            await loadFlagSettings();
+          } else {
+            const err = await res.json();
+            showToast(err.error || 'Failed to skip today', true);
+          }
+        } catch (e) {
+          showToast('Network error skipping today', true);
+        }
+      });
+    });
+
+    // Add skip date button per event
+    list.querySelectorAll('.btn-add-skip-date-item').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const evId = btn.getAttribute('data-event-id');
+        const form = btn.closest('.flag-event-item-form');
+        if (!form) return;
+        const dateInput = form.querySelector('.skip-date-input');
+        if (!dateInput || !dateInput.value) {
+          showToast('Select a date to add to skip dates', true);
+          return;
+        }
+        const val = dateInput.value;
+        const targetEv = currentFlagEvents.find(x => x.id === evId);
+        const existing = (targetEv && Array.isArray(targetEv.skip_dates)) ? targetEv.skip_dates : [];
+        if (!existing.includes(val)) {
+          const next = [...existing, val].sort();
+          await saveFlagEventPayload(evId, { skip_dates: next });
+          dateInput.value = '';
+        } else {
+          showToast('Date already added');
+        }
+      });
+    });
+
+    // Remove skip date tag
+    list.querySelectorAll('.btn-remove-skip-date').forEach(btn => {
+      btn.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        const evId = btn.getAttribute('data-event-id');
+        const d = btn.getAttribute('data-date');
+        const targetEv = currentFlagEvents.find(x => x.id === evId);
+        if (targetEv && Array.isArray(targetEv.skip_dates)) {
+          const next = targetEv.skip_dates.filter(x => x !== d);
+          await saveFlagEventPayload(evId, { skip_dates: next });
+        }
+      });
+    });
+
+    // Delete event button
+    list.querySelectorAll('.btn-event-delete').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const evId = btn.getAttribute('data-event-id');
+        const targetEv = currentFlagEvents.find(x => x.id === evId);
+        const evLabel = targetEv ? targetEv.label : evId;
+        if (currentFlagEvents.length <= 1) {
+          showToast('Cannot delete the only remaining daily event.', true);
+          return;
+        }
+        if (!confirm(`Are you sure you want to delete ${evLabel}?`)) return;
+
+        const csrf = await getCsrfToken();
+        try {
+          const res = await fetch(`/api/admin/events/flag/${encodeURIComponent(evId)}`, {
+            method: 'DELETE',
+            headers: { 'X-CSRF-Token': csrf, 'X-Password': getAdminPassword() }
+          });
+          if (res.ok) {
+            showToast('Event deleted.');
+            expandedEventIds.delete(evId);
+            await loadFlagSettings();
+          } else {
+            const err = await res.json();
+            showToast(err.error || 'Failed to delete event', true);
+          }
+        } catch (e) {
+          showToast('Network error deleting event', true);
+        }
+      });
+    });
+
+    // Preview here (silent) button per event
+    list.querySelectorAll('.btn-event-preview').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const evId = btn.getAttribute('data-event-id');
+        const targetEv = currentFlagEvents.find(x => x.id === evId) || {};
+        openFlagPreviewModal(targetEv);
+      });
+    });
+
+    // Run now on screen... button per event
+    list.querySelectorAll('.btn-event-run-now').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const evId = btn.getAttribute('data-event-id');
+        targetRunEventId = evId;
+        const targetEv = currentFlagEvents.find(x => x.id === evId) || {};
+        const form = btn.closest('.flag-event-item-form') || document.querySelector(`.flag-event-card[data-event-id="${evId}"] form`);
+        const durInput = form ? form.querySelector('input[name="duration_seconds"]') : null;
+        const dur = durInput && durInput.value ? (parseInt(durInput.value, 10) || targetEv.duration_seconds || 60) : (targetEv.duration_seconds || 60);
+        const msgEl = document.getElementById('flag-confirm-message');
+        if (msgEl) {
+          msgEl.textContent = `This will replace the display with the flag for ${dur} seconds (${targetEv.label || evId})`;
+        }
+        const modal = document.getElementById('flag-confirm-modal');
+        if (modal) modal.classList.remove('hidden');
       });
     });
   }
 
-  async function saveFlagSettingsPayload(partialData = {}) {
-    const enabledSwitch = document.getElementById('flag-enabled-switch');
-    const startTimeInput = document.getElementById('flag-start-time');
-    const startOffsetInput = document.getElementById('flag-start-offset');
-    const durationInput = document.getElementById('flag-duration');
-    const screensInput = document.getElementById('flag-screens-input');
-    const standupSwitch = document.getElementById('flag-standup-switch');
+  function collectEventFormData(form) {
+    const evId = form.getAttribute('data-event-id');
+    const targetEv = currentFlagEvents.find(x => x.id === evId) || {};
+
+    const labelInput = form.querySelector('input[name="label"]');
+    const startTimeInput = form.querySelector('input[name="start_time"]');
+    const startOffsetInput = form.querySelector('input[name="start_offset_seconds"]');
+    const durationInput = form.querySelector('input[name="duration_seconds"]');
+    const screensInput = form.querySelector('input[name="screens"]');
+    const standupSwitch = form.querySelector('input[name="show_standup_text"]');
+    const enInput = form.querySelector('input[name="standup_en"]');
+    const hiInput = form.querySelector('input[name="standup_hi"]');
+    const mrInput = form.querySelector('input[name="standup_mr"]');
 
     const selectedDays = [];
-    document.querySelectorAll('#flag-days-picker input[name="flag_day"]:checked').forEach(cb => {
+    form.querySelectorAll('input[name="flag_day"]:checked').forEach(cb => {
       selectedDays.push(cb.value);
     });
 
-    const payload = {
-      enabled: enabledSwitch ? enabledSwitch.checked : false,
+    return {
+      label: labelInput ? labelInput.value.trim() : (targetEv.label || 'Daily Event'),
       start_time: startTimeInput ? startTimeInput.value : '11:00',
       start_offset_seconds: startOffsetInput ? parseInt(startOffsetInput.value, 10) : 0,
       duration_seconds: durationInput ? parseInt(durationInput.value, 10) : 60,
       days_of_week: selectedDays.join(','),
       screens: screensInput ? screensInput.value.trim() : 'ALL',
       show_standup_text: standupSwitch ? standupSwitch.checked : false,
-      skip_dates: currentFlagSettings ? currentFlagSettings.skip_dates : [],
-      ...partialData
+      standup_en: enInput ? enInput.value.trim() : '',
+      standup_hi: hiInput ? hiInput.value.trim() : '',
+      standup_mr: mrInput ? mrInput.value.trim() : '',
+      skip_dates: targetEv.skip_dates || []
     };
+  }
 
+  async function saveFlagEventPayload(eventId, partialData = {}) {
     const csrf = await getCsrfToken();
     try {
-      const res = await fetch('/api/admin/events/flag', {
+      const res = await fetch(`/api/admin/events/flag/${encodeURIComponent(eventId)}`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
           'X-CSRF-Token': csrf,
           'X-Password': getAdminPassword()
         },
-        body: JSON.stringify(payload)
+        body: JSON.stringify(partialData)
       });
       if (res.ok) {
-        showToast('Flag settings saved.');
+        showToast('Event saved.');
         await loadFlagSettings();
       } else {
         const err = await res.json();
-        showToast(err.error || 'Failed to save flag settings', true);
+        showToast(err.error || 'Failed to save event', true);
       }
     } catch (e) {
-      showToast('Network error saving flag settings', true);
+      showToast('Network error saving event', true);
     }
   }
 
-  const flagSettingsForm = document.getElementById('flag-settings-form');
-  if (flagSettingsForm) {
-    flagSettingsForm.addEventListener('submit', async (e) => {
-      e.preventDefault();
-      await saveFlagSettingsPayload();
-    });
-  }
+  // Add event button listener
+  const btnAddFlagEvent = document.getElementById('btn-add-flag-event');
+  if (btnAddFlagEvent) {
+    btnAddFlagEvent.addEventListener('click', async () => {
+      if (currentFlagEvents.length >= 6) {
+        showToast('Maximum of 6 daily events allowed.', true);
+        return;
+      }
 
-  // Skip today button
-  const btnFlagSkipToday = document.getElementById('btn-flag-skip-today');
-  if (btnFlagSkipToday) {
-    btnFlagSkipToday.addEventListener('click', async () => {
+      // Find an unused hourly time slot to prevent immediate overlap
+      const usedTimes = new Set(currentFlagEvents.map(e => e.start_time));
+      const candidates = ['12:00', '13:00', '14:00', '15:00', '16:00', '18:00', '19:00', '10:00'];
+      const nextTime = candidates.find(t => !usedTimes.has(t)) || '12:00';
+
       const csrf = await getCsrfToken();
       try {
-        const res = await fetch('/api/admin/events/flag/skip-today', {
+        const newEventNum = currentFlagEvents.length + 1;
+        const res = await fetch('/api/admin/events/flag', {
           method: 'POST',
-          headers: { 'X-CSRF-Token': csrf, 'X-Password': getAdminPassword() }
+          headers: {
+            'Content-Type': 'application/json',
+            'X-CSRF-Token': csrf,
+            'X-Password': getAdminPassword()
+          },
+          body: JSON.stringify({
+            label: `Daily Event ${newEventNum}`,
+            start_time: nextTime,
+            start_offset_seconds: 0,
+            duration_seconds: 60,
+            days_of_week: 'mon,tue,wed,thu,fri,sat',
+            screens: 'ALL',
+            show_standup_text: false,
+            standup_en: `Please stand for Daily Event ${newEventNum}`,
+            standup_hi: '',
+            standup_mr: '',
+            enabled: false
+          })
         });
+
         if (res.ok) {
-          showToast('Flag screen skipped for today.');
+          const data = await res.json();
+          if (data.event && data.event.id) {
+            expandedEventIds.add(data.event.id);
+          }
+          showToast('Event added.');
           await loadFlagSettings();
         } else {
           const err = await res.json();
-          showToast(err.error || 'Failed to skip today', true);
+          showToast(err.error || 'Failed to add event', true);
         }
       } catch (e) {
-        showToast('Network error skipping today', true);
+        showToast('Network error adding event', true);
       }
     });
   }
 
-  // Add skip date button
-  const btnAddSkipDate = document.getElementById('btn-add-skip-date');
-  const flagNewSkipDate = document.getElementById('flag-new-skip-date');
-  if (btnAddSkipDate && flagNewSkipDate) {
-    btnAddSkipDate.addEventListener('click', async () => {
-      const val = flagNewSkipDate.value;
-      if (!val) {
-        showToast('Select a date to add to skip dates', true);
-        return;
-      }
-      const existing = (currentFlagSettings && Array.isArray(currentFlagSettings.skip_dates)) ? currentFlagSettings.skip_dates : [];
-      if (!existing.includes(val)) {
-        const next = [...existing, val].sort();
-        await saveFlagSettingsPayload({ skip_dates: next });
-        flagNewSkipDate.value = '';
-      } else {
-        showToast('Date already added');
-      }
-    });
+  // Preview Modal simulation (5x Speed Silent Preview)
+  function openFlagPreviewModal(eventObj) {
+    const previewModal = document.getElementById('preview-modal');
+    const previewTitle = document.getElementById('preview-modal-title');
+    const previewSubtitle = document.getElementById('preview-modal-subtitle');
+    const scaler = document.getElementById('preview-iframe-scaler');
+    const iframe = document.getElementById('display-preview-iframe');
+
+    if (!previewModal || !scaler) return;
+
+    if (previewTitle) previewTitle.textContent = `${eventObj.label || 'National Flag'} Preview`;
+    if (previewSubtitle) previewSubtitle.textContent = 'Silent 5x simulation (Stand-up + Fullscreen Flag)';
+
+    if (iframe) iframe.style.display = 'none';
+
+    let simContainer = document.getElementById('flag-sim-container');
+    if (!simContainer) {
+      simContainer = document.createElement('div');
+      simContainer.id = 'flag-sim-container';
+      simContainer.style.cssText = 'width: 100%; height: 100%; background: #0B1020; display: flex; align-items: center; justify-content: center; position: absolute; inset: 0;';
+      scaler.appendChild(simContainer);
+    }
+    simContainer.style.display = 'flex';
+
+    const showStandup = Boolean(eventObj.show_standup_text);
+    const totalDurSec = parseInt(eventObj.duration_seconds, 10) || 60;
+    const flagSimSec = Math.max(3, Math.round(totalDurSec / 5));
+
+    function showFlagSimView() {
+      simContainer.innerHTML = `
+        <div style="width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; background: #0B1020;">
+          <img src="/static/brand/indian-flag.svg" alt="National Flag of India" style="max-width: 100%; max-height: 100%; aspect-ratio: 3/2; object-fit: contain; display: block;">
+        </div>
+      `;
+      setTimeout(() => {
+        simContainer.style.display = 'none';
+        if (iframe) iframe.style.display = '';
+      }, flagSimSec * 1000);
+    }
+
+    if (showStandup) {
+      const en = eventObj.standup_en || 'Please stand for the event';
+      const hi = eventObj.standup_hi || '';
+      const mr = eventObj.standup_mr || '';
+      simContainer.innerHTML = `
+        <div style="display: flex; flex-direction: column; gap: 20px; text-align: center; padding: 30px; max-width: 90%;">
+          <p style="font-family: Outfit, sans-serif; font-size: clamp(20px, 3.5vw, 36px); font-weight: 700; color: #F8FAFC; margin: 0;">${escapeHtml(en)}</p>
+          ${hi ? `<p style="font-family: 'Noto Sans Devanagari', sans-serif; font-size: clamp(18px, 3vw, 32px); font-weight: 700; color: #F1F5F9; margin: 0;">${escapeHtml(hi)}</p>` : ''}
+          ${mr ? `<p style="font-family: 'Noto Sans Devanagari', sans-serif; font-size: clamp(18px, 3vw, 32px); font-weight: 700; color: #F1F5F9; margin: 0;">${escapeHtml(mr)}</p>` : ''}
+        </div>
+      `;
+      setTimeout(showFlagSimView, 3000);
+    } else {
+      showFlagSimView();
+    }
+
+    previewModal.classList.remove('hidden');
   }
 
-  // Manual Overrides & Testing
-  const btnFlagShowNow = document.getElementById('btn-flag-show-now');
-  const btnFlagEndNow = document.getElementById('btn-flag-end-now');
-  const btnFlagRunNow = document.getElementById('btn-flag-run-now');
+  // Modal confirm handlers
   const flagConfirmModal = document.getElementById('flag-confirm-modal');
   const btnCloseFlagConfirm = document.getElementById('btn-close-flag-confirm-modal');
   const btnCancelFlagConfirm = document.getElementById('btn-cancel-flag-confirm');
@@ -3819,35 +4244,25 @@
   if (btnCloseFlagConfirm) btnCloseFlagConfirm.addEventListener('click', closeFlagConfirmModal);
   if (btnCancelFlagConfirm) btnCancelFlagConfirm.addEventListener('click', closeFlagConfirmModal);
 
-  if (btnFlagRunNow) {
-    btnFlagRunNow.addEventListener('click', () => {
-      const durInput = document.getElementById('flag-duration');
-      const dur = durInput ? parseInt(durInput.value, 10) || 60 : 60;
-      const msgEl = document.getElementById('flag-confirm-message');
-      if (msgEl) {
-        msgEl.textContent = `This will replace the display with the flag for ${dur} seconds`;
-      }
-      if (flagConfirmModal) flagConfirmModal.classList.remove('hidden');
-    });
-  }
-
   if (btnProceedFlagConfirm) {
     btnProceedFlagConfirm.addEventListener('click', async () => {
       closeFlagConfirmModal();
-      const durInput = document.getElementById('flag-duration');
-      const dur = durInput ? parseInt(durInput.value, 10) || 60 : 60;
-      const screensInput = document.getElementById('flag-screens-input');
-      const screens = screensInput ? screensInput.value.trim() : 'ALL';
+      const form = document.querySelector(`.flag-event-card[data-event-id="${targetRunEventId}"] form`) || document.querySelector('.flag-event-item-form');
+      const durInput = form ? form.querySelector('input[name="duration_seconds"]') : null;
+      const screensInput = form ? form.querySelector('input[name="screens"]') : null;
+      const targetEv = currentFlagEvents.find(x => x.id === targetRunEventId) || {};
+      const dur = durInput && durInput.value ? (parseInt(durInput.value, 10) || targetEv.duration_seconds || 60) : (targetEv.duration_seconds || 60);
+      const screens = screensInput && screensInput.value ? (screensInput.value.trim() || targetEv.screens || 'ALL') : (targetEv.screens || 'ALL');
       const csrf = await getCsrfToken();
       try {
-        const res = await fetch('/api/admin/events/flag/test-run', {
+        const res = await fetch(`/api/admin/events/flag/${encodeURIComponent(targetRunEventId)}/test-run`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
             'X-CSRF-Token': csrf,
             'X-Password': getAdminPassword()
           },
-          body: JSON.stringify({ duration_seconds: dur, screens })
+          body: JSON.stringify({ duration_seconds: dur, screens, show_standup_text: targetEv.show_standup_text })
         });
         if (res.ok) {
           showToast(`Test run started on ${screens} (${dur}s).`);
@@ -3862,12 +4277,12 @@
     });
   }
 
+  // Global manual overrides
+  const btnFlagShowNow = document.getElementById('btn-flag-show-now');
+  const btnFlagEndNow = document.getElementById('btn-flag-end-now');
+
   if (btnFlagShowNow) {
     btnFlagShowNow.addEventListener('click', async () => {
-      const durInput = document.getElementById('flag-duration');
-      const dur = durInput ? parseInt(durInput.value, 10) || 60 : 60;
-      const screensInput = document.getElementById('flag-screens-input');
-      const screens = screensInput ? screensInput.value.trim() : 'ALL';
       const csrf = await getCsrfToken();
       try {
         const res = await fetch('/api/admin/events/flag/test-run', {
@@ -3877,10 +4292,10 @@
             'X-CSRF-Token': csrf,
             'X-Password': getAdminPassword()
           },
-          body: JSON.stringify({ duration_seconds: 86400, screens, show_now: true })
+          body: JSON.stringify({ duration_seconds: 86400, screens: 'ALL', show_now: true })
         });
         if (res.ok) {
-          showToast(`Flag display started on ${screens}.`);
+          showToast('Flag display started on ALL.');
           await loadFlagSettings();
         } else {
           const err = await res.json();
@@ -3913,68 +4328,6 @@
       } catch (e) {
         showToast('Network error ending flag display', true);
       }
-    });
-  }
-
-  // 5x Speed Silent Preview
-  const btnFlagPreview5x = document.getElementById('btn-flag-preview-5x');
-  if (btnFlagPreview5x) {
-    btnFlagPreview5x.addEventListener('click', () => {
-      const previewModal = document.getElementById('preview-modal');
-      const previewTitle = document.getElementById('preview-modal-title');
-      const previewSubtitle = document.getElementById('preview-modal-subtitle');
-      const scaler = document.getElementById('preview-iframe-scaler');
-      const iframe = document.getElementById('display-preview-iframe');
-
-      if (!previewModal || !scaler) return;
-
-      if (previewTitle) previewTitle.textContent = 'National Flag Preview';
-      if (previewSubtitle) previewSubtitle.textContent = 'Silent 5x simulation (Stand-up + Fullscreen Flag)';
-
-      // Hide iframe and inject simulation stage
-      if (iframe) iframe.style.display = 'none';
-
-      let simContainer = document.getElementById('flag-sim-container');
-      if (!simContainer) {
-        simContainer = document.createElement('div');
-        simContainer.id = 'flag-sim-container';
-        simContainer.style.cssText = 'width: 100%; height: 100%; background: #0B1020; display: flex; align-items: center; justify-content: center; position: absolute; inset: 0;';
-        scaler.appendChild(simContainer);
-      }
-      simContainer.style.display = 'flex';
-
-      const standupSwitch = document.getElementById('flag-standup-switch');
-      const showStandup = standupSwitch ? standupSwitch.checked : false;
-      const durInput = document.getElementById('flag-duration');
-      const totalDurSec = durInput ? parseInt(durInput.value, 10) || 60 : 60;
-      const flagSimSec = Math.max(3, Math.round(totalDurSec / 5)); // 5x speed
-
-      function showFlagSimView() {
-        simContainer.innerHTML = `
-          <div style="width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; background: #0B1020;">
-            <img src="/static/brand/indian-flag.svg" alt="National Flag of India" style="max-width: 100%; max-height: 100%; aspect-ratio: 3/2; object-fit: contain; display: block;">
-          </div>
-        `;
-        setTimeout(() => {
-          simContainer.style.display = 'none';
-          if (iframe) iframe.style.display = '';
-        }, flagSimSec * 1000);
-      }
-
-      if (showStandup) {
-        simContainer.innerHTML = `
-          <div style="display: flex; flex-direction: column; gap: 20px; text-align: center; padding: 30px; max-width: 90%;">
-            <p style="font-family: Outfit, sans-serif; font-size: clamp(20px, 3.5vw, 36px); font-weight: 700; color: #F8FAFC; margin: 0;">Please stand for the National Anthem</p>
-            <p style="font-family: 'Noto Sans Devanagari', sans-serif; font-size: clamp(18px, 3vw, 32px); font-weight: 700; color: #F1F5F9; margin: 0;">कृपया राष्ट्रगान के लिए खड़े हो जाएँ</p>
-            <p style="font-family: 'Noto Sans Devanagari', sans-serif; font-size: clamp(18px, 3vw, 32px); font-weight: 700; color: #F1F5F9; margin: 0;">कृपया राष्ट्रगीतासाठी उभे राहा</p>
-          </div>
-        `;
-        setTimeout(showFlagSimView, 3000); // 15s / 5 = 3s
-      } else {
-        showFlagSimView();
-      }
-
-      previewModal.classList.remove('hidden');
     });
   }
 

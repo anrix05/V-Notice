@@ -95,10 +95,15 @@ def make_etag_response(data):
 def make_flag_event_response(data):
     """Return HTTP 304 if flag event schedule has not changed, else 200 with Cache-Control: no-store."""
     schedule_payload = {
+        "event_id": data.get("event_id"),
+        "label": data.get("label"),
         "flag_start_ms": data.get("flag_start_ms"),
         "flag_end_ms": data.get("flag_end_ms"),
         "show_standup_text": data.get("show_standup_text"),
-        "standup_lead_seconds": data.get("standup_lead_seconds")
+        "standup_lead_seconds": data.get("standup_lead_seconds"),
+        "standup_en": data.get("standup_en"),
+        "standup_hi": data.get("standup_hi"),
+        "standup_mr": data.get("standup_mr")
     }
     etag = compute_etag(schedule_payload)
     client_etag = request.headers.get("If-None-Match", "").strip('"')
@@ -1141,7 +1146,11 @@ def create_admin_app():
     @app.route("/")
     @app.route("/admin")
     def index():
-        return render_template("admin.html", version=getattr(config, "VERSION", "2.2.0"))
+        return render_template(
+            "admin.html",
+            version=getattr(config, "VERSION", "2.2.0"),
+            is_cloud=getattr(storage.media_storage, "is_cloud", False)
+        )
 
     @app.route("/favicon.ico")
     def favicon():
@@ -1512,40 +1521,163 @@ def create_admin_app():
         storage.record_audit(actor, "SETTINGS_UPDATE", "theme", f"Theme updated to '{theme}'", ip=get_client_ip())
         return jsonify({"success": True, "theme": theme})
 
+    @app.route("/api/media/clean-orphans", methods=["POST"])
+    @mutation_admin_required
+    def clean_orphaned_media_route():
+        user = get_current_user()
+        actor = (user.get("username") if user else None) or "admin"
+        cleaned_count = storage.safe_garbage_collect_media(grace_period_seconds=60)
+        storage.record_audit(actor, "CLEAN_MEDIA", "media", f"Cleaned {cleaned_count or 0} orphaned media files", ip=get_client_ip())
+        return jsonify({"success": True, "cleaned_count": cleaned_count or 0})
+
     @app.route("/api/admin/events/flag", methods=["GET"])
     @read_admin_required
     def get_flag_settings():
-        evt = storage.get_daily_event("flag")
-        next_text = storage.compute_next_run_text(evt) if evt else "No event configured"
+        events = storage.get_daily_events()
+        for e in events:
+            e["next_run"] = storage.compute_next_run_text(e)
+        overall_next = storage.compute_overall_next_run_text()
+        first_evt = events[0] if events else None
         import config
         return jsonify({
             "success": True,
-            "event": evt,
-            "next_run": next_text,
+            "events": events,
+            "event": first_evt,
+            "next_run": overall_next,
             "flag_event_enabled_config": getattr(config, "FLAG_EVENT_ENABLED", False),
             "flag_trigger_token_configured": bool(getattr(config, "FLAG_TRIGGER_TOKEN", ""))
         })
 
-    @app.route("/api/admin/events/flag", methods=["PUT", "POST"])
+    @app.route("/api/admin/events/flag", methods=["POST"])
+    @mutation_admin_required
+    def create_flag_event():
+        user = get_current_user()
+        actor = (user.get("username") if user else None) or "admin"
+        data = request.get_json(silent=True) or request.form.to_dict() or {}
+        ev_id = data.get("id")
+        try:
+            if ev_id and storage.get_daily_event(ev_id):
+                updated = storage.update_daily_event(ev_id, data, actor=actor, ip=get_client_ip())
+            else:
+                updated = storage.add_daily_event(data, actor=actor, ip=get_client_ip())
+            events = storage.get_daily_events()
+            for e in events:
+                e["next_run"] = storage.compute_next_run_text(e)
+            overall_next = storage.compute_overall_next_run_text()
+            notify_flag_change(updated.get("screens", "ALL") if updated else "ALL")
+            return jsonify({"success": True, "event": updated, "events": events, "next_run": overall_next})
+        except ValueError as ve:
+            return jsonify({"error": str(ve)}), 400
+
+    @app.route("/api/admin/events/flag/<event_id>", methods=["PUT", "POST"])
+    @mutation_admin_required
+    def update_specific_flag_event(event_id):
+        user = get_current_user()
+        actor = (user.get("username") if user else None) or "admin"
+        data = request.get_json(silent=True) or request.form.to_dict() or {}
+        try:
+            updated = storage.update_daily_event(event_id, data, actor=actor, ip=get_client_ip())
+            if not updated:
+                return jsonify({"error": f"Event '{event_id}' not found"}), 404
+            events = storage.get_daily_events()
+            for e in events:
+                e["next_run"] = storage.compute_next_run_text(e)
+            overall_next = storage.compute_overall_next_run_text()
+            notify_flag_change(updated.get("screens", "ALL") if updated else "ALL")
+            return jsonify({"success": True, "event": updated, "events": events, "next_run": overall_next})
+        except ValueError as ve:
+            return jsonify({"error": str(ve)}), 400
+
+    @app.route("/api/admin/events/flag", methods=["PUT"])
     @mutation_admin_required
     def update_flag_settings():
         user = get_current_user()
         actor = (user.get("username") if user else None) or "admin"
         data = request.get_json(silent=True) or request.form.to_dict() or {}
-        updated = storage.update_daily_event("flag", data, actor=actor, ip=get_client_ip())
-        next_text = storage.compute_next_run_text(updated) if updated else ""
+        event_id = data.get("id") or "flag"
+        try:
+            updated = storage.update_daily_event(event_id, data, actor=actor, ip=get_client_ip())
+            events = storage.get_daily_events()
+            for e in events:
+                e["next_run"] = storage.compute_next_run_text(e)
+            overall_next = storage.compute_overall_next_run_text()
+            notify_flag_change(updated.get("screens", "ALL") if updated else "ALL")
+            return jsonify({"success": True, "event": updated, "events": events, "next_run": overall_next})
+        except ValueError as ve:
+            return jsonify({"error": str(ve)}), 400
+
+    @app.route("/api/admin/events/flag/<event_id>", methods=["DELETE"])
+    @mutation_admin_required
+    def delete_flag_event(event_id):
+        user = get_current_user()
+        actor = (user.get("username") if user else None) or "admin"
+        events = storage.get_daily_events()
+        if len(events) <= 1:
+            return jsonify({"error": "Cannot delete the only remaining daily event"}), 400
+        success = storage.delete_daily_event(event_id, actor=actor, ip=get_client_ip())
+        if not success:
+            return jsonify({"error": f"Event '{event_id}' not found"}), 404
+        notify_flag_change("ALL")
+        events = storage.get_daily_events()
+        for e in events:
+            e["next_run"] = storage.compute_next_run_text(e)
+        overall_next = storage.compute_overall_next_run_text()
+        return jsonify({"success": True, "events": events, "next_run": overall_next})
+
+    @app.route("/api/admin/events/flag/<event_id>/skip-today", methods=["POST"])
+    @mutation_admin_required
+    def skip_specific_flag_today(event_id):
+        user = get_current_user()
+        actor = (user.get("username") if user else None) or "admin"
+        updated = storage.skip_daily_event_today(event_id, actor=actor, ip=get_client_ip())
+        if not updated:
+            return jsonify({"error": f"Event '{event_id}' not found"}), 404
+        events = storage.get_daily_events()
+        for e in events:
+            e["next_run"] = storage.compute_next_run_text(e)
+        overall_next = storage.compute_overall_next_run_text()
         notify_flag_change(updated.get("screens", "ALL") if updated else "ALL")
-        return jsonify({"success": True, "event": updated, "next_run": next_text})
+        return jsonify({"success": True, "event": updated, "events": events, "next_run": overall_next})
 
     @app.route("/api/admin/events/flag/skip-today", methods=["POST"])
     @mutation_admin_required
     def skip_flag_today():
         user = get_current_user()
         actor = (user.get("username") if user else None) or "admin"
-        updated = storage.skip_daily_event_today("flag", actor=actor, ip=get_client_ip())
-        next_text = storage.compute_next_run_text(updated) if updated else ""
+        data = request.get_json(silent=True) or request.form.to_dict() or {}
+        event_id = data.get("id") or "flag"
+        updated = storage.skip_daily_event_today(event_id, actor=actor, ip=get_client_ip())
+        events = storage.get_daily_events()
+        for e in events:
+            e["next_run"] = storage.compute_next_run_text(e)
+        overall_next = storage.compute_overall_next_run_text()
         notify_flag_change(updated.get("screens", "ALL") if updated else "ALL")
-        return jsonify({"success": True, "event": updated, "next_run": next_text})
+        return jsonify({"success": True, "event": updated, "events": events, "next_run": overall_next})
+
+    @app.route("/api/admin/events/flag/<event_id>/test-run", methods=["POST"])
+    @mutation_admin_required
+    def test_run_specific_flag(event_id):
+        user = get_current_user()
+        actor = (user.get("username") if user else None) or "admin"
+        evt = storage.get_daily_event(event_id)
+        if not evt:
+            return jsonify({"error": f"Event '{event_id}' not found"}), 404
+        data = request.get_json(silent=True) or request.form.to_dict() or {}
+        screens = data.get("screens", evt.get("screens", "ALL"))
+        show_now = bool(data.get("show_now", False))
+        if show_now:
+            duration = 86400
+        else:
+            try:
+                duration = int(data.get("duration_seconds", evt.get("duration_seconds", 60)))
+                duration = max(5, min(86400, duration))
+            except Exception:
+                duration = evt.get("duration_seconds", 60)
+        show_standup = bool(data.get("show_standup_text", evt.get("show_standup_text", False)))
+        storage.set_flag_manual_override(screens=screens, duration_seconds=duration, show_standup_text=show_standup, event_id=event_id)
+        storage.record_daily_event_run(event_id, result=f"Manual run on {screens} ({duration}s)", actor=actor, ip=get_client_ip())
+        notify_flag_change(screens)
+        return jsonify({"success": True, "message": f"This will replace the display with the flag for {duration} seconds", "duration": duration, "screens": screens})
 
     @app.route("/api/admin/events/flag/test-run", methods=["POST"])
     @mutation_admin_required
@@ -1553,19 +1685,21 @@ def create_admin_app():
         user = get_current_user()
         actor = (user.get("username") if user else None) or "admin"
         data = request.get_json(silent=True) or request.form.to_dict() or {}
-        screens = data.get("screens", "ALL")
+        event_id = data.get("id") or data.get("event_id") or "flag"
+        evt = storage.get_daily_event(event_id)
+        screens = data.get("screens", evt.get("screens", "ALL") if evt else "ALL")
         show_now = bool(data.get("show_now", False))
         if show_now:
             duration = 86400
         else:
             try:
-                duration = int(data.get("duration_seconds", 60))
+                duration = int(data.get("duration_seconds", evt.get("duration_seconds", 60) if evt else 60))
                 duration = max(5, min(86400, duration))
             except Exception:
                 duration = 60
-        show_standup = bool(data.get("show_standup_text", False))
-        storage.set_flag_manual_override(screens=screens, duration_seconds=duration, show_standup_text=show_standup)
-        storage.record_daily_event_run("flag", result=f"Manual run on {screens} ({duration}s)", actor=actor, ip=get_client_ip())
+        show_standup = bool(data.get("show_standup_text", evt.get("show_standup_text", False) if evt else False))
+        storage.set_flag_manual_override(screens=screens, duration_seconds=duration, show_standup_text=show_standup, event_id=event_id)
+        storage.record_daily_event_run(event_id, result=f"Manual run on {screens} ({duration}s)", actor=actor, ip=get_client_ip())
         notify_flag_change(screens)
         return jsonify({"success": True, "message": f"This will replace the display with the flag for {duration} seconds", "duration": duration, "screens": screens})
 
@@ -1746,7 +1880,11 @@ def create_unified_app():
     @app.route("/")
     @app.route("/admin")
     def admin_home():
-        return render_template("admin.html", version=getattr(config, "VERSION", "2.2.0"))
+        return render_template(
+            "admin.html",
+            version=getattr(config, "VERSION", "2.2.0"),
+            is_cloud=getattr(storage.media_storage, "is_cloud", False)
+        )
 
     # 2. Display Kiosk UI
     @app.route("/display")
@@ -2172,40 +2310,163 @@ def create_unified_app():
         storage.record_audit(actor, "SETTINGS_UPDATE", "theme", f"Theme updated to '{theme}'", ip=get_client_ip())
         return jsonify({"success": True, "theme": theme})
 
+    @app.route("/api/media/clean-orphans", methods=["POST"])
+    @mutation_admin_required
+    def clean_orphaned_media_route_unified():
+        user = get_current_user()
+        actor = (user.get("username") if user else None) or "admin"
+        cleaned_count = storage.safe_garbage_collect_media(grace_period_seconds=60)
+        storage.record_audit(actor, "CLEAN_MEDIA", "media", f"Cleaned {cleaned_count or 0} orphaned media files", ip=get_client_ip())
+        return jsonify({"success": True, "cleaned_count": cleaned_count or 0})
+
     @app.route("/api/admin/events/flag", methods=["GET"])
     @read_admin_required
     def unified_flag_settings():
-        evt = storage.get_daily_event("flag")
-        next_text = storage.compute_next_run_text(evt) if evt else "No event configured"
+        events = storage.get_daily_events()
+        for e in events:
+            e["next_run"] = storage.compute_next_run_text(e)
+        overall_next = storage.compute_overall_next_run_text()
+        first_evt = events[0] if events else None
         import config
         return jsonify({
             "success": True,
-            "event": evt,
-            "next_run": next_text,
+            "events": events,
+            "event": first_evt,
+            "next_run": overall_next,
             "flag_event_enabled_config": getattr(config, "FLAG_EVENT_ENABLED", False),
             "flag_trigger_token_configured": bool(getattr(config, "FLAG_TRIGGER_TOKEN", ""))
         })
 
-    @app.route("/api/admin/events/flag", methods=["PUT", "POST"])
+    @app.route("/api/admin/events/flag", methods=["POST"])
+    @mutation_admin_required
+    def unified_create_flag_event():
+        user = get_current_user()
+        actor = (user.get("username") if user else None) or "admin"
+        data = request.get_json(silent=True) or request.form.to_dict() or {}
+        ev_id = data.get("id")
+        try:
+            if ev_id and storage.get_daily_event(ev_id):
+                updated = storage.update_daily_event(ev_id, data, actor=actor, ip=get_client_ip())
+            else:
+                updated = storage.add_daily_event(data, actor=actor, ip=get_client_ip())
+            events = storage.get_daily_events()
+            for e in events:
+                e["next_run"] = storage.compute_next_run_text(e)
+            overall_next = storage.compute_overall_next_run_text()
+            notify_flag_change(updated.get("screens", "ALL") if updated else "ALL")
+            return jsonify({"success": True, "event": updated, "events": events, "next_run": overall_next})
+        except ValueError as ve:
+            return jsonify({"error": str(ve)}), 400
+
+    @app.route("/api/admin/events/flag/<event_id>", methods=["PUT", "POST"])
+    @mutation_admin_required
+    def unified_update_specific_flag_event(event_id):
+        user = get_current_user()
+        actor = (user.get("username") if user else None) or "admin"
+        data = request.get_json(silent=True) or request.form.to_dict() or {}
+        try:
+            updated = storage.update_daily_event(event_id, data, actor=actor, ip=get_client_ip())
+            if not updated:
+                return jsonify({"error": f"Event '{event_id}' not found"}), 404
+            events = storage.get_daily_events()
+            for e in events:
+                e["next_run"] = storage.compute_next_run_text(e)
+            overall_next = storage.compute_overall_next_run_text()
+            notify_flag_change(updated.get("screens", "ALL") if updated else "ALL")
+            return jsonify({"success": True, "event": updated, "events": events, "next_run": overall_next})
+        except ValueError as ve:
+            return jsonify({"error": str(ve)}), 400
+
+    @app.route("/api/admin/events/flag", methods=["PUT"])
     @mutation_admin_required
     def unified_update_flag_settings():
         user = get_current_user()
         actor = (user.get("username") if user else None) or "admin"
         data = request.get_json(silent=True) or request.form.to_dict() or {}
-        updated = storage.update_daily_event("flag", data, actor=actor, ip=get_client_ip())
-        next_text = storage.compute_next_run_text(updated) if updated else ""
+        event_id = data.get("id") or "flag"
+        try:
+            updated = storage.update_daily_event(event_id, data, actor=actor, ip=get_client_ip())
+            events = storage.get_daily_events()
+            for e in events:
+                e["next_run"] = storage.compute_next_run_text(e)
+            overall_next = storage.compute_overall_next_run_text()
+            notify_flag_change(updated.get("screens", "ALL") if updated else "ALL")
+            return jsonify({"success": True, "event": updated, "events": events, "next_run": overall_next})
+        except ValueError as ve:
+            return jsonify({"error": str(ve)}), 400
+
+    @app.route("/api/admin/events/flag/<event_id>", methods=["DELETE"])
+    @mutation_admin_required
+    def unified_delete_flag_event(event_id):
+        user = get_current_user()
+        actor = (user.get("username") if user else None) or "admin"
+        events = storage.get_daily_events()
+        if len(events) <= 1:
+            return jsonify({"error": "Cannot delete the only remaining daily event"}), 400
+        success = storage.delete_daily_event(event_id, actor=actor, ip=get_client_ip())
+        if not success:
+            return jsonify({"error": f"Event '{event_id}' not found"}), 404
+        notify_flag_change("ALL")
+        events = storage.get_daily_events()
+        for e in events:
+            e["next_run"] = storage.compute_next_run_text(e)
+        overall_next = storage.compute_overall_next_run_text()
+        return jsonify({"success": True, "events": events, "next_run": overall_next})
+
+    @app.route("/api/admin/events/flag/<event_id>/skip-today", methods=["POST"])
+    @mutation_admin_required
+    def unified_skip_specific_flag_today(event_id):
+        user = get_current_user()
+        actor = (user.get("username") if user else None) or "admin"
+        updated = storage.skip_daily_event_today(event_id, actor=actor, ip=get_client_ip())
+        if not updated:
+            return jsonify({"error": f"Event '{event_id}' not found"}), 404
+        events = storage.get_daily_events()
+        for e in events:
+            e["next_run"] = storage.compute_next_run_text(e)
+        overall_next = storage.compute_overall_next_run_text()
         notify_flag_change(updated.get("screens", "ALL") if updated else "ALL")
-        return jsonify({"success": True, "event": updated, "next_run": next_text})
+        return jsonify({"success": True, "event": updated, "events": events, "next_run": overall_next})
 
     @app.route("/api/admin/events/flag/skip-today", methods=["POST"])
     @mutation_admin_required
     def unified_skip_flag_today():
         user = get_current_user()
         actor = (user.get("username") if user else None) or "admin"
-        updated = storage.skip_daily_event_today("flag", actor=actor, ip=get_client_ip())
-        next_text = storage.compute_next_run_text(updated) if updated else ""
+        data = request.get_json(silent=True) or request.form.to_dict() or {}
+        event_id = data.get("id") or "flag"
+        updated = storage.skip_daily_event_today(event_id, actor=actor, ip=get_client_ip())
+        events = storage.get_daily_events()
+        for e in events:
+            e["next_run"] = storage.compute_next_run_text(e)
+        overall_next = storage.compute_overall_next_run_text()
         notify_flag_change(updated.get("screens", "ALL") if updated else "ALL")
-        return jsonify({"success": True, "event": updated, "next_run": next_text})
+        return jsonify({"success": True, "event": updated, "events": events, "next_run": overall_next})
+
+    @app.route("/api/admin/events/flag/<event_id>/test-run", methods=["POST"])
+    @mutation_admin_required
+    def unified_test_run_specific_flag(event_id):
+        user = get_current_user()
+        actor = (user.get("username") if user else None) or "admin"
+        evt = storage.get_daily_event(event_id)
+        if not evt:
+            return jsonify({"error": f"Event '{event_id}' not found"}), 404
+        data = request.get_json(silent=True) or request.form.to_dict() or {}
+        screens = data.get("screens", evt.get("screens", "ALL"))
+        show_now = bool(data.get("show_now", False))
+        if show_now:
+            duration = 86400
+        else:
+            try:
+                duration = int(data.get("duration_seconds", evt.get("duration_seconds", 60)))
+                duration = max(5, min(86400, duration))
+            except Exception:
+                duration = evt.get("duration_seconds", 60)
+        show_standup = bool(data.get("show_standup_text", evt.get("show_standup_text", False)))
+        storage.set_flag_manual_override(screens=screens, duration_seconds=duration, show_standup_text=show_standup, event_id=event_id)
+        storage.record_daily_event_run(event_id, result=f"Manual run on {screens} ({duration}s)", actor=actor, ip=get_client_ip())
+        notify_flag_change(screens)
+        return jsonify({"success": True, "message": f"This will replace the display with the flag for {duration} seconds", "duration": duration, "screens": screens})
 
     @app.route("/api/admin/events/flag/test-run", methods=["POST"])
     @mutation_admin_required
@@ -2213,19 +2474,21 @@ def create_unified_app():
         user = get_current_user()
         actor = (user.get("username") if user else None) or "admin"
         data = request.get_json(silent=True) or request.form.to_dict() or {}
-        screens = data.get("screens", "ALL")
+        event_id = data.get("id") or data.get("event_id") or "flag"
+        evt = storage.get_daily_event(event_id)
+        screens = data.get("screens", evt.get("screens", "ALL") if evt else "ALL")
         show_now = bool(data.get("show_now", False))
         if show_now:
             duration = 86400
         else:
             try:
-                duration = int(data.get("duration_seconds", 60))
+                duration = int(data.get("duration_seconds", evt.get("duration_seconds", 60) if evt else 60))
                 duration = max(5, min(86400, duration))
             except Exception:
                 duration = 60
-        show_standup = bool(data.get("show_standup_text", False))
-        storage.set_flag_manual_override(screens=screens, duration_seconds=duration, show_standup_text=show_standup)
-        storage.record_daily_event_run("flag", result=f"Manual run on {screens} ({duration}s)", actor=actor, ip=get_client_ip())
+        show_standup = bool(data.get("show_standup_text", evt.get("show_standup_text", False) if evt else False))
+        storage.set_flag_manual_override(screens=screens, duration_seconds=duration, show_standup_text=show_standup, event_id=event_id)
+        storage.record_daily_event_run(event_id, result=f"Manual run on {screens} ({duration}s)", actor=actor, ip=get_client_ip())
         notify_flag_change(screens)
         return jsonify({"success": True, "message": f"This will replace the display with the flag for {duration} seconds", "duration": duration, "screens": screens})
 

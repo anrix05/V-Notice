@@ -313,18 +313,32 @@ This grants automatic unmuted audio permission to the campus display URLs across
   The kiosk display also actively computes the round-trip network clock offset against server time every 5 minutes, maintaining sub-second synchronization across all screens even if an individual device clock drifts.
 
 
-### ⚡ 11. Daily National Flag Screen & Anthem Rehearsal Workflow
-V Notice displays the Indian National Flag fullscreen daily across all campus screens (display only; V Notice does **NOT** store, play, or reference any anthem audio).
+### ⚡ 11. Daily National Flag Events & Rehearsal Workflow
+V Notice supports multiple scheduled daily flag events (up to 6 events, e.g. **11:00 National Anthem** and **17:00 Vande Mataram**) across all campus screens.
+
+> [!IMPORTANT]
+> **NO AUDIO IN V NOTICE**: V Notice does **NOT** play, store, or reference any anthem or Vande Mataram audio files. The separate Raspberry Pi sound system plays the audio over physical PA speakers. V Notice is responsible exclusively for showing the trilingual stand-up prompt screen and the fullscreen National Flag.
 
 #### Rehearsal Procedure (Step-by-Step)
-1. **Time the Anthem System**: Use a stopwatch to time the college's existing external anthem audio system from beginning to end.
-2. **Configure Duration**: In the Admin Portal under **Settings > Daily events: National flag**, enter the measured duration plus about 5 seconds (e.g. 52s anthem + 5s buffer = 57 seconds).
-3. **Rehearse with Test Run**: With someone near the audio system and someone observing a kiosk screen, click **"Run now on screen..."** in Admin Settings at the exact moment the anthem begins.
-4. **Adjust Start Offset**: Observe the synchronization. Adjust the **Start offset in seconds** (-60 to +60 seconds) in Admin Settings until the display transition and audio align cleanly.
-5. **Enable the Event**: Toggle the **Enable daily flag screen** switch to ON and click **Save settings**.
+1. **Keep Events Disabled During Initial Setup**: Keep `FLAG_EVENT_ENABLED=false` in `.env` (or keep both event toggles disabled in the Admin portal under **Settings > Daily flag events**) until both events have been fully rehearsed on-site.
+2. **Time Each Event Separately with a Stopwatch**:
+   - Rehearse the National Anthem and Vande Mataram **separately**, as the two audio tracks have different durations (e.g., standard National Anthem audio is ~52 seconds, whereas Vande Mataram audio recordings vary widely, typically 65 to 90 seconds).
+   - Use a stopwatch to time the physical Raspberry Pi audio playback from the opening cue to the last reverberation.
+3. **Set Duration with Buffer**:
+   - For each event in Admin Settings, set the **Duration** to the timed length **plus approximately 5 seconds** (e.g., 52s audio + 5s = 57 seconds duration; 85s audio + 5s = 90 seconds duration). This buffer ensures the flag remains proudly on screen until the music and echo have fully concluded.
+4. **Align Start Offset with Physical Audio**:
+   - Have one person stationed by the Raspberry Pi audio system and another observing the kiosk display.
+   - Use **"Run now on screen..."** on each card to trigger a live rehearsal.
+   - If the audio system has a startup latency (e.g., amplifier relay delay) or begins before/after the scheduled minute, adjust the **Start offset in seconds** (-60 to +60 seconds) until visual transition and sound start simultaneously.
+5. **Configure Stand-up Prompts**:
+   - Enable **Show stand-up text** to display the 15-second trilingual countdown prompt before the flag.
+   - Review or customize the English, Hindi, and Marathi prompts (max 60 characters each). The "Reset to default" link restores official college defaults.
+6. **Enable and Save**:
+   - Toggle the switch to ON for each rehearsed event.
+   - Set `FLAG_EVENT_ENABLED=true` in `.env` (or leave default true) and save settings. The state machine will automatically transition between events throughout the day without requiring kiosk page reloads.
 
 #### Optional External Trigger API (Disabled by Default)
-If the external anthem system has network capabilities, it can trigger or cancel the flag screen directly via HTTP POST:
+If the external Raspberry Pi audio system has network capabilities, it can trigger or end a flag screen event programmatically via HTTP POST:
 - Endpoints: `POST /api/events/flag/start` and `POST /api/events/flag/end`
 - Authenticated via `Authorization: Bearer <FLAG_TRIGGER_TOKEN>` header (configured via `FLAG_TRIGGER_TOKEN` in `.env`). If unset, endpoints return HTTP 404 with zero information leakage.
 - Rate-limited to 10 requests per minute.
@@ -336,7 +350,7 @@ curl -X POST https://v-notice.onrender.com/api/events/flag/start \
   -H "Content-Type: application/json" \
   -d '{"screens": "ALL", "duration_seconds": 60}'
 
-# End fullscreen flag display immediately and return to rotation
+# End fullscreen flag display immediately and return to normal rotation
 curl -X POST https://v-notice.onrender.com/api/events/flag/end \
   -H "Authorization: Bearer YOUR_FLAG_TRIGGER_TOKEN" \
   -H "Content-Type: application/json" \

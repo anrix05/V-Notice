@@ -141,6 +141,43 @@ def validate_screen_code(code: str) -> str:
         raise ValueError("Screen code must be 2-10 uppercase alphanumeric characters, underscores, or hyphens (e.g. CMPN, EXCS).")
     return code
 
+def check_event_overlap(cand: dict, other: dict) -> bool:
+    """Check if two daily events overlap on the same day and screen (including standup lead time and offset)."""
+    # 1. Day overlap
+    days_cand = set(d.strip().lower() for d in (cand.get("days_of_week") or []))
+    days_other = set(d.strip().lower() for d in (other.get("days_of_week") or []))
+    if not (days_cand & days_other):
+        return False
+
+    # 2. Screen overlap
+    screens_cand = sanitize_screen_codes(cand.get("screens", "ALL"))
+    screens_other = sanitize_screen_codes(other.get("screens", "ALL"))
+    screen_overlap = ("ALL" in screens_cand or "ALL" in screens_other or bool(set(screens_cand) & set(screens_other)))
+    if not screen_overlap:
+        return False
+
+    # 3. Time window (in seconds from midnight)
+    def get_window(ev):
+        st = ev.get("start_time", "11:00")
+        try:
+            parts = str(st).split(":")
+            hh, mm = int(parts[0]), int(parts[1])
+        except Exception:
+            hh, mm = 11, 0
+        offset = int(ev.get("start_offset_seconds", 0) or 0)
+        dur = int(ev.get("duration_seconds", 60) or 60)
+        show_standup = bool(ev.get("show_standup_text", False))
+        lead = 15 if show_standup else 0
+        base_sec = hh * 3600 + mm * 60 + offset
+        start_sec = base_sec - lead
+        end_sec = base_sec + dur
+        return start_sec, end_sec
+
+    s1, e1 = get_window(cand)
+    s2, e2 = get_window(other)
+
+    return (s1 < e2) and (s2 < e1)
+
 SEED_DEPARTMENTS = [
     ("ALL", "All Departments (college-wide)", 0, 1, None),
     ("CMPN", "Computer Engineering", 1, 1, "#3B82F6"),
@@ -239,20 +276,93 @@ class CloudinaryMediaStorage(MediaStorageBackend):
         if not filename:
             return False
         try:
+            import re
+            res_type = "image"
+            public_id = None
             if "res.cloudinary.com" in filename:
                 parts = filename.split("/upload/")
-                if len(parts) > 1:
-                    path_after = parts[1]
-                    if path_after.startswith("v") and "/" in path_after:
-                        path_after = path_after.split("/", 1)[1]
-                    public_id = path_after.rsplit(".", 1)[0]
-                    self.uploader.destroy(public_id, resource_type="image")
-                    self.uploader.destroy(public_id, resource_type="video")
-                    return True
+                if len(parts) >= 2:
+                    m_type = re.search(r"/(image|video|raw)/upload/", filename)
+                    if m_type:
+                        res_type = m_type.group(1)
+                    
+                    segments = parts[1].split("/")
+                    cleaned_segments = []
+                    found_public = False
+                    for seg in segments:
+                        if not found_public:
+                            if re.match(r"^v\d+$", seg):
+                                found_public = True
+                                continue
+                            if any(seg.startswith(p) for p in ("c_", "w_", "h_", "q_", "f_", "b_", "g_", "e_", "fl_", "o_")) or "," in seg:
+                                continue
+                            found_public = True
+                            cleaned_segments.append(seg)
+                        else:
+                            cleaned_segments.append(seg)
+                    public_id_with_ext = "/".join(cleaned_segments) if cleaned_segments else segments[-1]
+                    public_id = public_id_with_ext.rsplit(".", 1)[0]
+            elif not filename.startswith("http"):
+                public_id = filename.rsplit(".", 1)[0]
+
+            if public_id:
+                types_to_try = [res_type] if res_type in ("image", "video", "raw") else ["image", "video"]
+                if "video" not in types_to_try:
+                    types_to_try.append("video")
+                if "image" not in types_to_try:
+                    types_to_try.append("image")
+                
+                success = False
+                for r_type in types_to_try:
+                    try:
+                        res = self.uploader.destroy(public_id, resource_type=r_type, invalidate=True)
+                        if res and res.get("result") in ("ok", "not found"):
+                            if res.get("result") == "ok":
+                                success = True
+                    except Exception as inner_e:
+                        logger.debug("Cloudinary destroy error on %s (%s): %s", public_id, r_type, inner_e)
+                logger.info("Cloudinary delete for '%s' completed (success=%s)", public_id, success)
+                return True
             return False
         except Exception as e:
-            logger.warning("Cloudinary delete failed: %s", e)
+            logger.warning("Cloudinary delete failed for %s: %s", filename, e)
             return False
+
+    def clean_orphaned_media(self, active_urls: set):
+        deleted_count = 0
+        try:
+            import cloudinary.api
+            for r_type in ("image", "video"):
+                try:
+                    res = cloudinary.api.resources(
+                        type="upload",
+                        prefix="vnotice/",
+                        resource_type=r_type,
+                        max_results=500
+                    )
+                    resources = res.get("resources", [])
+                    for item in resources:
+                        pub_id = item.get("public_id")
+                        sec_url = item.get("secure_url", "")
+                        url = item.get("url", "")
+                        is_referenced = any(
+                            (bool(pub_id) and pub_id in u) or
+                            (bool(sec_url) and sec_url in u) or
+                            (bool(url) and url in u)
+                            for u in active_urls if u
+                        )
+                        if not is_referenced and pub_id:
+                            try:
+                                self.uploader.destroy(pub_id, resource_type=r_type, invalidate=True)
+                                deleted_count += 1
+                                logger.info("Cleaned orphaned Cloudinary asset %s (%s)", pub_id, r_type)
+                            except Exception as de:
+                                logger.warning("Failed destroying Cloudinary asset %s: %s", pub_id, de)
+                except Exception as e:
+                    logger.warning("Error scanning Cloudinary %s resources: %s", r_type, e)
+        except Exception as e:
+            logger.warning("Failed running Cloudinary orphan cleanup: %s", e)
+        return deleted_count
 
     def exists(self, filename: str) -> bool:
         return bool(filename and ("res.cloudinary.com" in filename or filename.startswith("http")))
@@ -481,10 +591,30 @@ class NoticeStorage:
                 """)
                 conn.execute("CREATE INDEX IF NOT EXISTS idx_users_username ON users(username);")
 
-                # 7. Daily events table (Part B)
+                # 7. Daily events table (Multi-event support with auto-migration and backup)
+                cursor_e = conn.execute("PRAGMA table_info(daily_events);")
+                ecols = [r[1] for r in cursor_e.fetchall()]
+                needs_events_migration = (
+                    len(ecols) > 0 and (
+                        "label" not in ecols or
+                        "id" not in ecols or
+                        "standup_en" not in ecols
+                    )
+                )
+
+                if needs_events_migration and self.db_file.exists():
+                    backup_path = self.db_file.with_name(self.db_file.name + ".bak")
+                    try:
+                        shutil.copy2(self.db_file, backup_path)
+                        logger.info("Automatic database backup created at %s before daily_events migration", backup_path)
+                    except Exception as be:
+                        logger.warning("Automatic database backup warning: %s", be)
+
                 conn.execute("""
-                    CREATE TABLE IF NOT EXISTS daily_events (
-                        type TEXT PRIMARY KEY,
+                    CREATE TABLE IF NOT EXISTS daily_events_v2 (
+                        id TEXT PRIMARY KEY,
+                        type TEXT NOT NULL DEFAULT 'flag',
+                        label TEXT NOT NULL DEFAULT 'National Anthem',
                         enabled INTEGER NOT NULL DEFAULT 0,
                         start_time TEXT NOT NULL DEFAULT '11:00',
                         start_offset_seconds INTEGER NOT NULL DEFAULT 0,
@@ -492,6 +622,9 @@ class NoticeStorage:
                         days_of_week TEXT NOT NULL DEFAULT 'mon,tue,wed,thu,fri,sat',
                         screens TEXT NOT NULL DEFAULT 'ALL',
                         show_standup_text INTEGER NOT NULL DEFAULT 0,
+                        standup_en TEXT NOT NULL DEFAULT 'Please stand for the National Anthem',
+                        standup_hi TEXT NOT NULL DEFAULT 'कृपया राष्ट्रगान के लिए खड़े हो जाएँ',
+                        standup_mr TEXT NOT NULL DEFAULT 'कृपया राष्ट्रगीतासाठी उभे राहा',
                         skip_dates TEXT NOT NULL DEFAULT '[]',
                         last_run_at INTEGER,
                         last_run_result TEXT,
@@ -503,24 +636,84 @@ class NoticeStorage:
                         updated_at INTEGER NOT NULL
                     );
                 """)
-                for col_name, col_type in [
-                    ("override_start_ms", "INTEGER DEFAULT NULL"),
-                    ("override_end_ms", "INTEGER DEFAULT NULL"),
-                    ("override_screens", "TEXT DEFAULT NULL"),
-                    ("override_show_standup", "INTEGER DEFAULT 0"),
-                    ("ended_early_date", "TEXT DEFAULT NULL")
-                ]:
-                    try:
-                        conn.execute(f"ALTER TABLE daily_events ADD COLUMN {col_name} {col_type};")
-                    except sqlite3.OperationalError:
-                        pass
 
+                if needs_events_migration:
+                    try:
+                        existing_rows = conn.execute("SELECT * FROM daily_events;").fetchall()
+                        for row in existing_rows:
+                            r_dict = dict(row)
+                            ev_id = r_dict.get("id") or ("anthem" if r_dict.get("type") == "flag" else r_dict.get("type", "anthem"))
+                            ev_type = r_dict.get("type") or "flag"
+                            ev_label = r_dict.get("label") or ("National Anthem" if ev_id in ("flag", "anthem") else ev_id.replace("_", " ").title())
+                            ev_standup_en = r_dict.get("standup_en") or "Please stand for the National Anthem"
+                            ev_standup_hi = r_dict.get("standup_hi") or "कृपया राष्ट्रगान के लिए खड़े हो जाएँ"
+                            ev_standup_mr = r_dict.get("standup_mr") or "कृपया राष्ट्रगीतासाठी उभे राहा"
+                            conn.execute("""
+                                INSERT OR REPLACE INTO daily_events_v2 (
+                                    id, type, label, enabled, start_time, start_offset_seconds, duration_seconds,
+                                    days_of_week, screens, show_standup_text, standup_en, standup_hi, standup_mr,
+                                    skip_dates, last_run_at, last_run_result, override_start_ms, override_end_ms,
+                                    override_screens, override_show_standup, ended_early_date, updated_at
+                                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+                            """, (
+                                ev_id, ev_type, ev_label,
+                                r_dict.get("enabled", 0),
+                                r_dict.get("start_time", "11:00"),
+                                r_dict.get("start_offset_seconds", 0),
+                                r_dict.get("duration_seconds", 60),
+                                r_dict.get("days_of_week", "mon,tue,wed,thu,fri,sat"),
+                                r_dict.get("screens", "ALL"),
+                                r_dict.get("show_standup_text", 0),
+                                ev_standup_en, ev_standup_hi, ev_standup_mr,
+                                r_dict.get("skip_dates", "[]"),
+                                r_dict.get("last_run_at"),
+                                r_dict.get("last_run_result"),
+                                r_dict.get("override_start_ms"),
+                                r_dict.get("override_end_ms"),
+                                r_dict.get("override_screens"),
+                                r_dict.get("override_show_standup", 0),
+                                r_dict.get("ended_early_date"),
+                                r_dict.get("updated_at", now_ms)
+                            ))
+                        conn.execute("DROP TABLE daily_events;")
+                        conn.execute("ALTER TABLE daily_events_v2 RENAME TO daily_events;")
+                        logger.info("Migrated daily_events to multi-event schema v2 successfully.")
+                    except Exception as me:
+                        logger.error("Failed migrating daily_events table: %s", me)
+                elif len(ecols) == 0:
+                    conn.execute("ALTER TABLE daily_events_v2 RENAME TO daily_events;")
+                else:
+                    conn.execute("DROP TABLE IF EXISTS daily_events_v2;")
+
+                # Seed Anthem if not present
                 conn.execute("""
                     INSERT OR IGNORE INTO daily_events (
-                        type, enabled, start_time, start_offset_seconds, duration_seconds,
-                        days_of_week, screens, show_standup_text, skip_dates, updated_at
+                        id, type, label, enabled, start_time, start_offset_seconds, duration_seconds,
+                        days_of_week, screens, show_standup_text, standup_en, standup_hi, standup_mr,
+                        skip_dates, updated_at
                     ) VALUES (
-                        'flag', 0, '11:00', 0, 60, 'mon,tue,wed,thu,fri,sat', 'ALL', 0, '[]', ?
+                        'anthem', 'flag', 'National Anthem', 0, '11:00', 0, 60,
+                        'mon,tue,wed,thu,fri,sat', 'ALL', 0,
+                        'Please stand for the National Anthem',
+                        'कृपया राष्ट्रगान के लिए खड़े हो जाएँ',
+                        'कृपया राष्ट्रगीतासाठी उभे राहा',
+                        '[]', ?
+                    );
+                """, (now_ms,))
+
+                # Seed Vande Mataram (DISABLED) if not present
+                conn.execute("""
+                    INSERT OR IGNORE INTO daily_events (
+                        id, type, label, enabled, start_time, start_offset_seconds, duration_seconds,
+                        days_of_week, screens, show_standup_text, standup_en, standup_hi, standup_mr,
+                        skip_dates, updated_at
+                    ) VALUES (
+                        'vande_mataram', 'flag', 'Vande Mataram', 0, '17:00', 0, 90,
+                        'mon,tue,wed,thu,fri,sat', 'ALL', 0,
+                        'Please stand for Vande Mataram',
+                        'कृपया वंदे मातरम् के लिए खड़े हो जाएँ',
+                        'कृपया वंदे मातरमसाठी उभे राहा',
+                        '[]', ?
                     );
                 """, (now_ms,))
         finally:
@@ -1080,7 +1273,7 @@ class NoticeStorage:
     # ==========================================================================
     def add(self, data, file_obj=None, created_by="admin"):
         notice_id = generate_notice_id()
-        media_filename = ""
+        media_filename = str(data.get("media", "")).strip() if data.get("media") else ""
         media_type = data.get("type", "text")
         
         if file_obj and getattr(file_obj, "filename", None):
@@ -1353,6 +1546,21 @@ class NoticeStorage:
         try:
             with conn:
                 conn.execute("UPDATE notices SET is_active = 0, deleted = 1, deleted_at = ?, updated_at = ? WHERE id = ?;", (now, now, notice_id))
+            
+            # Immediately delete media from Cloudinary / storage backend when notice is deleted
+            media_val = target.get("media")
+            if media_val:
+                try:
+                    other_using = conn.execute(
+                        "SELECT COUNT(*) FROM notices WHERE media = ? AND id != ? AND deleted = 0;",
+                        (media_val, notice_id)
+                    ).fetchone()[0]
+                    if other_using == 0:
+                        self.media_storage.delete(media_val)
+                        logger.info("Deleted media asset '%s' for notice '%s'", media_val, notice_id)
+                except Exception as me:
+                    logger.warning("Failed to delete media for notice %s: %s", notice_id, me)
+
             self.record_audit(actor or "admin", "DELETE", notice_id, f"Deleted notice '{target.get('title', '')}'", ip=ip)
             return True
         finally:
@@ -1376,12 +1584,24 @@ class NoticeStorage:
                 conn.close()
 
     def safe_garbage_collect_media(self, grace_period_seconds: int = 600):
+        # 1. Cloudinary / remote storage cleanup
+        if hasattr(self.media_storage, "clean_orphaned_media"):
+            conn = self.get_connection()
+            try:
+                rows = conn.execute("SELECT DISTINCT media FROM notices WHERE media IS NOT NULL AND media != '' AND deleted = 0;").fetchall()
+                active_urls = {r[0] for r in rows}
+                return self.media_storage.clean_orphaned_media(active_urls)
+            finally:
+                if not self._is_in_flask():
+                    conn.close()
+
+        # 2. Local filesystem storage cleanup
         if not hasattr(self.media_storage, "media_dir"):
-            return
+            return 0
 
         media_dir = self.media_storage.media_dir
         if not media_dir.exists():
-            return
+            return 0
 
         conn = self.get_connection()
         try:
@@ -1391,6 +1611,7 @@ class NoticeStorage:
             if not self._is_in_flask():
                 conn.close()
 
+        deleted_local = 0
         now = time.time()
         for item in media_dir.iterdir():
             if item.is_file() and item.name not in referenced and not item.name.startswith("tmp_"):
@@ -1399,11 +1620,13 @@ class NoticeStorage:
                     age = now - stat.st_mtime
                     if age > grace_period_seconds:
                         item.unlink()
+                        deleted_local += 1
                         logger.info("Safe Media GC: deleted unreferenced file %s (age: %.1f minutes)", item.name, age / 60)
                     else:
                         logger.debug("Safe Media GC: retained in-flight file %s (age: %.1f minutes)", item.name, age / 60)
                 except OSError as e:
                     logger.warning("Safe Media GC error on %s: %s", item.name, e)
+        return deleted_local
 
     def _is_in_flask(self):
         try:
@@ -1523,14 +1746,37 @@ class NoticeStorage:
             return safe
         return None
 
-
     # ==========================================================================
-    # Daily Flag Event Operations (Part B)
+    # Daily Flag Event Operations (Multi-event support)
     # ==========================================================================
-    def get_daily_event(self, event_type: str = "flag") -> dict:
+    def get_daily_events(self) -> list:
         conn = self.get_connection()
         try:
-            row = conn.execute("SELECT * FROM daily_events WHERE type = ?;", (event_type,)).fetchone()
+            rows = conn.execute("SELECT * FROM daily_events ORDER BY start_time ASC, id ASC;").fetchall()
+            events = []
+            for r in rows:
+                d = dict(r)
+                d["enabled"] = bool(d.get("enabled", 0))
+                d["show_standup_text"] = bool(d.get("show_standup_text", 0))
+                try:
+                    d["skip_dates"] = json.loads(d.get("skip_dates") or "[]")
+                except Exception:
+                    d["skip_dates"] = []
+                raw_days = str(d.get("days_of_week") or "mon,tue,wed,thu,fri,sat")
+                d["days_of_week"] = [x.strip().lower() for x in raw_days.split(",") if x.strip()]
+                events.append(d)
+            return events
+        finally:
+            if not self._is_in_flask():
+                conn.close()
+
+    def get_daily_event(self, event_id: str = "flag") -> dict:
+        conn = self.get_connection()
+        try:
+            if event_id in ("flag", "anthem"):
+                row = conn.execute("SELECT * FROM daily_events WHERE id = ? OR id = 'anthem' OR id = 'flag' OR type = 'flag' ORDER BY CASE WHEN id IN ('anthem', 'flag') THEN 1 ELSE 2 END LIMIT 1;", (event_id,)).fetchone()
+            else:
+                row = conn.execute("SELECT * FROM daily_events WHERE id = ?;", (event_id,)).fetchone()
             if not row:
                 return None
             d = dict(row)
@@ -1547,11 +1793,94 @@ class NoticeStorage:
             if not self._is_in_flask():
                 conn.close()
 
+    def add_daily_event(self, data: dict = None, actor: str = "admin", ip: str = "127.0.0.1") -> dict:
+        data = data or {}
+        conn = self.get_connection()
+        try:
+            count = conn.execute("SELECT COUNT(*) FROM daily_events;").fetchone()[0]
+            if count >= 6:
+                raise ValueError("Maximum of 6 daily events allowed.")
+        finally:
+            if not self._is_in_flask():
+                conn.close()
+
+        label = str(data.get("label", "Custom Event")).strip() or "Custom Event"
+        event_id = data.get("id") or f"event_{secrets.token_hex(4)}"
+
+        # Prepare candidate settings for overlap validation
+        raw_days = data.get("days_of_week", ["mon", "tue", "wed", "thu", "fri", "sat"])
+        if isinstance(raw_days, list):
+            days_list = [str(d).strip().lower() for d in raw_days if str(d).strip()]
+        else:
+            days_list = [x.strip().lower() for x in str(raw_days).split(",") if x.strip()]
+        if not days_list:
+            days_list = ["mon", "tue", "wed", "thu", "fri", "sat"]
+
+        raw_screens = data.get("screens", "ALL")
+        clean_screens = sanitize_screen_codes(raw_screens)
+
+        start_time = str(data.get("start_time", "12:00")).strip()
+        if not re.match(r"^\d{1,2}:\d{2}$", start_time):
+            start_time = "12:00"
+        else:
+            parts = start_time.split(":")
+            start_time = f"{int(parts[0]):02d}:{int(parts[1]):02d}"
+
+        start_offset_seconds = max(-60, min(60, int(data.get("start_offset_seconds", 0) or 0)))
+        duration_seconds = max(10, min(300, int(data.get("duration_seconds", 60) or 60)))
+        show_standup = bool(data.get("show_standup_text", False))
+
+        cand_dict = {
+            "start_time": start_time,
+            "start_offset_seconds": start_offset_seconds,
+            "duration_seconds": duration_seconds,
+            "days_of_week": days_list,
+            "screens": clean_screens,
+            "show_standup_text": show_standup
+        }
+
+        # Check overlap against all other existing events
+        for other in self.get_daily_events():
+            if check_event_overlap(cand_dict, other):
+                raise ValueError(f"This overlaps {other['label']} at {other['start_time']}")
+
+        days_str = ",".join(days_list)
+        screens_str = ",".join(clean_screens)
+        enabled_int = 1 if data.get("enabled") in (True, 1, "1", "true") else 0
+        show_standup_int = 1 if show_standup else 0
+
+        standup_en = str(data.get("standup_en", "Please stand for the event")).strip()[:60]
+        standup_hi = str(data.get("standup_hi", "")).strip()[:60]
+        standup_mr = str(data.get("standup_mr", "")).strip()[:60]
+
+        now_ms = get_current_time_ms()
+        conn = self.get_connection()
+        try:
+            with conn:
+                conn.execute("""
+                    INSERT INTO daily_events (
+                        id, type, label, enabled, start_time, start_offset_seconds, duration_seconds,
+                        days_of_week, screens, show_standup_text, standup_en, standup_hi, standup_mr,
+                        skip_dates, updated_at
+                    ) VALUES (?, 'flag', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '[]', ?);
+                """, (
+                    event_id, label, enabled_int, start_time, start_offset_seconds, duration_seconds,
+                    days_str, screens_str, show_standup_int, standup_en, standup_hi, standup_mr, now_ms
+                ))
+            self.record_audit(actor, "FLAG_CREATE", event_id, f"Created {label} ({event_id}): time={start_time}", ip)
+            return self.get_daily_event(event_id)
+        finally:
+            if not self._is_in_flask():
+                conn.close()
+
     def update_daily_event(self, event_type: str = "flag", data: dict = None, actor: str = "admin", ip: str = "127.0.0.1") -> dict:
         data = data or {}
         existing = self.get_daily_event(event_type)
         if not existing:
             return None
+        actual_id = existing["id"]
+
+        label = str(data.get("label", existing.get("label", "National Anthem"))).strip() or existing.get("label", "National Anthem")
 
         # Enabled toggle
         enabled = data.get("enabled", existing["enabled"])
@@ -1584,11 +1913,12 @@ class NoticeStorage:
         # Days of week
         raw_days = data.get("days_of_week", existing["days_of_week"])
         if isinstance(raw_days, list):
-            days_str = ",".join(str(d).strip().lower() for d in raw_days if str(d).strip())
+            days_list = [str(d).strip().lower() for d in raw_days if str(d).strip()]
         else:
-            days_str = str(raw_days).strip().lower()
-        if not days_str:
-            days_str = "mon,tue,wed,thu,fri,sat"
+            days_list = [x.strip().lower() for x in str(raw_days).split(",") if x.strip()]
+        if not days_list:
+            days_list = ["mon", "tue", "wed", "thu", "fri", "sat"]
+        days_str = ",".join(days_list)
 
         # Screens
         raw_screens = data.get("screens", existing["screens"])
@@ -1599,6 +1929,11 @@ class NoticeStorage:
         show_standup = data.get("show_standup_text", existing["show_standup_text"])
         show_standup_int = 1 if show_standup in (True, 1, "1", "true") else 0
 
+        # Standup text prompts (max 60 chars)
+        standup_en = str(data.get("standup_en", existing.get("standup_en", ""))).strip()[:60]
+        standup_hi = str(data.get("standup_hi", existing.get("standup_hi", ""))).strip()[:60]
+        standup_mr = str(data.get("standup_mr", existing.get("standup_mr", ""))).strip()[:60]
+
         # Skip dates
         raw_skips = data.get("skip_dates", existing["skip_dates"])
         if isinstance(raw_skips, list):
@@ -1607,12 +1942,28 @@ class NoticeStorage:
         else:
             skip_dates_str = json.dumps(existing["skip_dates"])
 
+        # Check overlap against all other events
+        cand_dict = {
+            "start_time": start_time,
+            "start_offset_seconds": start_offset_seconds,
+            "duration_seconds": duration_seconds,
+            "days_of_week": days_list,
+            "screens": clean_screens,
+            "show_standup_text": bool(show_standup_int)
+        }
+        for other in self.get_daily_events():
+            if other["id"] == actual_id:
+                continue
+            if check_event_overlap(cand_dict, other):
+                raise ValueError(f"This overlaps {other['label']} at {other['start_time']}")
+
         now_ms = get_current_time_ms()
         conn = self.get_connection()
         try:
             with conn:
                 conn.execute("""
                     UPDATE daily_events SET
+                        label = ?,
                         enabled = ?,
                         start_time = ?,
                         start_offset_seconds = ?,
@@ -1620,17 +1971,36 @@ class NoticeStorage:
                         days_of_week = ?,
                         screens = ?,
                         show_standup_text = ?,
+                        standup_en = ?,
+                        standup_hi = ?,
+                        standup_mr = ?,
                         skip_dates = ?,
                         ended_early_date = NULL,
                         updated_at = ?
-                    WHERE type = ?;
+                    WHERE id = ?;
                 """, (
-                    enabled_int, start_time, start_offset_seconds, duration_seconds,
-                    days_str, screens_str, show_standup_int, skip_dates_str,
-                    now_ms, event_type
+                    label, enabled_int, start_time, start_offset_seconds, duration_seconds,
+                    days_str, screens_str, show_standup_int, standup_en, standup_hi, standup_mr,
+                    skip_dates_str, now_ms, actual_id
                 ))
-            self.record_audit(actor, "FLAG_UPDATE", event_type, f"Updated flag event: enabled={bool(enabled_int)}, time={start_time}, offset={start_offset_seconds}s, dur={duration_seconds}s", ip)
-            return self.get_daily_event(event_type)
+            self.record_audit(actor, "FLAG_UPDATE", actual_id, f"Updated {label} ({actual_id}): enabled={bool(enabled_int)}, time={start_time}, offset={start_offset_seconds}s, dur={duration_seconds}s", ip)
+            return self.get_daily_event(actual_id)
+        finally:
+            if not self._is_in_flask():
+                conn.close()
+
+    def delete_daily_event(self, event_id: str, actor: str = "admin", ip: str = "127.0.0.1") -> bool:
+        existing = self.get_daily_event(event_id)
+        if not existing:
+            return False
+        actual_id = existing["id"]
+        label = existing.get("label", actual_id)
+        conn = self.get_connection()
+        try:
+            with conn:
+                conn.execute("DELETE FROM daily_events WHERE id = ?;", (actual_id,))
+            self.record_audit(actor, "FLAG_DELETE", actual_id, f"Deleted {label} ({actual_id})", ip)
+            return True
         finally:
             if not self._is_in_flask():
                 conn.close()
@@ -1639,6 +2009,8 @@ class NoticeStorage:
         evt = self.get_daily_event(event_type)
         if not evt:
             return None
+        actual_id = evt["id"]
+        label = evt.get("label", actual_id)
         now_dt = datetime.datetime.now(KOLKATA_TZ)
         today_str = now_dt.strftime("%Y-%m-%d")
         current_skips = list(evt.get("skip_dates") or [])
@@ -1650,33 +2022,35 @@ class NoticeStorage:
         try:
             with conn:
                 conn.execute("""
-                    UPDATE daily_events SET skip_dates = ?, updated_at = ? WHERE type = ?;
-                """, (json.dumps(current_skips), now_ms, event_type))
-            self.record_audit(actor, "FLAG_SKIP", event_type, f"Skipped flag event for today ({today_str})", ip)
-            return self.get_daily_event(event_type)
+                    UPDATE daily_events SET skip_dates = ?, updated_at = ? WHERE id = ?;
+                """, (json.dumps(current_skips), now_ms, actual_id))
+            self.record_audit(actor, "FLAG_SKIP", actual_id, f"Skipped {label} ({actual_id}) for today ({today_str})", ip)
+            return self.get_daily_event(actual_id)
         finally:
             if not self._is_in_flask():
                 conn.close()
 
     def record_daily_event_run(self, event_type: str = "flag", result: str = "success", actor: str = "admin", ip: str = "127.0.0.1") -> dict:
+        evt = self.get_daily_event(event_type)
+        actual_id = evt["id"] if evt else event_type
+        label = evt.get("label", actual_id) if evt else actual_id
         now_ms = get_current_time_ms()
         conn = self.get_connection()
         try:
             with conn:
                 conn.execute("""
-                    UPDATE daily_events SET last_run_at = ?, last_run_result = ?, updated_at = ? WHERE type = ?;
-                """, (now_ms, result, now_ms, event_type))
-            self.record_audit(actor, "FLAG_TEST_RUN", event_type, f"Flag event run: {result}", ip)
-            return self.get_daily_event(event_type)
+                    UPDATE daily_events SET last_run_at = ?, last_run_result = ?, updated_at = ? WHERE id = ?;
+                """, (now_ms, result, now_ms, actual_id))
+            self.record_audit(actor, "FLAG_TEST_RUN", actual_id, f"Test run {label} ({actual_id}): {result}", ip)
+            return self.get_daily_event(actual_id)
         finally:
             if not self._is_in_flask():
                 conn.close()
 
-    def set_flag_manual_override(self, screens="ALL", duration_seconds: int = 60, show_standup_text: bool = False):
+    def set_flag_manual_override(self, screens="ALL", duration_seconds: int = 60, show_standup_text: bool = False, event_id: str = None):
         now_ms = get_current_time_ms()
         try:
             dur = int(duration_seconds)
-            # allow duration up to 86400 (for Show flag now / indefinite until End flag now)
             dur = max(5, min(86400, dur))
         except (ValueError, TypeError):
             dur = 60
@@ -1687,19 +2061,38 @@ class NoticeStorage:
 
         screens_str = ",".join(clean_screens) if isinstance(clean_screens, list) else str(clean_screens)
 
+        target_row_id = None
+        if event_id:
+            ev = self.get_daily_event(event_id)
+            if ev:
+                target_row_id = ev["id"]
+
         conn = self.get_connection()
         try:
             with conn:
-                conn.execute("""
-                    UPDATE daily_events SET
-                        override_start_ms = ?,
-                        override_end_ms = ?,
-                        override_screens = ?,
-                        override_show_standup = ?,
-                        ended_early_date = NULL,
-                        updated_at = ?
-                    WHERE type = 'flag';
-                """, (start_ms, end_ms, screens_str, show_standup_int, now_ms))
+                conn.execute("UPDATE daily_events SET override_start_ms = NULL, override_end_ms = NULL, override_screens = NULL, override_show_standup = 0;")
+                if target_row_id:
+                    conn.execute("""
+                        UPDATE daily_events SET
+                            override_start_ms = ?,
+                            override_end_ms = ?,
+                            override_screens = ?,
+                            override_show_standup = ?,
+                            ended_early_date = NULL,
+                            updated_at = ?
+                        WHERE id = ?;
+                    """, (start_ms, end_ms, screens_str, show_standup_int, now_ms, target_row_id))
+                else:
+                    conn.execute("""
+                        UPDATE daily_events SET
+                            override_start_ms = ?,
+                            override_end_ms = ?,
+                            override_screens = ?,
+                            override_show_standup = ?,
+                            ended_early_date = NULL,
+                            updated_at = ?
+                        WHERE id = 'anthem' OR id = 'flag' OR type = 'flag';
+                    """, (start_ms, end_ms, screens_str, show_standup_int, now_ms))
         finally:
             if not self._is_in_flask():
                 conn.close()
@@ -1708,7 +2101,8 @@ class NoticeStorage:
             "start_ms": start_ms,
             "end_ms": end_ms,
             "screens": clean_screens,
-            "show_standup_text": bool(show_standup_text)
+            "show_standup_text": bool(show_standup_text),
+            "event_id": target_row_id
         }
         return self._flag_manual_override
 
@@ -1726,10 +2120,14 @@ class NoticeStorage:
                         override_end_ms = NULL,
                         override_screens = NULL,
                         override_show_standup = 0,
-                        ended_early_date = ?,
-                        updated_at = ?
-                    WHERE type = 'flag';
-                """, (today_str, now_ms))
+                        updated_at = ?;
+                """, (now_ms,))
+                if ended_early:
+                    active_evt = self.get_flag_event_today()
+                    if active_evt and active_evt.get("event_id"):
+                        conn.execute("UPDATE daily_events SET ended_early_date = ? WHERE id = ?;", (today_str, active_evt["event_id"]))
+                    else:
+                        conn.execute("UPDATE daily_events SET ended_early_date = ? WHERE id = 'anthem' OR id = 'flag';", (today_str,))
         finally:
             if not self._is_in_flask():
                 conn.close()
@@ -1748,8 +2146,8 @@ class NoticeStorage:
             hh, mm = map(int, start_time_str.split(":"))
         except Exception:
             hh, mm = 11, 0
-        offset = event_data.get("start_offset_seconds", 0)
-        dur = event_data.get("duration_seconds", 60)
+        offset = int(event_data.get("start_offset_seconds", 0) or 0)
+        dur = int(event_data.get("duration_seconds", 60) or 60)
         skip_dates = set(event_data.get("skip_dates") or [])
         active_days = set(event_data.get("days_of_week") or [])
 
@@ -1777,6 +2175,57 @@ class NoticeStorage:
 
         return f"{start_time_str}"
 
+    def compute_overall_next_run_text(self, now_dt: datetime.datetime = None) -> str:
+        now_dt = now_dt or datetime.datetime.now(KOLKATA_TZ)
+        events = self.get_daily_events()
+        enabled_events = [e for e in events if e.get("enabled")]
+        if not enabled_events:
+            return "No event enabled"
+
+        days_map = {0: "mon", 1: "tue", 2: "wed", 3: "thu", 4: "fri", 5: "sat", 6: "sun"}
+        days_name_map = {0: "Monday", 1: "Tuesday", 2: "Wednesday", 3: "Thursday", 4: "Friday", 5: "Saturday", 6: "Sunday"}
+
+        earliest_candidate = None
+        earliest_dt = None
+
+        for evt in enabled_events:
+            start_time_str = evt.get("start_time", "11:00")
+            try:
+                hh, mm = map(int, start_time_str.split(":"))
+            except Exception:
+                hh, mm = 11, 0
+            offset = int(evt.get("start_offset_seconds", 0) or 0)
+            dur = int(evt.get("duration_seconds", 60) or 60)
+            skip_dates = set(evt.get("skip_dates") or [])
+            active_days = set(evt.get("days_of_week") or [])
+
+            for day_offset in range(14):
+                c_date = now_dt + datetime.timedelta(days=day_offset)
+                c_str = c_date.strftime("%Y-%m-%d")
+                if c_str in skip_dates:
+                    continue
+                if days_map[c_date.weekday()] not in active_days:
+                    continue
+                c_start = c_date.replace(hour=hh, minute=mm, second=0, microsecond=0) + datetime.timedelta(seconds=offset)
+                c_end = c_start + datetime.timedelta(seconds=dur)
+                if c_end <= now_dt:
+                    continue
+                if earliest_dt is None or c_start < earliest_dt:
+                    earliest_dt = c_start
+                    earliest_candidate = (day_offset, c_date, f"{hh:02d}:{mm:02d}", evt.get("label", "Flag"))
+                break
+
+        if not earliest_candidate:
+            return "Not scheduled"
+
+        day_offset, c_date, time_disp, label = earliest_candidate
+        if day_offset == 0:
+            return f"Today {time_disp} ({label})"
+        elif day_offset == 1:
+            return f"Tomorrow {time_disp} ({label})"
+        else:
+            return f"{days_name_map[c_date.weekday()]} {time_disp} ({label})"
+
     def get_flag_event_today(self, screen_code: str = "ALL", now_dt: datetime.datetime = None) -> dict:
         now_dt = now_dt or datetime.datetime.now(KOLKATA_TZ)
         server_time_ms = int(now_dt.timestamp() * 1000)
@@ -1788,86 +2237,118 @@ class NoticeStorage:
             "flag_start_ms": None,
             "flag_end_ms": None,
             "show_standup_text": False,
-            "standup_lead_seconds": 0
+            "standup_lead_seconds": 0,
+            "event_id": None,
+            "label": None,
+            "standup_en": None,
+            "standup_hi": None,
+            "standup_mr": None
         }
 
-        evt = self.get_daily_event("flag")
-        if not evt:
-            return empty_response
-
         # 1. Check persistent manual override from database
-        ov_start = evt.get("override_start_ms")
-        ov_end = evt.get("override_end_ms")
-        if ov_start is not None and ov_end is not None:
-            if server_time_ms < ov_end:
-                ov_screens = sanitize_screen_codes(evt.get("override_screens") or "ALL")
-                if "ALL" in ov_screens or screen_code_clean in ov_screens:
-                    return {
-                        "server_time_ms": server_time_ms,
-                        "flag_start_ms": ov_start,
-                        "flag_end_ms": ov_end,
-                        "show_standup_text": bool(evt.get("override_show_standup")),
-                        "standup_lead_seconds": 15 if evt.get("override_show_standup") else 0
-                    }
-            else:
-                # Override expired, clear in DB
-                self.clear_flag_manual_override(ended_early=False)
+        conn = self.get_connection()
+        try:
+            ov_row = conn.execute("SELECT * FROM daily_events WHERE override_start_ms IS NOT NULL AND override_end_ms IS NOT NULL LIMIT 1;").fetchone()
+            if ov_row:
+                ov = dict(ov_row)
+                ov_start = ov.get("override_start_ms")
+                ov_end = ov.get("override_end_ms")
+                if ov_start is not None and ov_end is not None:
+                    if server_time_ms < ov_end:
+                        ov_screens = sanitize_screen_codes(ov.get("override_screens") or "ALL")
+                        if "ALL" in ov_screens or screen_code_clean in ov_screens:
+                            show_standup = bool(ov.get("override_show_standup"))
+                            return {
+                                "server_time_ms": server_time_ms,
+                                "flag_start_ms": ov_start,
+                                "flag_end_ms": ov_end,
+                                "show_standup_text": show_standup,
+                                "standup_lead_seconds": 15 if show_standup else 0,
+                                "event_id": ov.get("id", "anthem"),
+                                "label": ov.get("label", "National Anthem"),
+                                "standup_en": ov.get("standup_en") or "Please stand for the National Anthem",
+                                "standup_hi": ov.get("standup_hi") or "कृपया राष्ट्रगान के लिए खड़े हो जाएँ",
+                                "standup_mr": ov.get("standup_mr") or "कृपया राष्ट्रगीतासाठी उभे राहा"
+                            }
+                    else:
+                        self.clear_flag_manual_override(ended_early=False)
+        finally:
+            if not self._is_in_flask():
+                conn.close()
 
-        # 2. Check ended_early marker for today (scheduled event ended early)
-        if evt.get("ended_early_date") == today_str:
-            return empty_response
-
-        # 3. Check feature flag and event enable status
+        # 2. Check feature flag
         import config
         if not getattr(config, "FLAG_EVENT_ENABLED", True):
             return empty_response
 
-        if not evt.get("enabled"):
-            return empty_response
-
-        # 4. Screen targeting
-        target_screens = evt.get("screens", "ALL")
-        if isinstance(target_screens, str):
-            target_screens = sanitize_screen_codes(target_screens)
-        if "ALL" not in target_screens and screen_code_clean not in target_screens:
-            return empty_response
-
-        # 5. Skip dates filter (Asia/Kolkata date)
-        skip_dates = set(evt.get("skip_dates") or [])
-        if today_str in skip_dates:
-            return empty_response
-
-        # 6. Day of week filter
+        # 3. Find next occurrence across all enabled events for this screen
+        events = self.get_daily_events()
         days_map = {0: "mon", 1: "tue", 2: "wed", 3: "thu", 4: "fri", 5: "sat", 6: "sun"}
         today_code = days_map[now_dt.weekday()]
-        if today_code not in evt.get("days_of_week", []):
+
+        candidates = []
+        for evt in events:
+            if not evt.get("enabled"):
+                continue
+            if evt.get("ended_early_date") == today_str:
+                continue
+
+            target_screens = evt.get("screens", "ALL")
+            if isinstance(target_screens, str):
+                target_screens = sanitize_screen_codes(target_screens)
+            if "ALL" not in target_screens and screen_code_clean not in target_screens:
+                continue
+
+            skip_dates = set(evt.get("skip_dates") or [])
+            if today_str in skip_dates:
+                continue
+
+            active_days = set(evt.get("days_of_week") or [])
+            if today_code not in active_days:
+                continue
+
+            start_time_str = evt.get("start_time", "11:00")
+            try:
+                hh, mm = map(int, start_time_str.split(":"))
+            except Exception:
+                hh, mm = 11, 0
+            offset_sec = int(evt.get("start_offset_seconds", 0) or 0)
+            dur_sec = int(evt.get("duration_seconds", 60) or 60)
+
+            event_start = now_dt.replace(hour=hh, minute=mm, second=0, microsecond=0) + datetime.timedelta(seconds=offset_sec)
+            event_end = event_start + datetime.timedelta(seconds=dur_sec)
+            start_ms = int(event_start.timestamp() * 1000)
+            end_ms = int(event_end.timestamp() * 1000)
+
+            if server_time_ms >= end_ms:
+                continue
+
+            candidates.append({
+                "event": evt,
+                "start_ms": start_ms,
+                "end_ms": end_ms
+            })
+
+        if not candidates:
             return empty_response
 
-        # 7. Compute start and end times for today
-        start_time_str = evt.get("start_time", "11:00")
-        try:
-            hh, mm = map(int, start_time_str.split(":"))
-        except Exception:
-            hh, mm = 11, 0
-        offset_sec = evt.get("start_offset_seconds", 0)
-        dur_sec = evt.get("duration_seconds", 60)
-
-        event_start = now_dt.replace(hour=hh, minute=mm, second=0, microsecond=0) + datetime.timedelta(seconds=offset_sec)
-        event_end = event_start + datetime.timedelta(seconds=dur_sec)
-
-        start_ms = int(event_start.timestamp() * 1000)
-        end_ms = int(event_end.timestamp() * 1000)
-
-        if server_time_ms >= end_ms:
-            return empty_response
-
+        # Pick earliest upcoming/running candidate
+        candidates.sort(key=lambda c: c["start_ms"])
+        chosen = candidates[0]
+        evt = chosen["event"]
         show_standup = bool(evt.get("show_standup_text", False))
+
         return {
             "server_time_ms": server_time_ms,
-            "flag_start_ms": start_ms,
-            "flag_end_ms": end_ms,
+            "flag_start_ms": chosen["start_ms"],
+            "flag_end_ms": chosen["end_ms"],
             "show_standup_text": show_standup,
-            "standup_lead_seconds": 15 if show_standup else 0
+            "standup_lead_seconds": 15 if show_standup else 0,
+            "event_id": evt["id"],
+            "label": evt.get("label", "National Anthem"),
+            "standup_en": evt.get("standup_en") or "Please stand for the National Anthem",
+            "standup_hi": evt.get("standup_hi") or "कृपया राष्ट्रगान के लिए खड़े हो जाएँ",
+            "standup_mr": evt.get("standup_mr") or "कृपया राष्ट्रगीतासाठी उभे राहा"
         }
 
 

@@ -5051,6 +5051,132 @@ html[data-theme="dark"] .flag-next-run-badge {
   margin-top: 10px;
 }
 
+/* Multi-event Accordion Layout */
+.flag-events-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin: 16px 0;
+}
+
+.flag-event-card {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.02);
+  overflow: hidden;
+  transition: all 0.2s ease;
+}
+
+.flag-event-card.expanded {
+  border-color: rgba(59, 130, 246, 0.45);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+}
+
+.flag-event-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  cursor: pointer;
+  user-select: none;
+  background: rgba(255, 255, 255, 0.03);
+  gap: 12px;
+}
+
+.flag-event-header:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.flag-event-summary {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1;
+  min-width: 0;
+  flex-wrap: wrap;
+}
+
+.flag-event-chevron {
+  display: inline-flex;
+  transition: transform 0.2s ease;
+  color: var(--muted);
+}
+
+.flag-event-card.expanded .flag-event-chevron {
+  transform: rotate(90deg);
+}
+
+.flag-event-title {
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--text);
+}
+
+.flag-event-time-badge {
+  font-size: 12px;
+  font-weight: 500;
+  padding: 2px 8px;
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 4px;
+  color: var(--text);
+}
+
+.flag-event-next-badge {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.flag-event-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.flag-event-body {
+  padding: 16px;
+  border-top: 1px solid var(--line);
+}
+
+.standup-prompts-section {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin: 12px 0 16px 0;
+  padding: 14px;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+
+.standup-prompts-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 4px;
+}
+
+.reset-standup-link {
+  font-size: 12px;
+  color: #1D4ED8;
+  text-decoration: underline;
+  cursor: pointer;
+  background: none;
+  border: none;
+  padding: 0;
+}
+
+html[data-theme="dark"] .reset-standup-link {
+  color: #60A5FA;
+}
+
+.reset-standup-link:hover {
+  color: #1E40AF;
+}
+
+html[data-theme="dark"] .reset-standup-link:hover {
+  color: #93C5FD;
+}
+
 /* ==========================================================================
    Mobile Performance, Motion Quality & Touch Feedback Rules (Step 3)
    ========================================================================== */

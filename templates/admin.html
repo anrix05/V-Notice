@@ -507,115 +507,145 @@
             <div class="settings-group-card" id="settings-card-flag-event">
               <div class="card-header-row">
                 <div>
-                  <h3 class="settings-group-title">Daily events: National flag</h3>
-                  <p class="settings-sublabel">Automated fullscreen flag display synced with campus anthem schedule</p>
+                  <h3 class="settings-group-title">Daily events</h3>
+                  <p class="settings-sublabel">Automated fullscreen display events synced with campus schedule</p>
                 </div>
-                <div class="flag-next-run-badge" id="flag-next-run-badge">Next run: Loading...</div>
+                <div style="display:flex; align-items:center; gap:12px;">
+                  <div class="flag-next-run-badge" id="flag-next-run-badge">Next run: Loading...</div>
+                  <button type="button" id="btn-add-flag-event" class="btn btn-secondary btn-sm">+ Add event</button>
+                </div>
               </div>
 
-              <form id="flag-settings-form" class="flag-form-layout">
-                <!-- Enable Switch -->
-                <div class="settings-row">
-                  <div class="settings-label-wrap">
-                    <span class="settings-label">Enable daily flag screen</span>
-                    <span class="settings-sublabel">When disabled, no screens will show the flag automatically</span>
-                  </div>
-                  <label class="switch-toggle">
-                    <input type="checkbox" id="flag-enabled-switch" name="enabled">
-                    <span class="switch-slider"></span>
-                  </label>
-                </div>
-
-                <!-- Start time, Offset & Duration -->
-                <div class="flag-fields-grid">
-                  <div class="form-group">
-                    <label for="flag-start-time" class="form-label">Start time</label>
-                    <input type="time" id="flag-start-time" name="start_time" class="form-control" value="11:00" required>
-                    <span class="field-hint">Asia/Kolkata timezone</span>
-                  </div>
-
-                  <div class="form-group">
-                    <label for="flag-start-offset" class="form-label">Start offset (seconds)</label>
-                    <input type="number" id="flag-start-offset" name="start_offset_seconds" class="form-control" min="-60" max="60" value="0" required>
-                    <span class="field-hint">Use this to line up with the anthem system</span>
-                  </div>
-
-                  <div class="form-group">
-                    <label for="flag-duration" class="form-label">Duration (seconds)</label>
-                    <input type="number" id="flag-duration" name="duration_seconds" class="form-control" min="10" max="300" value="60" required>
-                    <span class="field-hint">Anthem length plus about 5 seconds</span>
-                  </div>
-                </div>
-
-                <!-- Days of week -->
-                <div class="form-group">
-                  <label class="form-label">Days of week</label>
-                  <div class="flag-days-picker" id="flag-days-picker">
-                    <label class="day-opt"><input type="checkbox" name="flag_day" value="mon"> <span>Mon</span></label>
-                    <label class="day-opt"><input type="checkbox" name="flag_day" value="tue"> <span>Tue</span></label>
-                    <label class="day-opt"><input type="checkbox" name="flag_day" value="wed"> <span>Wed</span></label>
-                    <label class="day-opt"><input type="checkbox" name="flag_day" value="thu"> <span>Thu</span></label>
-                    <label class="day-opt"><input type="checkbox" name="flag_day" value="fri"> <span>Fri</span></label>
-                    <label class="day-opt"><input type="checkbox" name="flag_day" value="sat"> <span>Sat</span></label>
-                    <label class="day-opt"><input type="checkbox" name="flag_day" value="sun"> <span>Sun</span></label>
-                  </div>
-                </div>
-
-                <!-- Target Screens -->
-                <div class="form-group">
-                  <label for="flag-screens-input" class="form-label">Target screens</label>
-                  <input type="text" id="flag-screens-input" name="screens" class="form-control" value="ALL" placeholder="ALL or comma-separated codes (e.g. ALL, CMPN, IT)">
-                  <span class="field-hint">Enter ALL to target every display or specific screen codes</span>
-                </div>
-
-                <!-- Stand-up Text Switch -->
-                <div class="settings-row">
-                  <div class="settings-label-wrap">
-                    <span class="settings-label">Show stand-up text</span>
-                    <span class="settings-sublabel">Shows 15-second trilingual prompt before the flag</span>
-                  </div>
-                  <label class="switch-toggle">
-                    <input type="checkbox" id="flag-standup-switch" name="show_standup_text">
-                    <span class="switch-slider"></span>
-                  </label>
-                </div>
-
-                <!-- Skip Dates & Skip Today -->
-                <div class="form-group">
-                  <div class="label-row">
-                    <label class="form-label">Skip dates</label>
-                    <button type="button" id="btn-flag-skip-today" class="btn btn-secondary btn-sm">Skip today</button>
-                  </div>
-                  <div class="skip-dates-manager">
-                    <div class="skip-dates-add-row">
-                      <input type="date" id="flag-new-skip-date" class="form-control form-control-sm">
-                      <button type="button" id="btn-add-skip-date" class="btn btn-secondary btn-sm">Add date</button>
+              <div class="flag-events-list" id="flag-events-list">
+                <!-- Statically rendered default Anthem row, refreshed dynamically -->
+                <div class="flag-event-card expanded" id="flag-event-card-anthem" data-event-id="anthem">
+                  <div class="flag-event-header">
+                    <div class="flag-event-summary">
+                      <span class="flag-event-chevron">▶</span>
+                      <span class="flag-event-title" id="flag-event-title-anthem">National Anthem</span>
+                      <span class="flag-event-time-badge" id="flag-event-time-anthem">11:00</span>
+                      <span class="flag-event-next-badge" id="flag-event-next-anthem">Today 11:00</span>
                     </div>
-                    <div class="skip-dates-list" id="flag-skip-dates-list">
-                      <!-- Populated dynamically -->
+                    <div class="flag-event-header-actions">
+                      <label class="switch-toggle" onclick="event.stopPropagation()">
+                        <input type="checkbox" id="flag-enabled-switch" name="enabled" checked>
+                        <span class="switch-slider"></span>
+                      </label>
                     </div>
                   </div>
-                </div>
 
-                <!-- Save Settings Button & Last Result -->
-                <div class="flag-action-bar">
-                  <button type="submit" id="btn-save-flag-settings" class="btn btn-primary">Save flag settings</button>
-                  <span class="last-run-status" id="flag-last-run-status"></span>
+                  <div class="flag-event-body">
+                    <form class="flag-event-item-form" data-event-id="anthem">
+                      <div class="form-group" style="margin-bottom: 12px;">
+                        <label class="form-label">Event label</label>
+                        <input type="text" name="label" class="form-control" value="National Anthem" maxlength="60" required>
+                      </div>
+
+                      <div class="flag-fields-grid">
+                        <div class="form-group">
+                          <label for="flag-start-time" class="form-label">Start time</label>
+                          <input type="time" id="flag-start-time" name="start_time" class="form-control" value="11:00" required>
+                          <span class="field-hint">Asia/Kolkata timezone</span>
+                        </div>
+
+                        <div class="form-group">
+                          <label for="flag-start-offset" class="form-label">Start offset (seconds)</label>
+                          <input type="number" id="flag-start-offset" name="start_offset_seconds" class="form-control" min="-60" max="60" value="0" required>
+                          <span class="field-hint">Line up with the anthem system</span>
+                        </div>
+
+                        <div class="form-group">
+                          <label for="flag-duration" class="form-label">Duration (seconds)</label>
+                          <input type="number" id="flag-duration" name="duration_seconds" class="form-control" min="10" max="300" value="60" required>
+                          <span class="field-hint">Anthem length plus about 5 seconds</span>
+                        </div>
+                      </div>
+
+                      <div class="form-group">
+                        <label class="form-label">Days of week</label>
+                        <div class="flag-days-picker" id="flag-days-picker">
+                          <label class="day-opt"><input type="checkbox" name="flag_day" value="mon" checked> <span>Mon</span></label>
+                          <label class="day-opt"><input type="checkbox" name="flag_day" value="tue" checked> <span>Tue</span></label>
+                          <label class="day-opt"><input type="checkbox" name="flag_day" value="wed" checked> <span>Wed</span></label>
+                          <label class="day-opt"><input type="checkbox" name="flag_day" value="thu" checked> <span>Thu</span></label>
+                          <label class="day-opt"><input type="checkbox" name="flag_day" value="fri" checked> <span>Fri</span></label>
+                          <label class="day-opt"><input type="checkbox" name="flag_day" value="sat" checked> <span>Sat</span></label>
+                          <label class="day-opt"><input type="checkbox" name="flag_day" value="sun"> <span>Sun</span></label>
+                        </div>
+                      </div>
+
+                      <div class="form-group">
+                        <label for="flag-screens-input" class="form-label">Target screens</label>
+                        <input type="text" id="flag-screens-input" name="screens" class="form-control" value="ALL" placeholder="ALL or comma-separated codes (e.g. ALL, CMPN, IT)">
+                        <span class="field-hint">Enter ALL to target every display or specific screen codes</span>
+                      </div>
+
+                      <div class="settings-row" style="margin-top: 14px;">
+                        <div class="settings-label-wrap">
+                          <span class="settings-label">Show stand-up text</span>
+                          <span class="settings-sublabel">Shows 15-second trilingual prompt before the flag</span>
+                        </div>
+                        <label class="switch-toggle">
+                          <input type="checkbox" id="flag-standup-switch" name="show_standup_text">
+                          <span class="switch-slider"></span>
+                        </label>
+                      </div>
+
+                      <div class="standup-prompts-section">
+                        <div class="standup-prompts-header">
+                          <span class="form-label" style="margin: 0;">Stand-up prompt lines</span>
+                          <button type="button" class="reset-standup-link btn-reset-standup" data-event-id="anthem">Reset to default</button>
+                        </div>
+                        <div class="form-group" style="margin-bottom: 8px;">
+                          <label class="field-hint">English line (max 60 characters)</label>
+                          <input type="text" name="standup_en" class="form-control" maxlength="60" value="Please stand for the National Anthem">
+                        </div>
+                        <div class="form-group" style="margin-bottom: 8px;">
+                          <label class="field-hint">Hindi line (max 60 characters)</label>
+                          <input type="text" name="standup_hi" class="form-control" maxlength="60" value="कृपया राष्ट्रगान के लिए खड़े हो जाएँ">
+                        </div>
+                        <div class="form-group">
+                          <label class="field-hint">Marathi line (max 60 characters)</label>
+                          <input type="text" name="standup_mr" class="form-control" maxlength="60" value="कृपया राष्ट्रगीतासाठी उभे राहा">
+                        </div>
+                      </div>
+
+                      <div class="form-group">
+                        <div class="label-row">
+                          <label class="form-label">Skip dates</label>
+                          <button type="button" id="btn-flag-skip-today" class="btn btn-secondary btn-sm btn-event-skip-today" data-event-id="anthem">Skip today</button>
+                        </div>
+                        <div class="skip-dates-manager">
+                          <div class="skip-dates-add-row">
+                            <input type="date" id="flag-new-skip-date" class="form-control form-control-sm">
+                            <button type="button" id="btn-add-skip-date" class="btn btn-secondary btn-sm btn-event-add-skip-date" data-event-id="anthem">Add date</button>
+                          </div>
+                          <div class="skip-dates-list" id="flag-skip-dates-list">
+                            <!-- Populated dynamically -->
+                          </div>
+                        </div>
+                      </div>
+
+                      <div class="flag-action-bar">
+                        <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+                          <button type="submit" id="btn-save-flag-settings" class="btn btn-primary btn-save-event" data-event-id="anthem">Save event</button>
+                          <button type="button" id="btn-flag-preview-5x" class="btn btn-secondary btn-sm btn-event-preview" data-event-id="anthem">Preview here (silent)</button>
+                          <button type="button" id="btn-flag-run-now" class="btn btn-secondary btn-sm btn-event-run-now" data-event-id="anthem">Run now on screen...</button>
+                          <button type="button" class="btn btn-danger btn-sm btn-event-delete" data-event-id="anthem" style="display: none;">Delete event</button>
+                        </div>
+                        <span class="last-run-status" id="flag-last-run-status"></span>
+                      </div>
+                    </form>
+                  </div>
                 </div>
-              </form>
+              </div>
 
               <hr class="settings-divider">
 
-              <!-- Testing & Overrides -->
+              <!-- Global Manual Overrides -->
               <div class="flag-testing-section">
-                <h4 class="settings-section-subtitle">Testing &amp; manual overrides</h4>
+                <h4 class="settings-section-subtitle">Global manual overrides</h4>
                 <div class="flag-test-buttons-row">
-                  <button type="button" id="btn-flag-preview-5x" class="btn btn-secondary btn-sm">
-                    <span>Preview here (silent)</span>
-                  </button>
-                  <button type="button" id="btn-flag-run-now" class="btn btn-secondary btn-sm">
-                    <span>Run now on screen...</span>
-                  </button>
                   <button type="button" id="btn-flag-show-now" class="btn btn-secondary btn-sm">
                     <span>Show flag now</span>
                   </button>
@@ -634,7 +664,14 @@
               </div>
               <div class="settings-row">
                 <span class="settings-label">Storage Backend</span>
-                <span class="settings-val" id="settings-storage-engine">Local Filesystem Storage (media/)</span>
+                <span class="settings-val" id="settings-storage-engine">{{ 'Cloudinary Cloud Storage' if is_cloud else 'Local Filesystem Storage (media/)' }}</span>
+              </div>
+              <div class="settings-row" id="row-clean-media">
+                <div class="settings-label-wrap">
+                  <span class="settings-label">Clean Unused Media</span>
+                  <span class="settings-sublabel">Scan &amp; purge unreferenced files from {{ 'Cloudinary' if is_cloud else 'disk' }}</span>
+                </div>
+                <button type="button" id="btn-clean-media" class="btn btn-secondary btn-sm">Clean Now</button>
               </div>
             </div>
 

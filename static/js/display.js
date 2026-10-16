@@ -1329,11 +1329,55 @@
   // ==========================================================================
   // Daily National Flag Scheduler (Part B)
   // ==========================================================================
+  function fitStandupText() {
+    const screen = document.getElementById('standup-screen');
+    const content = document.getElementById('standup-content');
+    const enLine = document.getElementById('standup-text-en');
+    const hiLine = document.getElementById('standup-text-hi');
+    const mrLine = document.getElementById('standup-text-mr');
+    if (!screen || !content || screen.classList.contains('hidden')) return;
+
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+    const isPortrait = vh > vw;
+    const minDim = Math.min(vw, vh);
+
+    let baseEn = Math.max(18, Math.min(96, Math.round(minDim * 0.042)));
+    let baseHi = Math.max(16, Math.min(84, Math.round(minDim * 0.038)));
+    let baseGap = Math.max(12, Math.min(48, Math.round(minDim * 0.024)));
+
+    if (isPortrait) {
+      baseEn = Math.max(20, Math.min(54, Math.round(vw * 0.05)));
+      baseHi = Math.max(18, Math.min(48, Math.round(vw * 0.045)));
+      baseGap = Math.max(16, Math.min(40, Math.round(vh * 0.02)));
+    }
+
+    content.style.gap = `${baseGap}px`;
+    if (enLine) enLine.style.fontSize = `${baseEn}px`;
+    if (hiLine) hiLine.style.fontSize = `${baseHi}px`;
+    if (mrLine) mrLine.style.fontSize = `${baseHi}px`;
+
+    const maxW = screen.clientWidth * 0.92;
+    const maxH = screen.clientHeight * 0.85;
+    let iterations = 0;
+    while (iterations < 10 && (content.scrollHeight > maxH || content.scrollWidth > maxW) && baseEn > 14) {
+      baseEn *= 0.9;
+      baseHi *= 0.9;
+      baseGap *= 0.9;
+      content.style.gap = `${Math.round(baseGap)}px`;
+      if (enLine) enLine.style.fontSize = `${Math.round(baseEn)}px`;
+      if (hiLine) hiLine.style.fontSize = `${Math.round(baseHi)}px`;
+      if (mrLine) mrLine.style.fontSize = `${Math.round(baseHi)}px`;
+      iterations++;
+    }
+  }
+  window.fitStandupText = fitStandupText;
+  window.addEventListener('resize', fitStandupText);
+
   let flagScheduler = null;
   if (typeof FlagStateMachine !== 'undefined') {
     flagScheduler = new FlagStateMachine({
       onEnterStandup: () => {
-        document.body.classList.add('flag-active');
         clearTimeout(rotationTimer);
         if (videoElement) {
           videoElement.pause();
@@ -1342,7 +1386,20 @@
         }
         if (stageSpeakerIndicator) stageSpeakerIndicator.classList.add('hidden');
         if (flagOverlay) flagOverlay.classList.remove('hidden');
-        if (standupScreen) standupScreen.classList.remove('hidden');
+
+        // Populate event's three standup lines if available in schedule
+        const sched = flagScheduler ? flagScheduler.getSchedule() : null;
+        const enLine = document.getElementById('standup-text-en');
+        const hiLine = document.getElementById('standup-text-hi');
+        const mrLine = document.getElementById('standup-text-mr');
+        if (enLine && sched && sched.standup_en) enLine.textContent = sched.standup_en;
+        if (hiLine && sched && sched.standup_hi) hiLine.textContent = sched.standup_hi;
+        if (mrLine && sched && sched.standup_mr) mrLine.textContent = sched.standup_mr;
+
+        if (standupScreen) {
+          standupScreen.classList.remove('hidden');
+          fitStandupText();
+        }
         if (flagScreen) flagScreen.classList.add('hidden');
       },
       onEnterFlag: () => {

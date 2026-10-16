@@ -2135,7 +2135,9 @@ body.show-cursor {
   justify-content: center;
   background-color: #0B1020;
   padding: 40px;
+  box-sizing: border-box;
   text-align: center;
+  overflow: hidden;
 }
 
 .standup-screen.hidden {
@@ -2145,8 +2147,12 @@ body.show-cursor {
 .standup-content {
   display: flex;
   flex-direction: column;
+  align-items: center;
+  justify-content: center;
   gap: 2.2rem;
-  max-width: 1200px;
+  max-width: 90vw;
+  max-height: 85vh;
+  box-sizing: border-box;
 }
 
 .standup-line {
@@ -2154,18 +2160,21 @@ body.show-cursor {
   font-weight: 700;
   letter-spacing: -0.01em;
   line-height: 1.35;
+  word-break: normal;
+  overflow-wrap: break-word;
+  max-width: 100%;
 }
 
 .standup-en {
   font-family: 'Outfit', 'Inter', system-ui, -apple-system, sans-serif;
-  font-size: clamp(2.2rem, 4.5vw, 4.5rem);
+  font-size: clamp(1.8rem, 4.5vw, 4.5rem);
   color: #F8FAFC;
 }
 
 .standup-hi,
 .standup-mr {
   font-family: 'Noto Sans Devanagari', 'Inter', system-ui, -apple-system, sans-serif;
-  font-size: clamp(2rem, 4vw, 4rem);
+  font-size: clamp(1.6rem, 4vw, 4rem);
   color: #F1F5F9;
 }
 
