@@ -31,9 +31,26 @@ echo ""
 # 1. Update and install system dependencies
 echo -e "${BLUE}[1/5] Installing system packages & Chromium...${NC}"
 sudo apt update
-sudo apt install -y python3 python3-pip python3-venv chromium-browser unclutter curl systemd-timesyncd ffmpeg
+sudo apt install -y python3 python3-pip python3-venv chromium-browser unclutter curl systemd-timesyncd ffmpeg xdotool
 # Enable NTP time synchronization for sub-second precision daily events (e.g. National Flag screen)
 sudo timedatectl set-ntp true 2>/dev/null || true
+
+# Setup Chromium Enterprise Autoplay Policy (Permits zero-click audio on headless wall displays)
+sudo mkdir -p /etc/chromium/policies/managed /etc/chromium-browser/policies/managed 2>/dev/null || true
+cat <<EOF | sudo tee /etc/chromium/policies/managed/vnotice_autoplay.json > /dev/null
+{
+  "AutoplayAllowed": true,
+  "AutoplayAllowlist": [
+    "http://localhost:5000",
+    "http://localhost:5000/*",
+    "http://127.0.0.1:5000",
+    "http://127.0.0.1:5000/*",
+    "https://v-notice.onrender.com",
+    "https://v-notice.onrender.com/*"
+  ]
+}
+EOF
+sudo cp /etc/chromium/policies/managed/vnotice_autoplay.json /etc/chromium-browser/policies/managed/vnotice_autoplay.json 2>/dev/null || true
 
 # 2. Setup Python Virtual Environment (Bookworm & Bullseye compatible)
 echo -e "${BLUE}[2/5] Setting up Python environment...${NC}"

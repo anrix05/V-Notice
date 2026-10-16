@@ -28,6 +28,9 @@ sed -i 's/"exit_type":"Crashed"/"exit_type":"Normal"/' ~/.config/chromium/Defaul
 # Find Chromium binary (chromium-browser on Bullseye, chromium on Bookworm)
 CHROMIUM_BIN=$(command -v chromium-browser || command -v chromium)
 
+# Auto-unlock audio without mouse/keyboard via background synthetic click (fallback safeguard)
+(sleep 4 && xdotool click 1 2>/dev/null || true) &
+
 # Launch Chromium in true fullscreen kiosk mode (persists service worker and cache across reboots)
 "$CHROMIUM_BIN" --kiosk "${KIOSK_URL}" \
   --user-data-dir="${KIOSK_USER_DATA}" \
