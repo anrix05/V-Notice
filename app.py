@@ -6,6 +6,7 @@ import threading
 import sys
 import os
 import threading
+import math
 from functools import wraps
 from flask import (
     Flask,
@@ -17,6 +18,7 @@ from flask import (
     send_file,
     redirect,
     Response,
+    stream_with_context,
 )
 from pathlib import Path
 import mimetypes
@@ -629,10 +631,21 @@ def generate_download_slug(notice, ext=None):
     slug = slug[:50] or "notice"
     if not ext:
         if notice.get("media"):
-            ext = Path(str(notice["media"])).suffix.lstrip(".").lower()
-        else:
-            ext = "txt"
+            m_str = str(notice["media"])
+            if "?" in m_str:
+                m_str = m_str.split("?")[0]
+            ext = Path(m_str).suffix.lstrip(".").lower()
+        if not ext:
+            ntype = str(notice.get("type") or "text").lower()
+            if ntype == "image":
+                ext = "jpg"
+            elif ntype == "video":
+                ext = "mp4"
+            else:
+                ext = "txt"
     ext = ext.lstrip(".") or "txt"
+    if "?" in ext:
+        ext = ext.split("?")[0]
     return f"{dept}-{slug}.{ext}"
 
 def get_public_base_url():
@@ -660,32 +673,55 @@ def format_notice_for_display(notice):
     else:
         n["posted_date_str"] = "Today"
 
+    now_ms = int(time.time() * 1000)
     if end_ms:
+        diff_ms = end_ms - now_ms
         time_end = time.localtime(end_ms / 1000)
         time_formatted = time.strftime("%d %b %Y, %I:%M %p", time_end).lstrip("0")
         n["valid_till_str"] = f"Valid till {time_formatted}"
+        n["exact_valid_till_str"] = f"Until {time_formatted}"
+        if diff_ms > 0:
+            days = math.ceil(diff_ms / (24 * 3600 * 1000))
+            if days > 1:
+                n["validity_badge_str"] = f"Valid for {days} more days"
+            elif days == 1:
+                hours = math.ceil(diff_ms / (3600 * 1000))
+                if hours > 1:
+                    n["validity_badge_str"] = f"Valid for {hours} more hours"
+                else:
+                    n["validity_badge_str"] = "Valid for 1 more hour"
+            else:
+                n["validity_badge_str"] = "Valid today"
+        else:
+            n["validity_badge_str"] = "Expired"
     else:
         n["valid_till_str"] = "Ongoing"
+        n["validity_badge_str"] = "Ongoing announcement"
+        n["exact_valid_till_str"] = "No expiry date set"
 
     nid_str = str(n.get("id") or "")
     h = sum(ord(c) for c in nid_str)
     n["gradient_theme_idx"] = h % 4
 
+    raw_dept = str(n.get("screen_id") or "ALL").strip().upper()
+    n["clean_dept"] = raw_dept
+    n["display_dept"] = "College-wide" if raw_dept == "ALL" else raw_dept
+
     n["file_size_formatted"] = ""
     n["file_size_bytes"] = 0
     if n.get("media"):
         m_filename = str(n["media"])
-        media_path = storage.media_storage.get_path(m_filename) if hasattr(storage.media_storage, "get_path") else Path(MEDIA_FOLDER) / m_filename
-        if media_path and media_path.exists():
-            sz = media_path.stat().st_size
-            n["file_size_bytes"] = sz
-            if sz < 1024 * 1024:
-                n["file_size_formatted"] = f"{round(sz / 1024, 1)} KB"
-            else:
-                n["file_size_formatted"] = f"{round(sz / (1024 * 1024), 1)} MB"
+        if not m_filename.startswith("http://") and not m_filename.startswith("https://"):
+            media_path = storage.media_storage.get_path(m_filename) if hasattr(storage.media_storage, "get_path") else Path(MEDIA_FOLDER) / m_filename
+            if media_path and media_path.exists():
+                sz = media_path.stat().st_size
+                n["file_size_bytes"] = sz
+                if sz < 1024 * 1024:
+                    n["file_size_formatted"] = f"{round(sz / 1024, 1)} KB"
+                else:
+                    n["file_size_formatted"] = f"{round(sz / (1024 * 1024), 1)} MB"
 
     n["download_slug"] = generate_download_slug(n)
-    n["clean_dept"] = str(n.get("screen_id") or "ALL").strip().upper()
     return n
 
 def render_inactive_public_page():
@@ -720,7 +756,7 @@ def register_public_notice_routes(app):
 
         enriched = format_notice_for_display(notice)
         body_text = str(enriched.get("body") or "").strip()
-        og_desc = body_text[:120] if body_text else f"{enriched['clean_dept']} notice on V Notice"
+        og_desc = body_text[:120] if body_text else f"{enriched['display_dept']} notice on V Notice"
 
         if enriched.get("media") and enriched.get("type") in ("image", "video"):
             if str(enriched["media"]).startswith("http"):
@@ -755,58 +791,120 @@ def register_public_notice_routes(app):
         if not is_live and not is_admin:
             return render_inactive_public_page()
 
-        if notice.get("media"):
-            if str(notice["media"]).startswith("http://") or str(notice["media"]).startswith("https://"):
-                try:
-                    req = urllib.request.Request(notice["media"], headers={"User-Agent": "VNotice/1.0"})
-                    with urllib.request.urlopen(req, timeout=5) as r:
-                        content = r.read()
-                        mime = r.headers.get("Content-Type") or "application/octet-stream"
-                        ext = Path(urllib.parse.urlparse(notice["media"]).path).suffix.lstrip(".") or "jpg"
-                        slug = generate_download_slug(notice, ext=ext)
-                        resp = Response(content, mimetype=mime)
-                        resp.headers["Content-Disposition"] = f'attachment; filename="{slug}"'
-                        resp.headers["Content-Length"] = str(len(content))
-                        resp.headers["X-Content-Type-Options"] = "nosniff"
-                        resp.headers["Cache-Control"] = "public, max-age=3600"
-                        return resp
-                except Exception:
-                    return redirect(notice["media"])
+        notice_type = str(notice.get("type") or "text").lower()
+        media_val = str(notice.get("media") or "").strip()
 
-            media_path = storage.media_storage.get_path(notice["media"]) if hasattr(storage.media_storage, "get_path") else Path(MEDIA_FOLDER) / notice["media"]
-            if media_path and media_path.exists():
-                ext = media_path.suffix.lstrip(".").lower()
-                slug = generate_download_slug(notice, ext=ext)
-                mime, _ = mimetypes.guess_type(str(media_path))
-                if not mime:
-                    mime = "application/octet-stream"
-                file_size = media_path.stat().st_size
-
-                resp = send_file(
-                    str(media_path),
-                    mimetype=mime,
-                    as_attachment=True,
-                    download_name=slug
+        # 1. Media Notice (image / video): Must NEVER fall back to .txt
+        if notice_type in ("image", "video"):
+            if not media_val:
+                return Response(
+                    "Media file not found for this notice.",
+                    status=404,
+                    mimetype="text/plain; charset=utf-8",
+                    headers={"Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff"}
                 )
-                resp.headers["Content-Length"] = str(file_size)
+
+            # Case A: Remote / Cloudinary URL
+            if media_val.startswith("http://") or media_val.startswith("https://"):
+                parsed_url = urllib.parse.urlparse(media_val)
+                raw_ext = Path(parsed_url.path).suffix.lstrip(".").lower()
+                ext = raw_ext if raw_ext in ("jpg", "jpeg", "png", "webp", "gif", "mp4", "webm") else ("mp4" if notice_type == "video" else "jpg")
+                slug = generate_download_slug(notice, ext=ext)
+
+                range_header = request.headers.get("Range")
+                remote_headers = {"User-Agent": "VNotice/1.0"}
+                if range_header:
+                    remote_headers["Range"] = range_header
+
+                remote_req = urllib.request.Request(media_val, headers=remote_headers)
+                try:
+                    remote_res = urllib.request.urlopen(remote_req, timeout=10)
+                except Exception:
+                    # For Cloudinary, redirect to fl_attachment URL
+                    if "res.cloudinary.com" in media_val and "/upload/" in media_val:
+                        att_slug = Path(slug).stem
+                        att_url = media_val.replace("/upload/", f"/upload/fl_attachment:{att_slug}/", 1)
+                        return redirect(att_url)
+                    return Response(
+                        "Remote media unavailable.",
+                        status=502,
+                        mimetype="text/plain; charset=utf-8",
+                        headers={"Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff"}
+                    )
+
+                def stream_remote():
+                    try:
+                        while True:
+                            chunk = remote_res.read(65536)
+                            if not chunk:
+                                break
+                            yield chunk
+                    finally:
+                        remote_res.close()
+
+                mime = remote_res.headers.get("Content-Type")
+                if not mime or mime == "application/octet-stream":
+                    mime, _ = mimetypes.guess_type(slug)
+                if not mime:
+                    mime = "video/mp4" if notice_type == "video" else "image/jpeg"
+
+                status_code = getattr(remote_res, "status", 200)
+                resp = Response(stream_with_context(stream_remote()), status=status_code, mimetype=mime)
+                resp.headers["Content-Disposition"] = f'attachment; filename="{slug}"'
+                resp.headers["Cache-Control"] = "private, no-store"
                 resp.headers["X-Content-Type-Options"] = "nosniff"
-                resp.headers["Cache-Control"] = "public, max-age=3600"
+                resp.headers["Accept-Ranges"] = "bytes"
+                if remote_res.headers.get("Content-Length"):
+                    resp.headers["Content-Length"] = remote_res.headers.get("Content-Length")
+                if remote_res.headers.get("Content-Range"):
+                    resp.headers["Content-Range"] = remote_res.headers.get("Content-Range")
                 return resp
 
-        # Formatted announcement text file
+            # Case B: Local Media
+            media_path = storage.media_storage.get_path(media_val) if hasattr(storage.media_storage, "get_path") else Path(MEDIA_FOLDER) / media_val
+            if not media_path or not media_path.is_file():
+                return Response(
+                    "Media file not found on server.",
+                    status=404,
+                    mimetype="text/plain; charset=utf-8",
+                    headers={"Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff"}
+                )
+
+            ext = media_path.suffix.lstrip(".").lower()
+            slug = generate_download_slug(notice, ext=ext)
+            mime, _ = mimetypes.guess_type(str(media_path))
+            if not mime:
+                mime = "video/mp4" if notice_type == "video" else "image/jpeg"
+
+            file_size = media_path.stat().st_size
+            resp = send_file(
+                str(media_path),
+                mimetype=mime,
+                as_attachment=True,
+                download_name=slug,
+                conditional=True
+            )
+            resp.headers["Content-Length"] = str(file_size)
+            resp.headers["Cache-Control"] = "private, no-store"
+            resp.headers["X-Content-Type-Options"] = "nosniff"
+            resp.headers["Accept-Ranges"] = "bytes"
+            return resp
+
+        # 2. Text Notice (.txt announcement ONLY)
         slug = generate_download_slug(notice, ext="txt")
         title = notice.get("title", "Notice")
+        dept_str = "College-wide" if str(notice.get("screen_id", "ALL")).strip().upper() == "ALL" else str(notice.get("screen_id", "ALL")).strip().upper()
         lines = [
             "====================================================",
             "  V NOTICE -- OFFICIAL CAMPUS ANNOUNCEMENT",
             "====================================================",
             "",
             f"TITLE:      {title}",
-            f"DEPARTMENT: {notice.get('screen_id', 'ALL')}",
+            f"DEPARTMENT: {dept_str}",
             f"PRIORITY:   {str(notice.get('priority', 'Normal')).upper()}",
             "",
             "DETAILS:",
-            notice.get('body', 'No additional details provided.'),
+            notice.get("body", "No additional details provided."),
             "",
             "====================================================",
             "Saved from V Notice Smart Display",
@@ -815,8 +913,8 @@ def register_public_notice_routes(app):
         resp = Response(content, mimetype="text/plain; charset=utf-8")
         resp.headers["Content-Disposition"] = f'attachment; filename="{slug}"'
         resp.headers["Content-Length"] = str(len(content))
+        resp.headers["Cache-Control"] = "private, no-store"
         resp.headers["X-Content-Type-Options"] = "nosniff"
-        resp.headers["Cache-Control"] = "public, max-age=3600"
         return resp
 
     @app.route("/n/<notice_id>/og-image", methods=["GET"])

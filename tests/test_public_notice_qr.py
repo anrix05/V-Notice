@@ -111,7 +111,8 @@ def test_file_route_attachment_slug_and_headers(client, active_image_notice, act
     assert cd.startswith("attachment; filename=")
     assert "EXCS-lab-exam-schedule.jpg" in cd
     assert res_img.headers.get("X-Content-Type-Options") == "nosniff"
-    assert "max-age=3600" in res_img.headers.get("Cache-Control", "")
+    assert "private" in res_img.headers.get("Cache-Control", "")
+    assert "no-store" in res_img.headers.get("Cache-Control", "")
     assert int(res_img.headers.get("Content-Length", 0)) > 0
 
     # Test Text Notice File Download
@@ -123,7 +124,8 @@ def test_file_route_attachment_slug_and_headers(client, active_image_notice, act
     assert "ALL-blood-donation-drive.txt" in cd_txt
     assert res_txt.headers.get("Content-Type", "").startswith("text/plain")
     assert res_txt.headers.get("X-Content-Type-Options") == "nosniff"
-    assert "max-age=3600" in res_txt.headers.get("Cache-Control", "")
+    assert "private" in res_txt.headers.get("Cache-Control", "")
+    assert "no-store" in res_txt.headers.get("Cache-Control", "")
 
 # ==============================================================================
 # 3. Inactive, expired, scheduled, deleted, unknown return identical generic 404 body

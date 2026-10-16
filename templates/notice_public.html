@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <meta name="robots" content="noindex, nofollow">
   <meta name="theme-color" content="#0B1020">
   <title>{{ og_title if og_title else 'V Notice' }}</title>
@@ -11,6 +11,11 @@
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
   <link rel="icon" type="image/png" sizes="32x32" href="/static/favicon.png">
   <link rel="apple-touch-icon" sizes="180x180" href="/static/apple-touch-icon.png">
+
+  <!-- Typography -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@600;700&display=swap" rel="stylesheet">
 
   <!-- Open Graph / Twitter Card Tags -->
   <meta property="og:type" content="article">
@@ -96,16 +101,17 @@
       align-items: center;
       line-height: 1.5;
       -webkit-font-smoothing: antialiased;
+      overflow-x: hidden;
     }
 
-    /* Skip link for screen reader keyboard users */
+    /* Keyboard navigation skip link */
     .skip-link {
       position: absolute;
-      top: -40px;
+      top: -48px;
       left: 16px;
       background: var(--accent);
       color: #FFFFFF;
-      padding: 8px 16px;
+      padding: 10px 18px;
       border-radius: var(--radius-sm);
       z-index: 1000;
       text-decoration: none;
@@ -116,10 +122,16 @@
       top: 16px;
     }
 
-    /* App Bar (Header) */
+    /* Focus visible rings */
+    button:focus-visible, a:focus-visible, [tabindex="0"]:focus-visible {
+      outline: 2px solid var(--accent);
+      outline-offset: 2px;
+    }
+
+    /* Slim App Bar (Header) */
     .app-header {
       width: 100%;
-      max-width: 680px;
+      max-width: 640px;
       padding: 16px 20px 12px;
       display: flex;
       align-items: center;
@@ -152,25 +164,25 @@
     .dept-chip {
       display: inline-flex;
       align-items: center;
-      padding: 4px 10px;
+      padding: 4px 12px;
       background-color: var(--panel-raised);
       border: 1px solid var(--line);
       border-radius: var(--radius-pill);
       font-size: 12px;
       font-weight: 700;
-      letter-spacing: 0.03em;
+      letter-spacing: 0.02em;
       color: var(--text);
-      text-transform: uppercase;
+      white-space: nowrap;
     }
 
     /* Admin Preview Banner */
     .admin-preview-banner {
       width: 100%;
-      max-width: 680px;
+      max-width: 640px;
       background-color: var(--amber-bg);
       border: 1px solid var(--amber);
       color: var(--amber);
-      padding: 8px 16px;
+      padding: 10px 16px;
       border-radius: var(--radius-sm);
       font-size: 13px;
       font-weight: 600;
@@ -180,11 +192,12 @@
       gap: 8px;
     }
 
-    /* Main Container & Notice Card */
+    /* Main Container & Centered 640px Card */
     .page-main {
       width: 100%;
-      max-width: 680px;
-      padding: 0 16px 32px;
+      max-width: 640px;
+      padding: 0 16px;
+      padding-bottom: calc(125px + env(safe-area-inset-bottom, 0px));
       flex: 1;
     }
 
@@ -198,8 +211,8 @@
       flex-direction: column;
     }
 
-    /* Media Area */
-    .media-area {
+    /* Hero Media Area (Natural aspect ratio, no forced crop) */
+    .hero-media-area {
       width: 100%;
       position: relative;
       background-color: #000000;
@@ -207,29 +220,59 @@
       display: flex;
       align-items: center;
       justify-content: center;
+      min-height: 200px;
+    }
+
+    .media-skeleton {
+      position: absolute;
+      inset: 0;
+      background: linear-gradient(90deg, var(--panel-raised) 25%, var(--line) 50%, var(--panel-raised) 75%);
+      background-size: 200% 100%;
+      animation: skeleton-shimmer 1.5s infinite;
+      z-index: 1;
+      pointer-events: none;
+      transition: opacity 200ms ease;
+    }
+
+    @keyframes skeleton-shimmer {
+      0% { background-position: 200% 0; }
+      100% { background-position: -200% 0; }
     }
 
     .notice-img {
       width: 100%;
       height: auto;
-      max-height: 520px;
+      max-height: 560px;
       object-fit: contain;
       display: block;
       cursor: zoom-in;
+      z-index: 2;
+      opacity: 0;
+      filter: blur(12px);
+      transform: scale(0.99);
+      transition: opacity 200ms ease, filter 200ms ease, transform 200ms ease;
+    }
+
+    .notice-img.loaded {
+      opacity: 1;
+      filter: blur(0);
+      transform: scale(1);
     }
 
     .notice-video {
       width: 100%;
-      max-height: 520px;
+      height: auto;
+      max-height: 560px;
       background-color: #000000;
       display: block;
+      z-index: 2;
     }
 
-    /* Deterministic Gradient Tiles for Text Notices */
+    /* Deterministic Gradient Headline Tile for Text Notices */
     .text-notice-tile {
       width: 100%;
       min-height: 220px;
-      padding: 32px 24px;
+      padding: 36px 24px;
       display: flex;
       flex-direction: column;
       justify-content: space-between;
@@ -244,7 +287,7 @@
     .tile-dept-tag {
       font-size: 12px;
       font-weight: 700;
-      letter-spacing: 0.08em;
+      letter-spacing: 0.06em;
       text-transform: uppercase;
       color: #F59E0B;
       margin-bottom: 12px;
@@ -259,8 +302,10 @@
       color: #F8FAFC;
     }
 
-    /* Media Error Box */
+    /* Media Error State Box */
     .media-error-box {
+      position: absolute;
+      inset: 0;
       padding: 36px 20px;
       background-color: var(--panel-raised);
       display: flex;
@@ -269,7 +314,7 @@
       justify-content: center;
       gap: 12px;
       text-align: center;
-      width: 100%;
+      z-index: 3;
     }
     .media-error-box.hidden { display: none; }
     .media-error-icon {
@@ -282,7 +327,7 @@
       color: var(--text-muted);
     }
 
-    /* Content Area */
+    /* Card Content Area */
     .card-body {
       padding: 24px 20px;
       display: flex;
@@ -290,12 +335,12 @@
       gap: 16px;
     }
 
-    /* Badge Row */
-    .badge-row {
+    /* Meta Row (Live dot, priority badge, department chip wrapped) */
+    .meta-row {
       display: flex;
       align-items: center;
-      gap: 8px;
       flex-wrap: wrap;
+      gap: 8px;
     }
 
     .pill-badge {
@@ -342,44 +387,65 @@
 
     @keyframes pulse-dot {
       0% { opacity: 1; transform: scale(1); }
-      50% { opacity: 0.4; transform: scale(0.85); }
+      50% { opacity: 0.35; transform: scale(0.85); }
       100% { opacity: 1; transform: scale(1); }
     }
 
-    .pill-validity {
+    .pill-dept {
       background-color: var(--panel-raised);
-      color: var(--text-muted);
+      color: var(--text);
       border: 1px solid var(--line);
-      font-size: 12px;
     }
 
-    /* Notice Title */
+    /* Title (h1 Outfit 700) */
     .notice-title {
       font-family: var(--font-heading);
-      font-size: 22px;
+      font-size: 24px;
       font-weight: 700;
       line-height: 1.3;
-      letter-spacing: -0.01em;
+      letter-spacing: -0.015em;
       color: var(--text);
     }
 
     @media (min-width: 480px) {
       .notice-title {
-        font-size: 26px;
+        font-size: 28px;
       }
     }
 
-    /* Posted Info */
-    .posted-line {
-      font-size: 13px;
+    /* Byline */
+    .byline {
+      font-size: 13.5px;
       color: var(--text-muted);
       font-weight: 500;
     }
 
-    /* Details Text */
+    /* Validity Block */
+    .validity-block {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      padding: 10px 14px;
+      background-color: var(--panel-raised);
+      border: 1px solid var(--line);
+      border-radius: var(--radius-sm);
+    }
+
+    .validity-badge {
+      font-size: 13.5px;
+      font-weight: 600;
+      color: var(--text);
+    }
+
+    .validity-exact {
+      font-size: 12px;
+      color: var(--text-muted);
+    }
+
+    /* Details Text (1.6 Line Height) */
     .details-text {
       font-size: 15.5px;
-      line-height: 1.65;
+      line-height: 1.6;
       color: var(--text);
       white-space: pre-wrap;
       word-break: break-word;
@@ -403,71 +469,12 @@
       gap: 8px;
     }
 
-    /* Action Buttons (Thumb-sized, 48px height) */
-    .action-group {
-      display: flex;
-      flex-direction: column;
-      gap: 10px;
-      margin-top: 8px;
-    }
-
-    .action-btn {
-      min-height: 48px;
-      padding: 12px 20px;
-      border-radius: var(--radius-md);
-      font-size: 15px;
-      font-weight: 600;
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      gap: 10px;
-      cursor: pointer;
-      text-decoration: none;
-      border: none;
-      transition: background-color 0.15s ease, transform 0.1s ease;
-      -webkit-tap-highlight-color: transparent;
-    }
-
-    .action-btn:active {
-      transform: scale(0.985);
-    }
-
-    .btn-primary {
-      background-color: var(--accent);
-      color: #FFFFFF;
-    }
-    .btn-primary:hover {
-      background-color: var(--accent-hover);
-    }
-
-    .btn-secondary {
-      background-color: var(--panel-raised);
-      color: var(--text);
-      border: 1px solid var(--line);
-    }
-    .btn-secondary:hover {
-      background-color: var(--panel);
-      border-color: var(--accent);
-    }
-
-    .btn-sm {
-      min-height: 36px;
-      padding: 6px 14px;
-      font-size: 13px;
-    }
-
-    /* Focus visible */
-    button:focus-visible, a:focus-visible {
-      outline: 2px solid var(--accent);
-      outline-offset: 2px;
-    }
-
-    /* Footer */
+    /* Card Footer */
     .card-footer {
       padding: 16px 20px;
       background-color: var(--panel-raised);
       border-top: 1px solid var(--line);
-      font-size: 12.5px;
+      font-size: 12px;
       color: var(--text-muted);
       display: flex;
       align-items: center;
@@ -476,11 +483,143 @@
       gap: 8px;
     }
 
-    .footer-host {
-      font-weight: 500;
+    /* Sticky Bottom Action Bar with Safe-Area */
+    .bottom-action-bar {
+      position: fixed;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      background-color: var(--panel);
+      border-top: 1px solid var(--line);
+      padding: 10px 16px;
+      padding-bottom: calc(10px + env(safe-area-inset-bottom, 0px));
+      z-index: 100;
+      display: flex;
+      justify-content: center;
+      box-shadow: 0 -8px 24px rgba(0, 0, 0, 0.25);
+      animation: barRise 200ms ease-out;
     }
 
-    /* Inactive Notice Card (404) */
+    @keyframes barRise {
+      from { transform: translateY(100%); opacity: 0; }
+      to { transform: translateY(0); opacity: 1; }
+    }
+
+    .bottom-bar-inner {
+      width: 100%;
+      max-width: 640px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .calendar-row {
+      display: flex;
+      justify-content: center;
+      width: 100%;
+    }
+
+    .btn-calendar {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      background: none;
+      border: none;
+      color: var(--text-muted);
+      font-size: 12.5px;
+      font-weight: 500;
+      padding: 2px 8px;
+      cursor: pointer;
+      text-decoration: underline;
+      text-underline-offset: 3px;
+      border-radius: var(--radius-sm);
+      transition: color 0.15s ease;
+    }
+    .btn-calendar:hover {
+      color: var(--text);
+    }
+
+    .primary-action-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      width: 100%;
+    }
+
+    /* Action Buttons (Thumb-sized, 48px height) */
+    .action-btn {
+      min-height: 48px;
+      padding: 12px 18px;
+      border-radius: var(--radius-md);
+      font-size: 15px;
+      font-weight: 600;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      cursor: pointer;
+      text-decoration: none;
+      border: none;
+      touch-action: manipulation;
+      transition: background-color 0.15s ease, opacity 0.15s ease;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    .action-btn:active {
+      transform: scale(0.97);
+      transition: transform 60ms ease-out;
+    }
+
+    .action-btn:disabled {
+      opacity: 0.65;
+      cursor: not-allowed;
+      transform: none !important;
+    }
+
+    .btn-primary {
+      background-color: var(--accent);
+      color: #FFFFFF;
+      flex: 1.5;
+    }
+    .btn-primary:hover:not(:disabled) {
+      background-color: var(--accent-hover);
+    }
+
+    .btn-secondary {
+      background-color: var(--panel-raised);
+      color: var(--text);
+      border: 1px solid var(--line);
+      flex: 1;
+    }
+    .btn-secondary:hover:not(:disabled) {
+      background-color: var(--panel);
+      border-color: var(--accent);
+    }
+
+    .btn-sm {
+      min-height: 36px;
+      padding: 6px 14px;
+      font-size: 13px;
+      flex: none;
+    }
+
+    /* Small Spinner */
+    .spinner {
+      width: 16px;
+      height: 16px;
+      border: 2px solid rgba(255, 255, 255, 0.3);
+      border-top-color: #FFFFFF;
+      border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+      display: inline-block;
+      vertical-align: middle;
+    }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+
+    /* Generic 404 Inactive Card */
     .inactive-card {
       padding: 48px 24px;
       text-align: center;
@@ -511,93 +650,150 @@
       line-height: 1.5;
     }
 
-    /* Lightbox Modal for Tap to Zoom */
-    .lightbox-modal {
+    /* Full-Screen Zoom Viewer Modal */
+    .zoom-viewer {
       position: fixed;
+      inset: 0;
+      background-color: rgba(0, 0, 0, 0.95);
+      z-index: 9999;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      touch-action: none;
+      user-select: none;
+      -webkit-user-select: none;
+      transition: opacity 200ms ease;
+    }
+    .zoom-viewer.hidden { display: none; }
+
+    .zoom-toolbar {
+      position: absolute;
       top: 0;
       left: 0;
       right: 0;
-      bottom: 0;
-      background-color: rgba(0, 0, 0, 0.92);
-      z-index: 9999;
+      padding: 16px 20px;
+      padding-top: calc(16px + env(safe-area-inset-top, 0px));
       display: flex;
       align-items: center;
-      justify-content: center;
-      padding: 16px;
-      cursor: zoom-out;
-    }
-    .lightbox-modal.hidden { display: none; }
-
-    .lightbox-img {
-      max-width: 100%;
-      max-height: 94vh;
-      object-fit: contain;
-      border-radius: var(--radius-sm);
-      cursor: default;
+      justify-content: space-between;
+      z-index: 10001;
+      pointer-events: auto;
     }
 
-    .lightbox-close-btn {
-      position: absolute;
-      top: 16px;
-      right: 16px;
+    .zoom-counter {
+      font-size: 13px;
+      font-weight: 600;
+      color: #E2E8F0;
+      background: rgba(255, 255, 255, 0.15);
+      padding: 4px 10px;
+      border-radius: var(--radius-pill);
+    }
+
+    .zoom-toolbar-actions {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .zoom-icon-btn {
       width: 44px;
       height: 44px;
       border-radius: 50%;
-      background: rgba(255, 255, 255, 0.2);
+      background: rgba(255, 255, 255, 0.18);
       color: #FFFFFF;
       border: none;
       display: flex;
       align-items: center;
       justify-content: center;
       cursor: pointer;
-      font-size: 20px;
+      transition: background 0.15s ease;
+    }
+    .zoom-icon-btn:hover {
+      background: rgba(255, 255, 255, 0.3);
     }
 
-    /* Toast Notification */
+    .zoom-stage {
+      width: 100%;
+      height: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+      cursor: grab;
+    }
+    .zoom-stage.grabbing {
+      cursor: grabbing;
+    }
+
+    .zoom-img {
+      max-width: 96vw;
+      max-height: 84vh;
+      object-fit: contain;
+      will-change: transform;
+      transform-origin: center center;
+      transition: transform 120ms ease-out;
+      pointer-events: none;
+    }
+
+    .zoom-hint {
+      position: absolute;
+      bottom: 24px;
+      bottom: calc(24px + env(safe-area-inset-bottom, 0px));
+      left: 50%;
+      transform: translateX(-50%);
+      font-size: 12px;
+      color: rgba(255, 255, 255, 0.7);
+      background: rgba(0, 0, 0, 0.5);
+      padding: 6px 14px;
+      border-radius: var(--radius-pill);
+      pointer-events: none;
+      white-space: nowrap;
+    }
+
+    /* Accessible Toast Notification (role=status, aria-live=polite) */
     .toast-container {
       position: fixed;
-      bottom: 24px;
+      bottom: 90px;
+      bottom: calc(90px + env(safe-area-inset-bottom, 0px));
       left: 50%;
       transform: translateX(-50%);
       background-color: var(--text);
       color: var(--bg);
-      padding: 10px 20px;
+      padding: 10px 18px;
       border-radius: var(--radius-pill);
       font-size: 14px;
       font-weight: 600;
-      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
       z-index: 10000;
       display: flex;
       align-items: center;
-      gap: 8px;
+      gap: 10px;
+      max-width: 90vw;
       transition: opacity 0.2s ease, transform 0.2s ease;
-      pointer-events: none;
     }
+
     .toast-container.hidden {
       opacity: 0;
       transform: translate(-50%, 16px);
+      pointer-events: none;
       display: none;
     }
 
-    /* Mobile Paint Optimization & Touch Feedback */
-    button, a, .action-btn {
-      touch-action: manipulation;
+    .toast-retry-btn {
+      background: var(--amber);
+      color: #0F172A;
+      border: none;
+      padding: 4px 10px;
+      border-radius: var(--radius-pill);
+      font-size: 12px;
+      font-weight: 700;
+      cursor: pointer;
     }
 
-    .action-btn:active {
-      transform: scale(0.98);
-      transition: transform 60ms ease-out;
-    }
-
-    @media (max-width: 768px) {
-      .notice-card {
-        box-shadow: 0 2px 10px rgba(0, 0, 0, 0.3) !important;
-      }
-    }
-
-    /* Reduced Motion */
+    /* Motion Accessibility */
     @media (prefers-reduced-motion: reduce) {
-      * {
+      *, *::before, *::after {
         animation: none !important;
         transition: none !important;
       }
@@ -607,21 +803,21 @@
 <body>
   <a href="#main-content" class="skip-link">Skip to content</a>
 
-  <!-- App Bar -->
+  <!-- Slim App Bar -->
   <header class="app-header" role="banner">
     <div class="brand-group">
       <svg class="brand-mark" viewBox="0 0 500 500" fill="none" aria-hidden="true">
         <g transform="translate(70, 70)">
-          <path d="M40 35 H245 L325 115 V345 H40 Z" fill="var(--logo-sheet, #F5F1E8)" class="vnotice-sheet"/>
-          <path d="M245 35 V115 H325 Z" fill="var(--logo-accent, #B08D57)" class="vnotice-fold"/>
-          <path d="M82 112 H128 L182 260 L236 112 H282 L205 315 H159 Z" fill="var(--logo-cut, #111318)" class="vnotice-v"/>
-          <path d="M82 342 H282" stroke="var(--logo-accent, #B08D57)" stroke-width="8" stroke-linecap="square" class="vnotice-line"/>
+          <path d="M40 35 H245 L325 115 V345 H40 Z" fill="var(--logo-sheet, #F5F1E8)"/>
+          <path d="M245 35 V115 H325 Z" fill="var(--logo-accent, #B08D57)"/>
+          <path d="M82 112 H128 L182 260 L236 112 H282 L205 315 H159 Z" fill="var(--logo-cut, #111318)"/>
+          <path d="M82 342 H282" stroke="var(--logo-accent, #B08D57)" stroke-width="8" stroke-linecap="square"/>
         </g>
       </svg>
       <span class="brand-name">V Notice</span>
     </div>
     {% if notice and is_active %}
-      <span class="dept-chip" aria-label="Department">{{ notice.clean_dept }}</span>
+      <span class="dept-chip" aria-label="Department">{{ notice.display_dept }}</span>
     {% endif %}
   </header>
 
@@ -640,18 +836,24 @@
 
     {% if notice and is_active %}
       <article class="notice-card" aria-labelledby="notice-heading">
-        <!-- Media Area -->
-        <div class="media-area" id="media-container">
+        <!-- Hero Media Area (Top, full width, natural aspect ratio) -->
+        <div class="hero-media-area" id="hero-media-container">
           {% if notice.type == 'image' and notice.media %}
+            <div class="media-skeleton" id="media-skeleton" aria-hidden="true"></div>
             <img 
               src="{{ notice.media if notice.media.startswith('http') else '/media/' + notice.media }}" 
               alt="{{ notice.title }}" 
               class="notice-img" 
               id="notice-media-img"
-              loading="lazy"
+              loading="eager"
               decoding="async"
-              onclick="openLightbox()"
+              onload="onHeroImageLoad(this)"
               onerror="handleMediaError()"
+              onclick="openZoomViewer()"
+              tabindex="0"
+              role="button"
+              aria-label="Open full-screen image viewer"
+              onkeydown="if(event.key==='Enter'||event.key===' ') openZoomViewer()"
             >
           {% elif notice.type == 'video' and notice.media %}
             <video 
@@ -661,20 +863,20 @@
               muted 
               playsinline
               poster="{{ '/media/' + notice.media + '.poster.jpg' if not notice.media.startswith('http') else '' }}"
-              class="notice-video"
+              class="notice-video" 
               id="notice-media-video"
               onerror="handleMediaError()"
             ></video>
           {% else %}
-            <!-- Text Notice Deterministic Gradient Headline Tile -->
+            <!-- Deterministic Gradient Headline Tile for Text Notices -->
             <div class="text-notice-tile tile-theme-{{ notice.gradient_theme_idx }}">
-              <div class="tile-dept-tag">{{ notice.clean_dept }} Notice</div>
+              <div class="tile-dept-tag">{{ notice.display_dept }} Notice</div>
               <div class="tile-headline">{{ notice.title }}</div>
             </div>
           {% endif %}
 
-          <!-- Media Error State -->
-          <div class="media-error-box hidden" id="media-error-box">
+          <!-- Media Error Box with Retry -->
+          <div class="media-error-box hidden" id="media-error-box" role="alert">
             <svg class="media-error-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
               <circle cx="12" cy="12" r="10"></circle>
               <line x1="12" y1="8" x2="12" y2="12"></line>
@@ -685,48 +887,83 @@
           </div>
         </div>
 
-        <!-- Details & Actions Area -->
+        <!-- Details Area -->
         <div class="card-body">
-          <!-- Badge Row -->
-          <div class="badge-row">
-            <span class="pill-badge pill-{{ notice.priority }}" aria-label="Priority {{ notice.priority }}">
-              {{ notice.priority | capitalize }}
-            </span>
+          <!-- Meta Row: Live dot, priority badge, department chip wrapped -->
+          <div class="meta-row">
             <span class="pill-badge pill-live" aria-label="Status live">
               <span class="live-dot" aria-hidden="true"></span>
               <span>Live</span>
             </span>
-            <span class="pill-badge pill-validity">
-              {{ notice.valid_till_str }}
+            {% if notice.priority and notice.priority != 'normal' %}
+              <span class="pill-badge pill-{{ notice.priority }}" aria-label="Priority {{ notice.priority }}">
+                {{ notice.priority | capitalize }}
+              </span>
+            {% else %}
+              <span class="pill-badge pill-normal" aria-label="Priority Normal">
+                Normal
+              </span>
+            {% endif %}
+            <span class="pill-badge pill-dept" aria-label="Department {{ notice.display_dept }}">
+              {{ notice.display_dept }}
             </span>
           </div>
 
-          <!-- Title -->
+          <!-- Title (h1 Outfit 700) -->
           <h1 class="notice-title" id="notice-heading">{{ notice.title }}</h1>
 
-          <!-- Posted Line -->
-          <div class="posted-line">
-            Posted {{ notice.posted_date_str }} by {{ notice.clean_dept }}
+          <!-- Byline: Posted 16 Oct 2026 · College-wide -->
+          <div class="byline">Posted {{ notice.posted_date_str }} · {{ notice.display_dept }}</div>
+
+          <!-- Validity: Valid for 29 more days + exact date/time muted -->
+          <div class="validity-block">
+            <div class="validity-badge">{{ notice.validity_badge_str }}</div>
+            <div class="validity-exact">{{ notice.exact_valid_till_str }}</div>
           </div>
 
-          <!-- Body Text -->
+          <!-- Details Text (1.6 Line Height) -->
           {% if notice.body %}
             <div class="details-text">{{ notice.body }}</div>
           {% endif %}
 
           <!-- Cellular Data Confirmation Box (hidden by default) -->
           <div class="cellular-warning hidden" id="cellular-warning-box" role="alert">
-            <p id="cellular-warning-msg">This file is {{ notice.file_size_formatted }}. Download over mobile data?</p>
+            <p id="cellular-warning-msg">This file is {{ notice.file_size_formatted }}. Download over cellular data?</p>
             <div class="cellular-actions">
               <button type="button" class="action-btn btn-primary btn-sm" onclick="proceedCellularDownload()">Download</button>
               <button type="button" class="action-btn btn-secondary btn-sm" onclick="cancelCellularDownload()">Cancel</button>
             </div>
           </div>
+        </div>
 
-          <!-- Action Buttons (Thumb-sized, 48px height) -->
-          <div class="action-group">
+        <!-- Card Footer -->
+        <footer class="card-footer" role="contentinfo">
+          <span>Official Campus Announcement</span>
+          <span>{{ request.host if request else 'v-notice.local' }}</span>
+        </footer>
+      </article>
+
+      <!-- Sticky Bottom Action Bar -->
+      <nav class="bottom-action-bar" aria-label="Notice actions">
+        <div class="bottom-bar-inner">
+          <!-- Add to Calendar (Shown ONLY when start and end exist) -->
+          {% if notice.start and notice.end %}
+            <div class="calendar-row">
+              <button type="button" class="btn-calendar" onclick="downloadCalendarEvent()" aria-label="Add to calendar">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                  <rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect>
+                  <line x1="16" y1="2" x2="16" y2="6"></line>
+                  <line x1="8" y1="2" x2="8" y2="6"></line>
+                  <line x1="3" y1="10" x2="21" y2="10"></line>
+                </svg>
+                <span>Add to calendar</span>
+              </button>
+            </div>
+          {% endif %}
+
+          <div class="primary-action-row">
             {% if notice.type in ('image', 'video') and notice.media %}
-              <!-- Image / Video Notice Actions -->
+              <!-- Media Notices: Primary Save with size, Secondary Share -->
               <button 
                 type="button" 
                 class="action-btn btn-primary" 
@@ -734,12 +971,12 @@
                 onclick="handleSaveMedia()"
                 aria-label="Save {{ 'image' if notice.type == 'image' else 'video' }}"
               >
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true" id="save-icon">
                   <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
                   <polyline points="7 10 12 15 17 10"></polyline>
                   <line x1="12" y1="15" x2="12" y2="3"></line>
                 </svg>
-                <span>Save {{ 'image' if notice.type == 'image' else 'video' }}{% if notice.file_size_formatted %} ({{ notice.file_size_formatted }}){% endif %}</span>
+                <span id="save-btn-text">Save {{ 'image' if notice.type == 'image' else 'video' }}{% if notice.file_size_formatted %} ({{ notice.file_size_formatted }}){% endif %}</span>
               </button>
 
               <button 
@@ -749,7 +986,7 @@
                 onclick="handleShareNotice()"
                 aria-label="Share notice"
               >
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
                   <circle cx="18" cy="5" r="3"></circle>
                   <circle cx="6" cy="12" r="3"></circle>
                   <circle cx="18" cy="19" r="3"></circle>
@@ -759,7 +996,7 @@
                 <span>Share</span>
               </button>
             {% else %}
-              <!-- Text Notice Actions -->
+              <!-- Text Notices: Primary Share, Secondary Copy text -->
               <button 
                 type="button" 
                 class="action-btn btn-primary" 
@@ -767,7 +1004,7 @@
                 onclick="handleShareNotice()"
                 aria-label="Share notice"
               >
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
                   <circle cx="18" cy="5" r="3"></circle>
                   <circle cx="6" cy="12" r="3"></circle>
                   <circle cx="18" cy="19" r="3"></circle>
@@ -784,46 +1021,19 @@
                 onclick="handleCopyText()"
                 aria-label="Copy text"
               >
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
                   <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
                   <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
                 </svg>
                 <span>Copy text</span>
               </button>
             {% endif %}
-
-            <!-- Add to Calendar (Shown ONLY if start and end dates are present) -->
-            {% if notice.start and notice.end %}
-              <button 
-                type="button" 
-                class="action-btn btn-secondary" 
-                id="btn-add-calendar" 
-                onclick="downloadCalendarEvent()"
-                aria-label="Add to calendar"
-              >
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
-                  <rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect>
-                  <line x1="16" y1="2" x2="16" y2="6"></line>
-                  <line x1="8" y1="2" x2="8" y2="6"></line>
-                  <line x1="3" y1="10" x2="21" y2="10"></line>
-                  <line x1="12" y1="14" x2="12" y2="18"></line>
-                  <line x1="10" y1="16" x2="14" y2="16"></line>
-                </svg>
-                <span>Add to calendar</span>
-              </button>
-            {% endif %}
           </div>
         </div>
-
-        <!-- Footer -->
-        <footer class="card-footer" role="contentinfo">
-          <span>Official Campus Announcement</span>
-          <span class="footer-host">{{ request.host if request else 'v-notice.local' }}</span>
-        </footer>
-      </article>
+      </nav>
 
     {% else %}
-      <!-- Generic 404 Inactive Page (Identical for scheduled, expired, deleted, unknown) -->
+      <!-- Generic 404 Inactive Card (Byte-identical for expired, scheduled, deleted, unknown) -->
       <article class="notice-card" aria-labelledby="inactive-heading">
         <div class="inactive-card">
           <svg class="inactive-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" aria-hidden="true">
@@ -838,32 +1048,49 @@
         </div>
         <footer class="card-footer" role="contentinfo">
           <span>V Notice Smart Signage</span>
-          <span class="footer-host">{{ request.host if request else 'v-notice.local' }}</span>
+          <span>{{ request.host if request else 'v-notice.local' }}</span>
         </footer>
       </article>
     {% endif %}
   </main>
 
-  <!-- Lightbox Modal for Tap to Zoom -->
+  <!-- Tap-to-Zoom Fullscreen Viewer (Pinch-zoom, double-tap zoom, swipe-down to close) -->
   {% if notice and notice.type == 'image' and notice.media %}
-    <div class="lightbox-modal hidden" id="lightbox-modal" role="dialog" aria-modal="true" aria-label="Expanded Image View" onclick="closeLightbox()">
-      <button type="button" class="lightbox-close-btn" aria-label="Close image zoom" onclick="closeLightbox()">&times;</button>
-      <img 
-        src="{{ notice.media if notice.media.startswith('http') else '/media/' + notice.media }}" 
-        alt="{{ notice.title }}" 
-        class="lightbox-img" 
-        id="lightbox-img"
-        loading="lazy"
-        decoding="async"
-        onclick="event.stopPropagation()"
-      >
+    <div class="zoom-viewer hidden" id="zoom-viewer" role="dialog" aria-modal="true" aria-label="Expanded Image View">
+      <div class="zoom-toolbar">
+        <span class="zoom-counter" id="zoom-scale-text">100%</span>
+        <div class="zoom-toolbar-actions">
+          <button type="button" class="zoom-icon-btn" id="zoom-reset-btn" onclick="resetZoomScale()" aria-label="Reset zoom level">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+              <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/>
+              <path d="M3 3v5h5"/>
+            </svg>
+          </button>
+          <button type="button" class="zoom-icon-btn" id="zoom-close-btn" onclick="closeZoomViewer()" aria-label="Close image zoom">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+              <line x1="18" y1="6" x2="6" y2="18"></line>
+              <line x1="6" y1="6" x2="18" y2="18"></line>
+            </svg>
+          </button>
+        </div>
+      </div>
+      <div class="zoom-stage" id="zoom-stage">
+        <img 
+          src="{{ notice.media if notice.media.startswith('http') else '/media/' + notice.media }}" 
+          alt="{{ notice.title }}" 
+          class="zoom-img" 
+          id="zoom-img"
+          draggable="false"
+        >
+      </div>
+      <div class="zoom-hint">Double-tap or pinch to zoom · Swipe down to close</div>
     </div>
   {% endif %}
 
-  <!-- Toast Notification (Live region for accessibility) -->
+  <!-- Accessible Toast Notification Container -->
   <div class="toast-container hidden" id="toast-box" role="status" aria-live="polite"></div>
 
-  <!-- Client JavaScript (< 15KB) -->
+  <!-- Client JavaScript -->
   <script>
     const noticeData = {
       id: {{ (notice.id|tojson) if notice else 'null' }},
@@ -877,24 +1104,62 @@
       endMs: {{ (notice.end|tojson) if notice and notice.end else 'null' }}
     };
 
-    // Toast notification helper
-    let toastTimer = null;
-    function showToast(message) {
-      const toast = document.getElementById('toast-box');
-      if (!toast) return;
-      toast.textContent = message;
-      toast.classList.remove('hidden');
-      if (toastTimer) clearTimeout(toastTimer);
-      toastTimer = setTimeout(() => {
-        toast.classList.add('hidden');
-      }, 3000);
+    // Hero image loading transition (fade-in 200ms & blur removal)
+    function onHeroImageLoad(img) {
+      if (!img) return;
+      img.classList.add('loaded');
+      const skeleton = document.getElementById('media-skeleton');
+      if (skeleton) {
+        skeleton.style.opacity = '0';
+        setTimeout(() => { skeleton.style.display = 'none'; }, 200);
+      }
     }
 
-    // Media error handling
+    document.addEventListener('DOMContentLoaded', () => {
+      const img = document.getElementById('notice-media-img');
+      if (img && img.complete && img.naturalHeight !== 0) {
+        onHeroImageLoad(img);
+      }
+    });
+
+    // Toast notification with optional Retry action
+    let toastTimer = null;
+    function showToast(message, retryCallback) {
+      const toast = document.getElementById('toast-box');
+      if (!toast) return;
+      if (toastTimer) clearTimeout(toastTimer);
+      toast.innerHTML = '';
+
+      const span = document.createElement('span');
+      span.textContent = message;
+      toast.appendChild(span);
+
+      if (typeof retryCallback === 'function') {
+        const retryBtn = document.createElement('button');
+        retryBtn.type = 'button';
+        retryBtn.className = 'toast-retry-btn';
+        retryBtn.textContent = 'Retry';
+        retryBtn.onclick = (e) => {
+          e.stopPropagation();
+          toast.classList.add('hidden');
+          retryCallback();
+        };
+        toast.appendChild(retryBtn);
+      }
+
+      toast.classList.remove('hidden');
+      toastTimer = setTimeout(() => {
+        toast.classList.add('hidden');
+      }, retryCallback ? 6000 : 3500);
+    }
+
+    // Media error fallback
     function handleMediaError() {
       const errorBox = document.getElementById('media-error-box');
       const mediaImg = document.getElementById('notice-media-img');
       const mediaVideo = document.getElementById('notice-media-video');
+      const skeleton = document.getElementById('media-skeleton');
+      if (skeleton) skeleton.style.display = 'none';
       if (mediaImg) mediaImg.style.display = 'none';
       if (mediaVideo) mediaVideo.style.display = 'none';
       if (errorBox) errorBox.classList.remove('hidden');
@@ -908,39 +1173,18 @@
       if (errorBox) errorBox.classList.add('hidden');
       if (mediaImg) {
         mediaImg.style.display = 'block';
-        const src = mediaImg.src.split('?')[0];
-        mediaImg.src = src + cacheBust;
+        const baseSrc = mediaImg.src.split('?')[0];
+        mediaImg.src = baseSrc + cacheBust;
       }
       if (mediaVideo) {
         mediaVideo.style.display = 'block';
-        const src = mediaVideo.src.split('?')[0];
-        mediaVideo.src = src + cacheBust;
+        const baseSrc = mediaVideo.src.split('?')[0];
+        mediaVideo.src = baseSrc + cacheBust;
         mediaVideo.load();
       }
     }
 
-    // Tap to Zoom Image Lightbox
-    function openLightbox() {
-      const modal = document.getElementById('lightbox-modal');
-      if (modal) {
-        modal.classList.remove('hidden');
-        document.body.style.overflow = 'hidden';
-      }
-    }
-
-    function closeLightbox() {
-      const modal = document.getElementById('lightbox-modal');
-      if (modal) {
-        modal.classList.add('hidden');
-        document.body.style.overflow = '';
-      }
-    }
-
-    document.addEventListener('keydown', (e) => {
-      if (e.key === 'Escape') closeLightbox();
-    });
-
-    // Save Behavior
+    // Save Flow: States & Order of Attempts
     function isCellularConnection() {
       if (!navigator.connection) return false;
       const type = navigator.connection.type;
@@ -950,7 +1194,7 @@
 
     function handleSaveMedia() {
       if (!noticeData.id) return;
-      // Check 25 MB cellular warning
+      // 25 MB Cellular warning check
       const isOver25MB = noticeData.fileSizeBytes > (25 * 1024 * 1024);
       if (isOver25MB && isCellularConnection()) {
         const warningBox = document.getElementById('cellular-warning-box');
@@ -973,38 +1217,84 @@
       if (warningBox) warningBox.classList.add('hidden');
     }
 
+    let isSaving = false;
     async function triggerSaveDownload() {
+      if (isSaving || !noticeData.id) return;
+      isSaving = true;
+
+      const saveBtn = document.getElementById('btn-' + 'save-media');
+      const saveText = document.getElementById('save-btn-text');
+      const originalHtml = saveText ? saveText.innerHTML : '';
+      if (saveBtn) {
+        saveBtn.disabled = true;
+        if (saveText) saveText.innerHTML = '<span class="spinner" aria-hidden="true"></span> Saving...';
+      }
+
       const fileUrl = `/n/${noticeData.id}/file`;
-      
-      // Try Web Share Level 2 (files) on supported mobile browsers
-      if (navigator.canShare) {
-        try {
-          const response = await fetch(fileUrl);
-          if (response.ok) {
-            const blob = await response.blob();
-            const file = new File([blob], noticeData.downloadSlug, { type: blob.type });
+      const fileName = noticeData.downloadSlug;
+
+      try {
+        const response = await fetch(fileUrl);
+        if (!response.ok) {
+          let errDetail = 'Media not found';
+          try {
+            const txt = await response.text();
+            if (txt && txt.length < 80) errDetail = txt.trim();
+          } catch (_) {}
+          throw new Error(errDetail);
+        }
+
+        const blob = await response.blob();
+        const mimeType = blob.type || (noticeData.type === 'video' ? 'video/mp4' : 'image/jpeg');
+
+        // Order 1: Web Share with file (Level 2)
+        if (navigator.canShare && window.File) {
+          try {
+            const file = new File([blob], fileName, { type: mimeType });
             if (navigator.canShare({ files: [file] })) {
               await navigator.share({
                 files: [file],
                 title: noticeData.title
               });
-              showToast('Saved');
+              showToast('Saved to your device');
               return;
             }
+          } catch (shareErr) {
+            if (shareErr.name === 'AbortError') return; // Dismissed by user
           }
-        } catch (e) {
-          // If share was cancelled or failed, fall through to direct file link download
+        }
+
+        // Order 2: Normal download of /n/<id>/file
+        try {
+          const blobUrl = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.style.display = 'none';
+          a.href = blobUrl;
+          a.download = fileName;
+          document.body.appendChild(a);
+          a.click();
+          setTimeout(() => {
+            document.body.removeChild(a);
+            URL.revokeObjectURL(blobUrl);
+          }, 1500);
+          showToast('Saved to your device');
+          return;
+        } catch (dlErr) {
+          // Fall through to Order 3
+        }
+
+        // Order 3: Open in new tab with hint "Press and hold the image to save"
+        window.open(fileUrl, '_blank');
+        showToast('Press and hold the image to save');
+      } catch (err) {
+        showToast('Download failed: ' + (err.message || 'Error'), () => triggerSaveDownload());
+      } finally {
+        isSaving = false;
+        if (saveBtn) {
+          saveBtn.disabled = false;
+          if (saveText) saveText.innerHTML = originalHtml;
         }
       }
-
-      // Standard fallback: direct download via /n/<id>/file
-      const a = document.createElement('a');
-      a.href = fileUrl;
-      a.download = noticeData.downloadSlug;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      showToast('Saved');
     }
 
     // Share Handler
@@ -1019,14 +1309,12 @@
           });
           return;
         } catch (e) {
-          // Fallback to clipboard if dismissed or error
+          if (e.name === 'AbortError') return;
         }
       }
-
-      // Clipboard fallback
       try {
         await navigator.clipboard.writeText(shareUrl);
-        showToast('Link copied');
+        showToast('Link copied to clipboard');
       } catch (e) {
         const input = document.createElement('input');
         input.value = shareUrl;
@@ -1034,7 +1322,7 @@
         input.select();
         document.execCommand('copy');
         document.body.removeChild(input);
-        showToast('Link copied');
+        showToast('Link copied to clipboard');
       }
     }
 
@@ -1043,7 +1331,7 @@
       const textToCopy = `${noticeData.title}\n\n${noticeData.body}`.trim();
       try {
         await navigator.clipboard.writeText(textToCopy);
-        showToast('Text copied');
+        showToast('Text copied to clipboard');
       } catch (e) {
         const textarea = document.createElement('textarea');
         textarea.value = textToCopy;
@@ -1051,7 +1339,7 @@
         textarea.select();
         document.execCommand('copy');
         document.body.removeChild(textarea);
-        showToast('Text copied');
+        showToast('Text copied to clipboard');
       }
     }
 
@@ -1100,6 +1388,156 @@
       URL.revokeObjectURL(url);
       showToast('Calendar event downloaded');
     }
+
+    // Tap-to-Zoom Fullscreen Viewer Gestures (Pinch-zoom, double-tap zoom, swipe-down to close)
+    let zoomScale = 1.0;
+    let zoomPosX = 0;
+    let zoomPosY = 0;
+    let lastTapTime = 0;
+    let startDistance = 0;
+    let startScale = 1.0;
+    let touchStartX = 0;
+    let touchStartY = 0;
+    let isDragging = false;
+
+    function openZoomViewer() {
+      const viewer = document.getElementById('zoom-viewer');
+      if (!viewer) return;
+      resetZoomScale();
+      viewer.classList.remove('hidden');
+      document.body.style.overflow = 'hidden';
+      const closeBtn = document.getElementById('zoom-close-btn');
+      if (closeBtn) closeBtn.focus();
+    }
+
+    function closeZoomViewer() {
+      const viewer = document.getElementById('zoom-viewer');
+      if (!viewer) return;
+      viewer.classList.add('hidden');
+      document.body.style.overflow = '';
+      resetZoomScale();
+      const heroImg = document.getElementById('notice-media-img');
+      if (heroImg) heroImg.focus();
+    }
+
+    function resetZoomScale() {
+      zoomScale = 1.0;
+      zoomPosX = 0;
+      zoomPosY = 0;
+      updateZoomTransform();
+    }
+
+    function updateZoomTransform() {
+      const img = document.getElementById('zoom-img');
+      const counter = document.getElementById('zoom-scale-text');
+      if (img) {
+        img.style.transform = `translate3d(${zoomPosX}px, ${zoomPosY}px, 0) scale(${zoomScale})`;
+      }
+      if (counter) {
+        counter.textContent = `${Math.round(zoomScale * 100)}%`;
+      }
+    }
+
+    // Touch & Gesture handling for Zoom Viewer
+    const zoomStage = document.getElementById('zoom-stage');
+    if (zoomStage) {
+      zoomStage.addEventListener('touchstart', (e) => {
+        if (e.touches.length === 2) {
+          // Pinch start
+          startDistance = Math.hypot(
+            e.touches[0].clientX - e.touches[1].clientX,
+            e.touches[0].clientY - e.touches[1].clientY
+          );
+          startScale = zoomScale;
+        } else if (e.touches.length === 1) {
+          touchStartX = e.touches[0].clientX - zoomPosX;
+          touchStartY = e.touches[0].clientY - zoomPosY;
+          isDragging = true;
+
+          // Double tap detection
+          const now = Date.now();
+          if (now - lastTapTime < 300) {
+            e.preventDefault();
+            if (zoomScale < 1.5) {
+              zoomScale = 2.5;
+            } else {
+              zoomScale = 1.0;
+              zoomPosX = 0;
+              zoomPosY = 0;
+            }
+            updateZoomTransform();
+            lastTapTime = 0;
+            return;
+          }
+          lastTapTime = now;
+        }
+      }, { passive: false });
+
+      zoomStage.addEventListener('touchmove', (e) => {
+        if (e.touches.length === 2) {
+          // Pinch move
+          e.preventDefault();
+          const currentDistance = Math.hypot(
+            e.touches[0].clientX - e.touches[1].clientX,
+            e.touches[0].clientY - e.touches[1].clientY
+          );
+          if (startDistance > 0) {
+            const ratio = currentDistance / startDistance;
+            zoomScale = Math.min(Math.max(startScale * ratio, 1.0), 3.5);
+            updateZoomTransform();
+          }
+        } else if (e.touches.length === 1 && isDragging) {
+          const deltaY = e.touches[0].clientY - touchStartY;
+          const deltaX = e.touches[0].clientX - touchStartX;
+
+          // If at 1x, handle swipe-down to dismiss
+          if (zoomScale <= 1.05) {
+            if (deltaY > 0) {
+              e.preventDefault();
+              zoomPosY = deltaY;
+              const viewer = document.getElementById('zoom-viewer');
+              if (viewer) viewer.style.opacity = `${Math.max(0.2, 1 - deltaY / 400)}`;
+              updateZoomTransform();
+            }
+          } else {
+            // Pan when zoomed
+            e.preventDefault();
+            zoomPosX = deltaX;
+            zoomPosY = deltaY;
+            updateZoomTransform();
+          }
+        }
+      }, { passive: false });
+
+      zoomStage.addEventListener('touchend', (e) => {
+        isDragging = false;
+        const viewer = document.getElementById('zoom-viewer');
+        if (viewer) viewer.style.opacity = '1';
+
+        // Check if swiped down far enough to close
+        if (zoomScale <= 1.05 && zoomPosY > 75) {
+          closeZoomViewer();
+        } else if (zoomScale <= 1.05) {
+          zoomPosY = 0;
+          zoomPosX = 0;
+          updateZoomTransform();
+        }
+      });
+
+      // Desktop double click toggle
+      zoomStage.addEventListener('dblclick', () => {
+        if (zoomScale < 1.5) {
+          zoomScale = 2.5;
+        } else {
+          resetZoomScale();
+        }
+        updateZoomTransform();
+      });
+    }
+
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') closeZoomViewer();
+    });
   </script>
 </body>
 </html>
