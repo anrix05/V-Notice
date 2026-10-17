@@ -854,6 +854,15 @@
                     <span>Video</span>
                   </span>
                 </label>
+                {% if voice_notices_enabled %}
+                <label class="type-opt" id="type-opt-voice">
+                  <input type="radio" name="type" value="voice" id="type-voice-radio">
+                  <span class="type-btn">
+                    <span class="type-icon">🎙️</span>
+                    <span>Voice</span>
+                  </span>
+                </label>
+                {% endif %}
               </div>
             </div>
 
@@ -928,6 +937,109 @@
             </div>
 
             <div class="inline-error hidden" id="err-media"></div>
+          </div>
+
+          <!-- =================== SECTION 3B: VOICE RECORD & UPLOAD =================== -->
+          <div class="form-section-card hidden" id="voice-upload-group">
+            <div class="form-section-header">
+              <span class="section-step-badge">3</span>
+              <h3 class="form-section-title">Voice message</h3>
+            </div>
+
+            <div class="voice-tabs-row" id="voice-mode-tabs" role="tablist">
+              <button type="button" class="btn-voice-tab active" id="tab-voice-record" role="tab" aria-selected="true">Record audio</button>
+              <button type="button" class="btn-voice-tab" id="tab-voice-upload" role="tab" aria-selected="false">Upload audio file</button>
+            </div>
+
+            <!-- Panel A: Record Audio -->
+            <div class="voice-panel" id="panel-voice-record">
+              <div class="voice-record-ui">
+                <div class="voice-mic-picker-wrap" id="voice-mic-picker-wrap">
+                  <label for="voice-mic-select" class="voice-mic-label">🎙️ Microphone</label>
+                  <select id="voice-mic-select" class="voice-mic-select" aria-label="Select audio input">
+                    <option value="">Default microphone</option>
+                  </select>
+                </div>
+                <div class="voice-timer-display" id="voice-timer-display">00:00 / 02:00</div>
+                <div class="voice-level-meter" id="voice-level-meter" aria-label="Microphone input level">
+                  <div class="level-meter-bar" id="level-meter-bar"></div>
+                </div>
+
+                <div class="voice-actions-row">
+                  <button type="button" id="btn-voice-record" class="btn-voice-record" aria-label="Start recording">
+                    <span class="record-dot"></span>
+                    <span id="btn-record-label">Record</span>
+                  </button>
+                  <button type="button" id="btn-voice-pause" class="btn btn-secondary btn-sm hidden" aria-label="Pause recording">Pause</button>
+                  <button type="button" id="btn-voice-resume" class="btn btn-secondary btn-sm hidden" aria-label="Resume recording">Resume</button>
+                  <button type="button" id="btn-voice-stop" class="btn btn-danger btn-sm hidden" aria-label="Stop recording">Stop</button>
+                  <button type="button" id="btn-voice-rerecord" class="btn btn-secondary btn-sm hidden" aria-label="Record again">Re-record</button>
+                </div>
+              </div>
+
+              <!-- Silent Recording Warning -->
+              <div class="voice-silent-warning hidden" id="voice-silent-warning" role="alert">
+                <span class="warning-text" id="voice-silent-msg">We did not hear anything. Check that your microphone is on and the right one is selected.</span>
+                <button type="button" id="btn-voice-confirm-silent" class="btn btn-secondary btn-xs btn-confirm-silent">Use anyway</button>
+              </div>
+
+              <!-- Audio Play Check / Preview (silent by default, never autoplay without tap) -->
+              <div class="voice-preview-box hidden" id="voice-preview-box">
+                <div class="voice-waveform-preview" id="voice-admin-waveform-preview"></div>
+                <div class="voice-audio-controls">
+                  <button type="button" id="btn-voice-playcheck" class="btn btn-secondary btn-sm" aria-label="Play recording">
+                    <span id="btn-playcheck-icon">▶</span>
+                    <span id="btn-playcheck-label">Play check</span>
+                  </button>
+                  <span class="voice-preview-dur" id="voice-preview-dur">0:00</span>
+                </div>
+                <audio id="voice-check-audio" class="hidden" preload="none"></audio>
+              </div>
+            </div>
+
+            <!-- Panel B: Upload Audio File Alternative -->
+            <div class="voice-panel hidden" id="panel-voice-upload">
+              <div class="file-drop-area voice-drop-area" id="voice-file-drop-area">
+                <input type="file" id="voice-file-input" name="voice_file" class="file-input-hidden" accept="audio/*,.mp3,.m4a,.wav,.webm,.ogg">
+                <div class="drop-prompt" id="voice-drop-prompt">
+                  <button type="button" id="btn-pick-voice-file" class="btn btn-secondary btn-mobile-picker">
+                    <span>📁 Choose audio file</span>
+                  </button>
+                  <span class="drop-hint-text">MP3, M4A, WAV, WEBM, OGG · up to {{ max_voice_upload_mb or 10 }} MB</span>
+                </div>
+                <div class="drop-selected hidden" id="voice-drop-selected">
+                  <div class="file-info-text">
+                    <span class="file-name" id="voice-file-name">audio.mp3</span>
+                    <span class="file-size" id="voice-file-size">1.2 MB</span>
+                  </div>
+                  <button type="button" id="btn-remove-voice-file" class="btn-text-action">Remove</button>
+                </div>
+              </div>
+            </div>
+
+            <!-- Caption textarea (max 500) -->
+            <div class="form-group" style="margin-top: 14px;">
+              <div class="label-row">
+                <label for="notice-voice-caption" class="form-label">Voice caption (transcript or summary)</label>
+                <span class="char-counter" id="voice-caption-counter">0 / 500</span>
+              </div>
+              <textarea id="notice-voice-caption" name="caption" class="form-control" rows="3" maxlength="500" placeholder="Optional text caption shown on display and public page"></textarea>
+              <span class="field-hint" id="voice-caption-hint" style="display: block; margin-top: 6px;">Add a caption so people can read the message on silent screens.</span>
+            </div>
+
+            <!-- Repeat gap select (0, 5, 15, 30) -->
+            <div class="form-group" style="margin-top: 14px;">
+              <label for="notice-repeat-gap" class="form-label">Voice repeat gap on display</label>
+              <select id="notice-repeat-gap" name="repeat_gap_minutes" class="form-control">
+                <option value="5" selected>Play audio every 5 minutes (silent on other loops)</option>
+                <option value="0">Play audio on every loop (no gap)</option>
+                <option value="15">Play audio every 15 minutes</option>
+                <option value="30">Play audio every 30 minutes</option>
+              </select>
+              <span class="field-hint">When sound is in the repeat gap, the notice still appears silently with the default slide duration.</span>
+            </div>
+
+            <div class="inline-error hidden" id="err-voice"></div>
           </div>
 
           <!-- =================== SECTION 4: WHEN =================== -->
@@ -1181,6 +1293,13 @@
   <div id="audit-modal" class="hidden" aria-hidden="true" style="display:none;">
     <table><tbody id="audit-tbody"></tbody></table>
   </div>
+
+  <!-- Runtime Config for Features -->
+  <script>
+    window.VOICE_NOTICES_ENABLED = {{ 'true' if voice_notices_enabled else 'false' }};
+    window.MAX_VOICE_DURATION_SECONDS = {{ max_voice_duration or 120 }};
+    window.MAX_VOICE_UPLOAD_MB = {{ max_voice_upload_mb or 10 }};
+  </script>
 
   <!-- Main JavaScript Bundle -->
   <script src="/static/js/admin.js?v=10"></script>

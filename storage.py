@@ -10,6 +10,7 @@ import shutil
 import json
 import re
 import subprocess
+from typing import Tuple, Optional, List, Dict, Any
 try:
     from zoneinfo import ZoneInfo
     KOLKATA_TZ = ZoneInfo("Asia/Kolkata")
@@ -30,6 +31,11 @@ from config import (
     VIDEO_SOUND_ENABLED,
     FLAG_EVENT_ENABLED,
     FLAG_TRIGGER_TOKEN,
+    VOICE_NOTICES_ENABLED,
+    MAX_VOICE_DURATION_SECONDS,
+    MAX_VOICE_UPLOAD_MB,
+    MAX_VOICE_CONTENT_LENGTH,
+    ALLOWED_AUDIO_EXTENSIONS,
 )
 from security import (
     generate_notice_id,
@@ -77,6 +83,118 @@ def detect_video_audio(file_path) -> str:
     except Exception as e:
         logger.warning("ffprobe audio detection failed for %s: %s", file_path, e)
         return "unknown"
+
+def probe_voice_media(file_path) -> Tuple[bool, Optional[float], str]:
+    """Inspects media file with ffprobe to verify it is audio-only (has audio, no video).
+    Returns (is_valid, duration_seconds, error_message)."""
+    if not file_path:
+        return False, None, "File path is required."
+    p = Path(file_path)
+    if not p.is_file():
+        return False, None, "Media file not found on disk."
+    ffprobe_cmd = shutil.which("ffprobe")
+    if not ffprobe_cmd:
+        return True, None, ""
+
+    try:
+        proc = subprocess.run(
+            [
+                ffprobe_cmd,
+                "-v", "error",
+                "-show_entries", "stream=codec_type,codec_name:stream_disposition=attached_pic:format=duration",
+                "-of", "json",
+                str(p)
+            ],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            timeout=10
+        )
+        if proc.returncode != 0:
+            return False, None, f"ffprobe error: {proc.stderr.strip()}"
+        data = json.loads(proc.stdout)
+        streams = data.get("streams", [])
+        has_audio = any(s.get("codec_type") == "audio" for s in streams)
+        has_video = False
+        for s in streams:
+            if s.get("codec_type") == "video":
+                disp = s.get("disposition") or {}
+                if disp.get("attached_pic") != 1:
+                    has_video = True
+                    break
+
+        if not has_audio:
+            return False, None, "Voice notice must contain an audio track."
+        if has_video:
+            return False, None, "Voice notice cannot contain a video stream."
+
+        duration = None
+        fmt = data.get("format", {})
+        if fmt.get("duration"):
+            try:
+                duration = float(fmt["duration"])
+            except (ValueError, TypeError):
+                duration = None
+
+        # Check mean volume with ffmpeg volumedetect
+        ffmpeg_cmd = shutil.which("ffmpeg")
+        if ffmpeg_cmd:
+            devnull = "NUL" if os.name == "nt" else "/dev/null"
+            try:
+                proc_vol = subprocess.run(
+                    [
+                        ffmpeg_cmd,
+                        "-i", str(p),
+                        "-filter:a", "volumedetect",
+                        "-vn",
+                        "-sn",
+                        "-f", "null",
+                        devnull
+                    ],
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                    timeout=10
+                )
+                match = re.search(r"mean_volume:\s*(-?(?:[0-9.]+|inf))\s*dB", proc_vol.stderr)
+                if match:
+                    val_str = match.group(1).lower()
+                    if val_str in ("inf", "-inf"):
+                        return False, None, "We did not hear anything. Check that your microphone is on and the right one is selected."
+                    try:
+                        mean_vol = float(val_str)
+                        if mean_vol < -60.0:
+                            return False, None, "We did not hear anything. Check that your microphone is on and the right one is selected."
+                    except ValueError:
+                        pass
+            except Exception as e_vol:
+                logger.warning("ffmpeg volumedetect failed for %s: %s", file_path, e_vol)
+
+        return True, duration, ""
+    except Exception as e:
+        logger.warning("ffprobe probe_voice_media failed for %s: %s", file_path, e)
+        return True, None, ""
+
+def sanitize_or_generate_waveform(raw_waveform, audio_file_path=None) -> str:
+    """Validates that waveform is a list of exactly 64 integers in 0..100.
+    If valid, returns JSON string of the list. Otherwise, regenerates 64 values."""
+    if raw_waveform:
+        try:
+            val = raw_waveform
+            if isinstance(val, str):
+                val = json.loads(val)
+            if isinstance(val, list) and len(val) == 64:
+                cleaned = [max(0, min(100, int(round(float(v))))) for v in val]
+                return json.dumps(cleaned)
+        except Exception:
+            pass
+
+    import math
+    peaks = []
+    for i in range(64):
+        v = 20 + 50 * math.sin((i / 64) * math.pi) * (0.6 + 0.4 * math.sin(i * 0.7))
+        peaks.append(max(5, min(100, int(round(v)))))
+    return json.dumps(peaks)
 
 def get_current_time_ms():
     return int(time.time() * 1000)
@@ -191,7 +309,7 @@ SEED_DEPARTMENTS = [
 # Media Storage Interface
 # ==============================================================================
 class MediaStorageBackend:
-    def save(self, file_obj, filename: str) -> str:
+    def save(self, file_obj, filename: str, resource_type: str = "auto") -> str:
         raise NotImplementedError
 
     def delete(self, filename: str) -> bool:
@@ -211,7 +329,7 @@ class LocalMediaStorage(MediaStorageBackend):
         self.media_dir = Path(media_dir)
         self.media_dir.mkdir(parents=True, exist_ok=True)
 
-    def save(self, file_obj, filename: str) -> str:
+    def save(self, file_obj, filename: str, resource_type: str = "auto") -> str:
         dest_path = self.media_dir / filename
         stream = getattr(file_obj, "stream", file_obj)
         save_stream_to_disk(stream, dest_path, max_bytes=MAX_CONTENT_LENGTH)
@@ -255,7 +373,7 @@ class CloudinaryMediaStorage(MediaStorageBackend):
             os.environ["CLOUDINARY_URL"] = cloudinary_url
         cloudinary.reset_config()
 
-    def save(self, file_obj, filename: str) -> str:
+    def save(self, file_obj, filename: str, resource_type: str = "auto") -> str:
         try:
             target = file_obj
             if isinstance(file_obj, (str, Path)):
@@ -265,7 +383,7 @@ class CloudinaryMediaStorage(MediaStorageBackend):
             res = self.uploader.upload(
                 target,
                 folder="vnotice",
-                resource_type="auto",
+                resource_type=resource_type,
                 use_filename=True,
                 unique_filename=True
             )
@@ -591,6 +709,30 @@ class NoticeStorage:
                 if "sound_volume" not in dcols:
                     conn.execute("ALTER TABLE departments ADD COLUMN sound_volume INTEGER NOT NULL DEFAULT 70;")
 
+                # Voice notices migration: audio_duration, waveform, caption, repeat_gap_minutes
+                needs_voice_migration = (
+                    "audio_duration" not in ncols or
+                    "waveform" not in ncols or
+                    "caption" not in ncols or
+                    "repeat_gap_minutes" not in ncols
+                )
+                if needs_voice_migration and self.db_file.exists():
+                    backup_path = self.db_file.with_name(self.db_file.name + ".bak")
+                    try:
+                        shutil.copy2(self.db_file, backup_path)
+                        logger.info("Automatic database backup created at %s before voice columns migration", backup_path)
+                    except Exception as e:
+                        logger.warning("Automatic database backup warning: %s", e)
+
+                if "audio_duration" not in ncols:
+                    conn.execute("ALTER TABLE notices ADD COLUMN audio_duration REAL DEFAULT NULL;")
+                if "waveform" not in ncols:
+                    conn.execute("ALTER TABLE notices ADD COLUMN waveform TEXT DEFAULT '';")
+                if "caption" not in ncols:
+                    conn.execute("ALTER TABLE notices ADD COLUMN caption TEXT DEFAULT '';")
+                if "repeat_gap_minutes" not in ncols:
+                    conn.execute("ALTER TABLE notices ADD COLUMN repeat_gap_minutes INTEGER DEFAULT 5;")
+
                 # 6. Users table for Phase 6 role-based permissions
                 conn.execute("""
                     CREATE TABLE IF NOT EXISTS users (
@@ -912,6 +1054,24 @@ class NoticeStorage:
         d["scan_count"] = int(d.get("scan_count") or 0)
         d["has_audio"] = str(d.get("has_audio") or "unknown")
         d["play_sound"] = bool(d.get("play_sound") or 0)
+        if d.get("audio_duration") is not None:
+            try:
+                d["audio_duration"] = float(d["audio_duration"])
+            except Exception:
+                d["audio_duration"] = None
+        else:
+            d["audio_duration"] = None
+
+        if "repeat_gap_minutes" in d and d.get("repeat_gap_minutes") is not None:
+            try:
+                d["repeat_gap_minutes"] = int(d["repeat_gap_minutes"])
+            except Exception:
+                d["repeat_gap_minutes"] = 5
+        else:
+            d["repeat_gap_minutes"] = 5
+
+        d["caption"] = str(d.get("caption") or "")
+        d["waveform"] = str(d.get("waveform") or "")
         return d
 
     def _enrich_notices(self, notices, conn=None):
@@ -1282,42 +1442,124 @@ class NoticeStorage:
             if not self._is_in_flask():
                 conn.close()
 
+    def is_voice_media(self, filename: str) -> bool:
+        if not filename:
+            return False
+        clean = Path(filename).name
+        conn = self.get_connection()
+        try:
+            cur = conn.cursor()
+            cur.execute(
+                "SELECT 1 FROM notices WHERE type = 'voice' AND (media = ? OR media LIKE ? OR media LIKE ?) LIMIT 1;",
+                (clean, f"%/{clean}", f"%{clean}%")
+            )
+            return bool(cur.fetchone())
+        except Exception:
+            return False
+        finally:
+            if not self._is_in_flask():
+                conn.close()
+
     # ==========================================================================
     # Notice Mutations
     # ==========================================================================
     def add(self, data, file_obj=None, created_by="admin"):
         notice_id = generate_notice_id()
         media_filename = str(data.get("media", "")).strip() if data.get("media") else ""
-        media_type = data.get("type", "text")
-        
-        if file_obj and getattr(file_obj, "filename", None):
-            stream = getattr(file_obj, "stream", file_obj)
-            dest_temp = self.media_folder / f"tmp_{notice_id}"
-            ext, category = save_stream_to_disk(stream, dest_temp, max_bytes=MAX_CONTENT_LENGTH)
-            
-            media_filename = f"{notice_id}_{secrets.token_urlsafe(8)}.{ext}"
-            final_path = self.media_folder / media_filename
-            dest_temp.rename(final_path)
-            media_type = category
+        req_type = str(data.get("type", "text")).strip().lower()
+        if req_type == "voice":
+            import config
+            if not getattr(config, "VOICE_NOTICES_ENABLED", False):
+                raise ValueError("Voice notices are currently disabled.")
 
-            if getattr(self.media_storage, "is_cloud", False):
-                try:
-                    cloud_url = self.media_storage.save(final_path, media_filename)
-                    if cloud_url:
-                        media_filename = cloud_url
-                        try:
-                            final_path.unlink()
-                        except Exception:
-                            pass
-                except Exception as e:
-                    logger.error("Cloud upload error, falling back to local file: %s", e)
+        media_type = req_type if req_type == "voice" else data.get("type", "text")
+        audio_duration = None
+        waveform_json = ""
+        caption = ""
+        repeat_gap_minutes = 5
 
+        if req_type == "voice":
+            caption = str(data.get("caption") or "").strip()[:500]
+            try:
+                rgm = int(data.get("repeat_gap_minutes", 5))
+                repeat_gap_minutes = rgm if rgm in (0, 5, 15, 30) else 5
+            except Exception:
+                repeat_gap_minutes = 5
+
+        dest_temp = None
+        final_path = None
         try:
-            duration = int(data.get("duration", 10))
-            if duration <= 0:
+            if file_obj and getattr(file_obj, "filename", None):
+                stream = getattr(file_obj, "stream", file_obj)
+                dest_temp = self.media_folder / f"tmp_{notice_id}"
+                max_bytes = MAX_VOICE_CONTENT_LENGTH if req_type == "voice" else MAX_CONTENT_LENGTH
+                ext, category = save_stream_to_disk(stream, dest_temp, max_bytes=max_bytes, expected_type=req_type)
+
+                if req_type == "voice":
+                    is_valid, probed_dur, err = probe_voice_media(dest_temp)
+                    if not is_valid:
+                        if dest_temp.exists():
+                            dest_temp.unlink()
+                        raise ValueError(err)
+
+                    raw_dur = probed_dur if (probed_dur and probed_dur > 0) else data.get("audio_duration")
+                    try:
+                        dur_val = float(raw_dur or 10.0)
+                    except (ValueError, TypeError):
+                        dur_val = 10.0
+                    audio_duration = round(min(float(MAX_VOICE_DURATION_SECONDS), max(1.0, dur_val)), 2)
+                    waveform_json = sanitize_or_generate_waveform(data.get("waveform"), dest_temp)
+                    duration = int(round(audio_duration)) + 1
+                    media_type = "voice"
+                else:
+                    media_type = category
+
+                media_filename = f"{notice_id}_{secrets.token_urlsafe(8)}.{ext}"
+                final_path = self.media_folder / media_filename
+                dest_temp.rename(final_path)
+                dest_temp = None
+
+                if getattr(self.media_storage, "is_cloud", False):
+                    try:
+                        cloud_res_type = "video" if req_type == "voice" else "auto"
+                        cloud_url = self.media_storage.save(final_path, media_filename, resource_type=cloud_res_type)
+                        if cloud_url:
+                            media_filename = cloud_url
+                            try:
+                                final_path.unlink()
+                                final_path = None
+                            except Exception:
+                                pass
+                    except Exception as e:
+                        logger.error("Cloud upload error, falling back to local file: %s", e)
+            elif req_type == "voice":
+                if not media_filename:
+                    raise ValueError("Voice notice requires an audio recording or file.")
+                raw_dur = data.get("audio_duration")
+                try:
+                    dur_val = float(raw_dur or 10.0)
+                except (ValueError, TypeError):
+                    dur_val = 10.0
+                audio_duration = round(min(float(MAX_VOICE_DURATION_SECONDS), max(1.0, dur_val)), 2)
+                waveform_json = sanitize_or_generate_waveform(data.get("waveform"))
+                duration = int(round(audio_duration)) + 1
+                media_type = "voice"
+        except Exception:
+            if dest_temp and dest_temp.exists():
+                try: dest_temp.unlink()
+                except Exception: pass
+            if final_path and final_path.exists():
+                try: final_path.unlink()
+                except Exception: pass
+            raise
+
+        if req_type != "voice":
+            try:
+                duration = int(data.get("duration", 10))
+                if duration <= 0:
+                    duration = 10
+            except (ValueError, TypeError):
                 duration = 10
-        except (ValueError, TypeError):
-            duration = 10
 
         try:
             start_ms = int(data.get("start", get_current_time_ms()))
@@ -1364,21 +1606,25 @@ class NoticeStorage:
                             VALUES (?, ?, ?);
                         """, (s_code, s_code, now))
 
-                has_audio = "unknown"
-                if media_type == "video" and media_filename:
-                    final_path = self.media_folder / media_filename
-                    if final_path.is_file():
-                        has_audio = detect_video_audio(final_path)
+                if req_type == "voice":
+                    has_audio = "true"
+                    play_sound_val = 1
+                else:
+                    has_audio = "unknown"
+                    if media_type == "video" and media_filename:
+                        final_path = self.media_folder / media_filename
+                        if final_path.is_file():
+                            has_audio = detect_video_audio(final_path)
 
-                raw_play_sound = data.get("play_sound")
-                play_sound_val = 1 if (raw_play_sound in (True, 1, "1", "true") and has_audio != "false") else 0
+                    raw_play_sound = data.get("play_sound")
+                    play_sound_val = 1 if (raw_play_sound in (True, 1, "1", "true") and has_audio != "false") else 0
 
                 conn.execute("""
                     INSERT INTO notices (
                         id, title, body, priority, type, media, duration, start, end,
                         screen_id, created_by, created_at, updated_at, is_active,
-                        has_audio, play_sound
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?);
+                        has_audio, play_sound, audio_duration, waveform, caption, repeat_gap_minutes
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?);
                 """, (
                     notice_id,
                     str(data.get("title", "")).strip(),
@@ -1394,7 +1640,11 @@ class NoticeStorage:
                     now,
                     now,
                     has_audio,
-                    play_sound_val
+                    play_sound_val,
+                    audio_duration,
+                    waveform_json,
+                    caption,
+                    repeat_gap_minutes
                 ))
 
                 for s_code in target_screens:
@@ -1404,7 +1654,7 @@ class NoticeStorage:
                         VALUES (?, ?);
                     """, (notice_id, code_val))
             
-            self.record_audit(creator, "CREATE", notice_id, f"Created notice '{data.get('title', '')}'")
+            self.record_audit(creator, "CREATE", notice_id, f"Created {media_type} notice '{data.get('title', '')}'")
             self.safe_garbage_collect_media()
             return self.get_by_id(notice_id)
         finally:
@@ -1417,43 +1667,110 @@ class NoticeStorage:
             return None
 
         media_filename = target.get("media", "")
-        media_type = data.get("type", target.get("type", "text"))
+        req_type = str(data.get("type", target.get("type", "text"))).strip().lower()
+        if req_type == "voice":
+            import config
+            if not getattr(config, "VOICE_NOTICES_ENABLED", False):
+                raise ValueError("Voice notices are currently disabled.")
 
-        if file_obj and getattr(file_obj, "filename", None):
-            stream = getattr(file_obj, "stream", file_obj)
-            dest_temp = self.media_folder / f"tmp_{notice_id}"
-            ext, category = save_stream_to_disk(stream, dest_temp, max_bytes=MAX_CONTENT_LENGTH)
-            
-            old_media = media_filename
-            media_filename = f"{notice_id}_{secrets.token_urlsafe(8)}.{ext}"
-            final_path = self.media_folder / media_filename
-            dest_temp.rename(final_path)
-            media_type = category
+        media_type = req_type if req_type == "voice" else data.get("type", target.get("type", "text"))
+        audio_duration = target.get("audio_duration")
+        waveform_json = target.get("waveform", "")
+        caption = target.get("caption", "")
+        repeat_gap_minutes = target.get("repeat_gap_minutes", 5)
 
-            if getattr(self.media_storage, "is_cloud", False):
+        if req_type == "voice":
+            if "caption" in data:
+                caption = str(data.get("caption") or "").strip()[:500]
+            if "repeat_gap_minutes" in data:
                 try:
-                    cloud_url = self.media_storage.save(final_path, media_filename)
-                    if cloud_url:
-                        media_filename = cloud_url
-                        try:
-                            final_path.unlink()
-                        except Exception:
-                            pass
-                except Exception as e:
-                    logger.error("Cloud upload error, falling back to local file: %s", e)
-            
-            if old_media and old_media != media_filename:
-                self.media_storage.delete(old_media)
+                    rgm = int(data.get("repeat_gap_minutes", 5))
+                    repeat_gap_minutes = rgm if rgm in (0, 5, 15, 30) else 5
+                except Exception:
+                    repeat_gap_minutes = 5
+
+        dest_temp = None
+        final_path = None
+        try:
+            if file_obj and getattr(file_obj, "filename", None):
+                stream = getattr(file_obj, "stream", file_obj)
+                dest_temp = self.media_folder / f"tmp_{notice_id}"
+                max_bytes = MAX_VOICE_CONTENT_LENGTH if req_type == "voice" else MAX_CONTENT_LENGTH
+                ext, category = save_stream_to_disk(stream, dest_temp, max_bytes=max_bytes, expected_type=req_type)
+
+                if req_type == "voice":
+                    is_valid, probed_dur, err = probe_voice_media(dest_temp)
+                    if not is_valid:
+                        if dest_temp.exists():
+                            dest_temp.unlink()
+                        raise ValueError(err)
+
+                    raw_dur = probed_dur if (probed_dur and probed_dur > 0) else data.get("audio_duration")
+                    try:
+                        dur_val = float(raw_dur or target.get("audio_duration") or 10.0)
+                    except (ValueError, TypeError):
+                        dur_val = 10.0
+                    audio_duration = round(min(float(MAX_VOICE_DURATION_SECONDS), max(1.0, dur_val)), 2)
+                    waveform_json = sanitize_or_generate_waveform(data.get("waveform"), dest_temp)
+                    duration = int(round(audio_duration)) + 1
+                    media_type = "voice"
+                else:
+                    media_type = category
+
+                old_media = media_filename
+                media_filename = f"{notice_id}_{secrets.token_urlsafe(8)}.{ext}"
+                final_path = self.media_folder / media_filename
+                dest_temp.rename(final_path)
+                dest_temp = None
+
+                if getattr(self.media_storage, "is_cloud", False):
+                    try:
+                        cloud_res_type = "video" if req_type == "voice" else "auto"
+                        cloud_url = self.media_storage.save(final_path, media_filename, resource_type=cloud_res_type)
+                        if cloud_url:
+                            media_filename = cloud_url
+                            try:
+                                final_path.unlink()
+                                final_path = None
+                            except Exception:
+                                pass
+                    except Exception as e:
+                        logger.error("Cloud upload error, falling back to local file: %s", e)
+                
+                if old_media and old_media != media_filename:
+                    self.media_storage.delete(old_media)
+            elif req_type == "voice":
+                if "audio_duration" in data:
+                    raw_dur = data.get("audio_duration")
+                    try:
+                        dur_val = float(raw_dur or target.get("audio_duration") or 10.0)
+                    except (ValueError, TypeError):
+                        dur_val = 10.0
+                    audio_duration = round(min(float(MAX_VOICE_DURATION_SECONDS), max(1.0, dur_val)), 2)
+                if "waveform" in data:
+                    waveform_json = sanitize_or_generate_waveform(data.get("waveform"))
+                if audio_duration:
+                    duration = int(round(audio_duration)) + 1
+                media_type = "voice"
+        except Exception:
+            if dest_temp and dest_temp.exists():
+                try: dest_temp.unlink()
+                except Exception: pass
+            if final_path and final_path.exists():
+                try: final_path.unlink()
+                except Exception: pass
+            raise
 
         title = str(data.get("title", target["title"])).strip()
         body = str(data.get("body", target.get("body", ""))).strip()
         
-        try:
-            duration = int(data.get("duration", target.get("duration", 10)))
-            if duration <= 0:
-                duration = 10
-        except (ValueError, TypeError):
-            duration = target.get("duration", 10)
+        if req_type != "voice":
+            try:
+                duration = int(data.get("duration", target.get("duration", 10)))
+                if duration <= 0:
+                    duration = 10
+            except (ValueError, TypeError):
+                duration = target.get("duration", 10)
 
         try:
             start_ms = int(data.get("start", target.get("start", 0)))
@@ -1485,17 +1802,21 @@ class NoticeStorage:
         conn = self.get_connection()
         try:
             with conn:
-                has_audio = target.get("has_audio", "unknown")
-                if media_type == "video" and media_filename:
-                    final_path = self.media_folder / media_filename
-                    if final_path.is_file():
-                        has_audio = detect_video_audio(final_path)
-
-                if "play_sound" in data:
-                    raw_play_sound = data.get("play_sound")
-                    play_sound_val = 1 if (raw_play_sound in (True, 1, "1", "true") and has_audio != "false") else 0
+                if req_type == "voice":
+                    has_audio = "true"
+                    play_sound_val = 1
                 else:
-                    play_sound_val = 1 if (target.get("play_sound") and has_audio != "false") else 0
+                    has_audio = target.get("has_audio", "unknown")
+                    if media_type == "video" and media_filename:
+                        final_path = self.media_folder / media_filename
+                        if final_path.is_file():
+                            has_audio = detect_video_audio(final_path)
+
+                    if "play_sound" in data:
+                        raw_play_sound = data.get("play_sound")
+                        play_sound_val = 1 if (raw_play_sound in (True, 1, "1", "true") and has_audio != "false") else 0
+                    else:
+                        play_sound_val = 1 if (target.get("play_sound") and has_audio != "false") else 0
 
                 conn.execute("""
                     UPDATE notices SET
@@ -1511,7 +1832,11 @@ class NoticeStorage:
                         created_by = ?,
                         updated_at = ?,
                         has_audio = ?,
-                        play_sound = ?
+                        play_sound = ?,
+                        audio_duration = ?,
+                        waveform = ?,
+                        caption = ?,
+                        repeat_gap_minutes = ?
                     WHERE id = ?;
                 """, (
                     title,
@@ -1527,6 +1852,10 @@ class NoticeStorage:
                     now,
                     has_audio,
                     play_sound_val,
+                    audio_duration,
+                    waveform_json,
+                    caption,
+                    repeat_gap_minutes,
                     notice_id
                 ))
 

@@ -791,6 +791,138 @@
       cursor: pointer;
     }
 
+    /* Voice Public Notice Player */
+    .voice-public-player {
+      width: 100%;
+      background: radial-gradient(circle at 50% 20%, rgba(37, 99, 235, 0.22) 0%, rgba(22, 34, 56, 0.98) 75%);
+      padding: 32px 24px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 20px;
+      border-radius: var(--radius-md) var(--radius-md) 0 0;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .voice-public-hero {
+      display: flex;
+      align-items: center;
+      gap: 18px;
+      width: 100%;
+      max-width: 440px;
+    }
+
+    .btn-voice-public-play {
+      width: 56px;
+      height: 56px;
+      border-radius: 50%;
+      background: var(--accent);
+      color: #FFFFFF;
+      border: none;
+      font-size: 22px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      box-shadow: 0 4px 14px rgba(37, 99, 235, 0.4);
+      transition: transform 0.15s ease, background-color 0.15s ease;
+      flex-shrink: 0;
+    }
+
+    .btn-voice-public-play:hover {
+      background: var(--accent-hover);
+      transform: scale(1.04);
+    }
+
+    .voice-public-meta {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .voice-public-badge {
+      font-size: 13px;
+      font-weight: 700;
+      color: #93C5FD;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .voice-public-timing {
+      font-family: monospace, system-ui;
+      font-size: 15px;
+      color: var(--text-muted);
+      font-weight: 600;
+    }
+
+    .voice-public-waveform {
+      width: 100%;
+      max-width: 440px;
+      height: 52px;
+      background: rgba(0, 0, 0, 0.35);
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      position: relative;
+      cursor: pointer;
+      overflow: hidden;
+      display: flex;
+      align-items: center;
+      padding: 4px 8px;
+    }
+
+    .voice-public-wf-track {
+      width: 100%;
+      height: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 2px;
+      z-index: 1;
+    }
+
+    .pub-wf-bar {
+      flex: 1;
+      min-width: 2px;
+      background: rgba(147, 197, 253, 0.4);
+      border-radius: 1px;
+      transition: height 0.1s ease;
+    }
+
+    .pub-wf-bar.active {
+      background: #60A5FA;
+    }
+
+    .voice-public-wf-fill {
+      position: absolute;
+      top: 0;
+      left: 0;
+      bottom: 0;
+      width: 0%;
+      background: rgba(37, 99, 235, 0.25);
+      border-right: 2px solid #60A5FA;
+      pointer-events: none;
+      transition: width 0.08s linear;
+      z-index: 2;
+    }
+
+    .voice-caption-box {
+      margin-top: 14px;
+      padding: 14px;
+      background: var(--panel-raised);
+      border: 1px solid var(--line);
+      border-radius: var(--radius-sm);
+    }
+
+    .voice-caption-label {
+      display: block;
+      font-size: 11px;
+      font-weight: 700;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-bottom: 6px;
+    }
+
     /* Motion Accessibility */
     @media (prefers-reduced-motion: reduce) {
       *, *::before, *::after {
@@ -867,6 +999,27 @@
               id="notice-media-video"
               onerror="handleMediaError()"
             ></video>
+          {% elif notice.type == 'voice' and notice.media %}
+            <div class="voice-public-player" id="voice-public-player">
+              <div class="voice-public-hero">
+                <button type="button" class="btn-voice-public-play" id="btn-voice-public-play" aria-label="Play voice announcement">
+                  <span id="voice-public-play-icon">▶</span>
+                </button>
+                <div class="voice-public-meta">
+                  <span class="voice-public-badge">🎙️ Voice Announcement</span>
+                  <div class="voice-public-timing">
+                    <span id="voice-time-elapsed">0:00</span> / <span id="voice-time-total">{{ (notice.audio_duration | round | int) if notice.audio_duration else (notice.duration or 10) }}s</span>
+                  </div>
+                </div>
+              </div>
+              <div class="voice-public-waveform" id="voice-public-waveform" role="progressbar" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100" tabindex="0">
+                <div class="voice-public-wf-track" id="voice-public-wf-track">
+                  <!-- Waveform bars populated dynamically -->
+                </div>
+                <div class="voice-public-wf-fill" id="voice-public-wf-fill"></div>
+              </div>
+              <audio id="voice-public-audio" src="{{ notice.media if notice.media.startswith('http') else '/media/' + notice.media }}" preload="metadata"></audio>
+            </div>
           {% else %}
             <!-- Deterministic Gradient Headline Tile for Text Notices -->
             <div class="text-notice-tile tile-theme-{{ notice.gradient_theme_idx }}">
@@ -921,9 +1074,15 @@
             <div class="validity-exact">{{ notice.exact_valid_till_str }}</div>
           </div>
 
-          <!-- Details Text (1.6 Line Height) -->
+          <!-- Details / Caption Text -->
+          {% if notice.caption %}
+            <div class="voice-caption-box">
+              <span class="voice-caption-label">Transcript / Caption</span>
+              <div class="details-text">{{ notice.caption }}</div>
+            </div>
+          {% endif %}
           {% if notice.body %}
-            <div class="details-text">{{ notice.body }}</div>
+            <div class="details-text" {% if notice.caption %}style="margin-top: 12px;"{% endif %}>{{ notice.body }}</div>
           {% endif %}
 
           <!-- Cellular Data Confirmation Box (hidden by default) -->
@@ -962,21 +1121,21 @@
           {% endif %}
 
           <div class="primary-action-row">
-            {% if notice.type in ('image', 'video') and notice.media %}
+            {% if notice.type in ('image', 'video', 'voice') and notice.media %}
               <!-- Media Notices: Primary Save with size, Secondary Share -->
               <button 
                 type="button" 
                 class="action-btn btn-primary" 
                 id="btn-save-media" 
                 onclick="handleSaveMedia()"
-                aria-label="Save {{ 'image' if notice.type == 'image' else 'video' }}"
+                aria-label="Save {{ 'audio' if notice.type == 'voice' else ('image' if notice.type == 'image' else 'video') }}"
               >
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true" id="save-icon">
                   <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
                   <polyline points="7 10 12 15 17 10"></polyline>
                   <line x1="12" y1="15" x2="12" y2="3"></line>
                 </svg>
-                <span id="save-btn-text">Save {{ 'image' if notice.type == 'image' else 'video' }}{% if notice.file_size_formatted %} ({{ notice.file_size_formatted }}){% endif %}</span>
+                <span id="save-btn-text">Save {{ 'audio' if notice.type == 'voice' else ('image' if notice.type == 'image' else 'video') }}{% if notice.file_size_formatted %} ({{ notice.file_size_formatted }}){% endif %}</span>
               </button>
 
               <button 
@@ -1096,6 +1255,9 @@
       id: {{ (notice.id|tojson) if notice else 'null' }},
       title: {{ (notice.title|tojson) if notice else '""' }},
       body: {{ (notice.body|tojson) if notice else '""' }},
+      caption: {{ (notice.caption|tojson) if notice and notice.caption else '""' }},
+      waveform: {{ (notice.waveform|tojson) if notice and notice.waveform else 'null' }},
+      audioDuration: {{ (notice.audio_duration|tojson) if notice and notice.audio_duration else 'null' }},
       type: {{ (notice.type|tojson) if notice else '"text"' }},
       media: {{ (notice.media|tojson) if notice and notice.media else 'null' }},
       downloadSlug: {{ (notice.download_slug|tojson) if notice else '"notice"' }},
@@ -1497,6 +1659,116 @@
         updateZoomTransform();
       });
     }
+
+    // Voice Notice Public Audio Player Controller
+    document.addEventListener('DOMContentLoaded', () => {
+      if (noticeData.type !== 'voice') return;
+
+      const playBtn = document.getElementById('btn-voice-public-play');
+      const playIcon = document.getElementById('voice-public-play-icon');
+      const audio = document.getElementById('voice-public-audio');
+      const timeElapsed = document.getElementById('voice-time-elapsed');
+      const timeTotal = document.getElementById('voice-time-total');
+      const waveform = document.getElementById('voice-public-waveform');
+      const track = document.getElementById('voice-public-wf-track');
+      const fill = document.getElementById('voice-public-wf-fill');
+
+      if (!playBtn || !audio) return;
+
+      // Render 64 waveform bars
+      let wf = noticeData.waveform;
+      try {
+        if (typeof wf === 'string') wf = JSON.parse(wf);
+      } catch (e) { wf = null; }
+      if (!Array.isArray(wf) || wf.length !== 64) {
+        wf = Array.from({ length: 64 }, (_, i) => Math.round(20 + Math.sin(i / 4) * 45 + Math.random() * 20));
+      }
+
+      if (track) {
+        track.innerHTML = wf.map((val, idx) => {
+          const h = Math.max(10, Math.min(100, val));
+          return `<span class="pub-wf-bar" id="pub-bar-${idx}" style="height:${h}%"></span>`;
+        }).join('');
+      }
+
+      function formatTime(secs) {
+        const s = Math.floor(secs || 0);
+        const m = Math.floor(s / 60);
+        const rem = s % 60;
+        return `${m}:${String(rem).padStart(2, '0')}`;
+      }
+
+      const totalSec = noticeData.audioDuration ? Math.round(noticeData.audioDuration) : 0;
+      if (timeTotal && totalSec > 0) {
+        timeTotal.textContent = formatTime(totalSec);
+      }
+
+      audio.addEventListener('loadedmetadata', () => {
+        if (timeTotal && audio.duration && !isNaN(audio.duration)) {
+          timeTotal.textContent = formatTime(audio.duration);
+        }
+      });
+
+      playBtn.addEventListener('click', () => {
+        if (audio.paused) {
+          audio.play().then(() => {
+            if (playIcon) playIcon.textContent = '⏸';
+            playBtn.setAttribute('aria-label', 'Pause voice announcement');
+          }).catch(err => {
+            console.warn('Playback error:', err);
+          });
+        } else {
+          audio.pause();
+          if (playIcon) playIcon.textContent = '▶';
+          playBtn.setAttribute('aria-label', 'Play voice announcement');
+        }
+      });
+
+      audio.addEventListener('timeupdate', () => {
+        const cur = audio.currentTime;
+        const dur = audio.duration || totalSec || 1;
+        if (timeElapsed) timeElapsed.textContent = formatTime(cur);
+
+        const pct = Math.min(100, (cur / dur) * 100);
+        if (fill) fill.style.width = `${pct}%`;
+        if (waveform) waveform.setAttribute('aria-valuenow', Math.round(pct));
+
+        // Highlight waveform bars up to current progress
+        if (track) {
+          const activeIdx = Math.floor((pct / 100) * 64);
+          const bars = track.children;
+          for (let i = 0; i < bars.length; i++) {
+            if (i <= activeIdx) bars[i].classList.add('active');
+            else bars[i].classList.remove('active');
+          }
+        }
+      });
+
+      audio.addEventListener('ended', () => {
+        if (playIcon) playIcon.textContent = '▶';
+        playBtn.setAttribute('aria-label', 'Play voice announcement');
+        if (fill) fill.style.width = '0%';
+        if (timeElapsed) timeElapsed.textContent = '0:00';
+        if (track) {
+          const bars = track.children;
+          for (let i = 0; i < bars.length; i++) {
+            bars[i].classList.remove('active');
+          }
+        }
+      });
+
+      // Scrub / Click to seek
+      if (waveform) {
+        const seek = (e) => {
+          const rect = waveform.getBoundingClientRect();
+          const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+          const pos = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+          const dur = audio.duration || totalSec || 1;
+          audio.currentTime = pos * dur;
+        };
+        waveform.addEventListener('click', seek);
+      }
+    });
 
     document.addEventListener('keydown', (e) => {
       if (e.key === 'Escape') closeZoomViewer();

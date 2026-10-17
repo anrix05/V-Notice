@@ -41,6 +41,7 @@ Desktop.ini
 screenshots/
 verification_text_fit/
 verification_mobile_perf/
+verification_voice_polish/
 test_*.png
 *_backup/
 static/brand/contact-sheet.png

@@ -5309,4 +5309,259 @@ textarea,
   }
 }
 
+/* ==========================================================================
+   Voice Notice Admin Styles (Vanilla CSS)
+   ========================================================================== */
+.voice-tabs-row {
+  display: flex;
+  gap: 8px;
+  background: var(--bg);
+  padding: 4px;
+  border-radius: var(--radius-sm);
+  margin-bottom: 16px;
+  border: 1px solid var(--line);
+}
+
+.btn-voice-tab {
+  flex: 1;
+  padding: 8px 12px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--muted);
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  min-height: 38px;
+}
+
+.btn-voice-tab.active {
+  background: var(--panel);
+  color: var(--text);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
+}
+
+.voice-record-ui {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  padding: 20px;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+}
+
+.voice-mic-picker-wrap {
+  width: 100%;
+  max-width: 280px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.voice-mic-label {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-dim);
+}
+
+.voice-mic-select {
+  width: 100%;
+  font-size: 13px;
+  padding: 6px 10px;
+  border-radius: var(--radius-sm);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  color: var(--text);
+}
+
+.voice-silent-warning {
+  margin-top: 12px;
+  padding: 10px 14px;
+  background: rgba(239, 68, 68, 0.1);
+  border: 1px solid rgba(239, 68, 68, 0.35);
+  border-radius: var(--radius-sm);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  color: #EF4444;
+  font-size: 13px;
+}
+
+.voice-silent-warning.hidden {
+  display: none !important;
+}
+
+.btn-confirm-silent {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.voice-timer-display {
+  font-family: monospace, system-ui;
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  color: var(--text);
+}
+
+.voice-level-meter {
+  width: 100%;
+  max-width: 280px;
+  height: 8px;
+  background: var(--panel-raised, rgba(255, 255, 255, 0.08));
+  border-radius: 9999px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+}
+
+.level-meter-bar {
+  width: 0%;
+  height: 100%;
+  background: linear-gradient(90deg, #10B981 0%, #F59E0B 75%, #EF4444 100%);
+  border-radius: 9999px;
+  transition: width 0.06s ease;
+}
+
+.voice-actions-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.btn-voice-record {
+  min-width: 120px;
+  min-height: 48px;
+  padding: 10px 20px;
+  border-radius: 9999px;
+  background: #DC2626;
+  color: #FFFFFF;
+  border: none;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  transition: transform 0.15s ease, background-color 0.15s ease;
+  box-shadow: 0 4px 12px rgba(220, 38, 38, 0.35);
+}
+
+.btn-voice-record:hover {
+  background: #B91C1C;
+  transform: translateY(-1px);
+}
+
+.btn-voice-record.is-recording {
+  background: #991B1B;
+  animation: pulse-recording 1.5s infinite;
+}
+
+@keyframes pulse-recording {
+  0% { box-shadow: 0 0 0 0 rgba(220, 38, 38, 0.7); }
+  70% { box-shadow: 0 0 0 10px rgba(220, 38, 38, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(220, 38, 38, 0); }
+}
+
+.record-dot {
+  width: 10px;
+  height: 10px;
+  background: #FFFFFF;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+.voice-preview-box {
+  margin-top: 14px;
+  padding: 14px;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.voice-waveform-preview {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  height: 44px;
+  padding: 4px 0;
+  overflow: hidden;
+}
+
+.voice-waveform-preview .admin-wf-bar {
+  flex: 1;
+  min-width: 2px;
+  background: var(--accent, #3B82F6);
+  border-radius: 1px;
+  min-height: 4px;
+  opacity: 0.8;
+}
+
+.voice-waveform-preview .admin-wf-bar.active {
+  background: #10B981;
+  opacity: 1;
+}
+
+.voice-audio-controls {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.voice-preview-dur {
+  font-family: monospace;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+/* Card list voice tile */
+.voice-tile {
+  background: linear-gradient(135deg, rgba(79, 70, 229, 0.25) 0%, rgba(37, 99, 235, 0.15) 100%) !important;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  gap: 2px;
+}
+
+.voice-mic-icon {
+  font-size: 20px;
+}
+
+.voice-dur-badge {
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--text);
+  background: rgba(0, 0, 0, 0.45);
+  padding: 1px 5px;
+  border-radius: 4px;
+}
+
+.mini-waveform-preview {
+  display: flex;
+  align-items: flex-end;
+  gap: 1.5px;
+  height: 12px;
+  width: 48px;
+  margin-top: 2px;
+}
+
+.mini-bar {
+  flex: 1;
+  background: var(--accent, #3B82F6);
+  border-radius: 1px;
+  min-height: 2px;
+}
+
+
 

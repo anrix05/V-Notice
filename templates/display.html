@@ -79,7 +79,8 @@
             <span class="stage-audience hidden" id="stage-audience">College-wide</span>
             <span class="stage-type" id="stage-type">Text</span>
             <span class="stage-speaker-indicator hidden" id="stage-speaker-indicator" title="Sound on" aria-label="Audio active">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><path d="M15.54 8.46a5 5 0 0 1 0 7.07"></path><path d="M19.07 4.93a10 10 0 0 1 0 14.14"></path></svg>
+              <svg class="speaker-icon-active" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><path d="M15.54 8.46a5 5 0 0 1 0 7.07"></path><path d="M19.07 4.93a10 10 0 0 1 0 14.14"></path></svg>
+              <svg class="speaker-icon-muted hidden" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><line x1="23" y1="9" x2="17" y2="15"></line><line x1="17" y1="9" x2="23" y2="15"></line></svg>
             </span>
           </div>
           <div class="meta-right">
@@ -118,6 +119,26 @@
               <div class="caption-title" id="video-headline"></div>
               <div class="caption-desc" id="video-body"></div>
             </div>
+          </div>
+
+          <!-- Voice Notice Card -->
+          <div class="notice-view notice-voice hidden" id="card-voice">
+            <div class="voice-card-inner">
+              <div class="voice-pill">
+                <span class="voice-pill-icon" aria-hidden="true">🎙️</span>
+                <span>Voice message</span>
+              </div>
+              <h1 class="notice-headline voice-headline" id="voice-headline">Voice Headline</h1>
+              <div class="voice-waveform-container" id="voice-waveform-container">
+                <div class="voice-waveform-track" id="voice-waveform-track">
+                  <!-- 64 bars rendered dynamically -->
+                </div>
+                <div class="voice-waveform-progress" id="voice-waveform-progress"></div>
+              </div>
+              <div class="voice-time-display" id="voice-time-display">0:00 / 0:00</div>
+              <p class="notice-body voice-caption" id="voice-caption"></p>
+            </div>
+            <audio id="voice-audio-element" preload="none" playsinline class="hidden"></audio>
           </div>
 
           <!-- Empty State -->

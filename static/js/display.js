@@ -130,10 +130,14 @@
     ['click', 'touchstart', 'keydown', 'pointerdown'].forEach(evt => {
       window.addEventListener(evt, async () => {
         if (!audioReady) {
+          audioReady = true;
           await testAudioAutoplay();
           sendHeartbeat();
         }
         syncAudioStateOnActiveVideo();
+        if (activeCardType === 'voice') {
+          syncAudioStateOnActiveVoice(false);
+        }
       }, { passive: true });
     });
   } else {
@@ -142,9 +146,9 @@
     syncAudioStateOnActiveVideo();
   }
 
-  // Screen sound settings
-  let currentScreenSoundEnabled = false;
-  let currentScreenSoundVolume = 70;
+  // Screen sound settings (cached in localStorage to prevent initial async race condition)
+  let currentScreenSoundEnabled = localStorage.getItem(`vnotice_screen_sound_${currentScreenCode}`) === 'true';
+  let currentScreenSoundVolume = parseInt(localStorage.getItem(`vnotice_screen_vol_${currentScreenCode}`) || '70', 10);
 
   async function loadDepartmentInfo() {
     const deptPill = document.getElementById('dept-header-pill');
@@ -161,7 +165,12 @@
         if (match) {
           currentScreenSoundEnabled = Boolean(match.sound_enabled);
           currentScreenSoundVolume = (typeof match.sound_volume === 'number') ? match.sound_volume : 70;
+          try {
+            localStorage.setItem(`vnotice_screen_sound_${currentScreenCode}`, String(currentScreenSoundEnabled));
+            localStorage.setItem(`vnotice_screen_vol_${currentScreenCode}`, String(currentScreenSoundVolume));
+          } catch (e) {}
           syncAudioStateOnActiveVideo();
+          syncAudioStateOnActiveVoice(false);
 
           if (currentScreenCode !== 'ALL') {
             if (deptPillCode) {
@@ -239,9 +248,59 @@
   const videoAmbient = document.getElementById('video-ambient');
   const stageSpeakerIndicator = document.getElementById('stage-speaker-indicator');
 
+  const cardVoice = document.getElementById('card-voice');
+  const voiceHeadline = document.getElementById('voice-headline');
+  const voiceCaption = document.getElementById('voice-caption');
+  const voiceSpeakerBadge = document.getElementById('voice-speaker-badge');
+  const voiceWaveformTrack = document.getElementById('voice-waveform-track');
+  const voiceWaveformProgress = document.getElementById('voice-waveform-progress');
+  const voiceTimeDisplay = document.getElementById('voice-time-display');
+  const voiceAudioElement = document.getElementById('voice-audio-element');
+  let isVoicePlaying = false;
+
   const cardEmpty = document.getElementById('card-empty');
   const emptyTitle = document.getElementById('empty-title');
   const emptySubtitle = document.getElementById('empty-subtitle');
+
+  // Interactive Stage Speaker Indicator (click to mute / unmute)
+  if (stageSpeakerIndicator) {
+    stageSpeakerIndicator.addEventListener('click', (e) => {
+      e.stopPropagation();
+      audioReady = true;
+      if (activeCardType === 'voice' && currentPlayingNotice) {
+        if (isVoicePlaying) {
+          stopVoiceAudio(true);
+        } else {
+          const lastPlayKey = `vnotice_voice_last_${currentScreenCode}_${currentPlayingNotice.id}`;
+          sessionStorage.removeItem(lastPlayKey);
+          startVoicePlayback(currentPlayingNotice, true);
+        }
+      } else if (activeCardType === 'video' && videoElement) {
+        if (!videoElement.muted) {
+          videoElement.muted = true;
+          videoElement.volume = 0;
+          setStageSpeakerIndicator('muted');
+        } else {
+          videoElement.muted = false;
+          videoElement.volume = Math.max(0, Math.min(1, currentScreenSoundVolume / 100));
+          setStageSpeakerIndicator('active');
+          videoElement.play().catch(() => {});
+        }
+      }
+    });
+  }
+
+  // Clicking anywhere on the voice card when muted unmutes and plays immediately
+  if (cardVoice) {
+    cardVoice.addEventListener('click', () => {
+      audioReady = true;
+      if (!isVoicePlaying && currentPlayingNotice && activeCardType === 'voice') {
+        const lastPlayKey = `vnotice_voice_last_${currentScreenCode}_${currentPlayingNotice.id}`;
+        sessionStorage.removeItem(lastPlayKey);
+        startVoicePlayback(currentPlayingNotice, true);
+      }
+    });
+  }
 
   // Flag Overlay Elements
   const flagOverlay = document.getElementById('flag-overlay');
@@ -801,7 +860,9 @@
     updateUpNext();
 
     // Render by type
-    if (notice.type === 'video' && notice.media) {
+    if (notice.type === 'voice' && notice.media) {
+      renderVoiceNotice(notice);
+    } else if (notice.type === 'video' && notice.media) {
       renderVideoNotice(notice);
     } else if (notice.type === 'image' && notice.media) {
       renderImageNotice(notice);
@@ -813,8 +874,8 @@
     updateStageQr(notice);
     preloadNextMedia();
 
-    // Advance timer if not waiting for video to end
-    if (!isVideoPlaying) {
+    // Advance timer if not waiting for video or voice to handle its own timing
+    if (!isVideoPlaying && !isVoicePlaying) {
       if (displayQueue.length > 1) {
         rotationTimer = setTimeout(advanceNotice, currentDurationMs);
       } else {
@@ -826,11 +887,65 @@
 
   let activeCardType = null;
 
+  function setStageSpeakerIndicator(mode) {
+    if (!stageSpeakerIndicator) return;
+    if (mode === 'active') {
+      stageSpeakerIndicator.classList.remove('hidden', 'is-muted');
+      stageSpeakerIndicator.title = 'Sound on (click to mute)';
+      stageSpeakerIndicator.setAttribute('aria-label', 'Audio active - click to mute');
+    } else if (mode === 'muted') {
+      stageSpeakerIndicator.classList.remove('hidden');
+      stageSpeakerIndicator.classList.add('is-muted');
+      stageSpeakerIndicator.title = 'Sound muted (click to unmute)';
+      stageSpeakerIndicator.setAttribute('aria-label', 'Audio muted - click to unmute');
+    } else {
+      stageSpeakerIndicator.classList.add('hidden');
+      stageSpeakerIndicator.classList.remove('is-muted');
+    }
+  }
+
+  function stopVoiceAudio(keepMuted = false) {
+    if (voiceAudioElement) {
+      try {
+        voiceAudioElement.pause();
+        voiceAudioElement.currentTime = 0;
+        voiceAudioElement.removeAttribute('src');
+        voiceAudioElement.load();
+      } catch (e) {}
+    }
+    if (voiceWaveformProgress) {
+      voiceWaveformProgress.style.width = '0%';
+    }
+    if (voiceTimeDisplay && currentPlayingNotice) {
+      const dur = (typeof currentPlayingNotice.audio_duration === 'number' && currentPlayingNotice.audio_duration > 0)
+        ? currentPlayingNotice.audio_duration : 10;
+      voiceTimeDisplay.textContent = `0:00 / ${formatVoiceTime(dur)}`;
+    }
+    if (voiceWaveformTrack) {
+      const bars = voiceWaveformTrack.children;
+      for (let i = 0; i < bars.length; i++) {
+        bars[i].classList.remove('active');
+      }
+    }
+    if (voiceSpeakerBadge) {
+      voiceSpeakerBadge.classList.add('hidden');
+    }
+    if (activeCardType === 'voice') {
+      if (keepMuted) {
+        setStageSpeakerIndicator('muted');
+      } else {
+        setStageSpeakerIndicator('hidden');
+      }
+    }
+    isVoicePlaying = false;
+  }
+
   function showCard(cardType) {
     const cards = [
       { type: 'text', el: cardText },
       { type: 'image', el: cardImage },
       { type: 'video', el: cardVideo },
+      { type: 'voice', el: cardVoice },
       { type: 'empty', el: cardEmpty },
     ];
 
@@ -866,6 +981,11 @@
         isVideoPlaying = false;
         if (stageSpeakerIndicator) stageSpeakerIndicator.classList.add('hidden');
       }
+    }
+
+    // Clean up voice resources when leaving voice notice
+    if (cardType !== 'voice') {
+      stopVoiceAudio();
     }
   }
 
@@ -983,24 +1103,72 @@
     }
   }
 
+  function fitVoiceCaption() {
+    if (!cardVoice || !voiceCaption || cardVoice.classList.contains('hidden')) return;
+    if (voiceCaption.classList.contains('hidden') || !voiceCaption.textContent.trim()) return;
+
+    const cardStyle = window.getComputedStyle(cardVoice);
+    const padTop = parseFloat(cardStyle.paddingTop) || 0;
+    const padBottom = parseFloat(cardStyle.paddingBottom) || 0;
+    const availH = cardVoice.clientHeight - padTop - padBottom;
+    if (availH <= 0) return;
+
+    const scale = Math.max(0.35, window.innerHeight / 1080);
+    const maxFont = Math.round(22 * scale);
+    const minFont = Math.round(13 * scale);
+
+    const pill = cardVoice.querySelector('.voice-pill');
+    const headline = voiceHeadline;
+    const wf = document.getElementById('voice-waveform-container');
+    const timeDisp = voiceTimeDisplay;
+
+    let otherH = 0;
+    if (pill) otherH += pill.offsetHeight + 10;
+    if (headline) otherH += headline.offsetHeight + 10;
+    if (wf) otherH += wf.offsetHeight + 10;
+    if (timeDisp) otherH += timeDisp.offsetHeight + 8;
+
+    const maxCaptionH = Math.max(36, availH - otherH);
+
+    voiceCaption.style.display = '-webkit-box';
+    voiceCaption.style.webkitBoxOrient = 'vertical';
+    voiceCaption.style.webkitLineClamp = '3';
+    voiceCaption.style.overflow = 'hidden';
+
+    let curSize = maxFont;
+    while (curSize > minFont) {
+      voiceCaption.style.fontSize = `${curSize}px`;
+      const lineH = curSize * 1.35;
+      const max3LinesH = lineH * 3 + 4;
+      if (voiceCaption.scrollHeight <= maxCaptionH && voiceCaption.scrollHeight <= max3LinesH) {
+        break;
+      }
+      curSize -= 1;
+    }
+    voiceCaption.style.fontSize = `${curSize}px`;
+  }
+
   let fitRafId = null;
   function scheduleFitText() {
     if (fitRafId) cancelAnimationFrame(fitRafId);
     fitRafId = requestAnimationFrame(() => {
       fitRafId = null;
       fitTextNotice();
+      fitVoiceCaption();
     });
   }
 
   window.fitTextNotice = fitTextNotice;
+  window.fitVoiceCaption = fitVoiceCaption;
   window.renderTextNotice = renderTextNotice;
+  window.renderVoiceNotice = renderVoiceNotice;
 
   // Requirement 7: Re-run fit on resize, orientation change, and document.fonts.ready
   window.addEventListener('resize', scheduleFitText, { passive: true });
   window.addEventListener('orientationchange', scheduleFitText, { passive: true });
   if (document.fonts && document.fonts.ready) {
     document.fonts.ready.then(() => {
-      if (activeCardType === 'text') {
+      if (activeCardType === 'text' || activeCardType === 'voice') {
         scheduleFitText();
       }
     });
@@ -1152,12 +1320,209 @@
     };
   }
 
+  function formatVoiceTime(sec) {
+    if (!isFinite(sec) || sec < 0) sec = 0;
+    const m = Math.floor(sec / 60);
+    const s = Math.floor(sec % 60);
+    return `${m}:${String(s).padStart(2, '0')}`;
+  }
+
+  function startVoicePlayback(notice, forceManual = false) {
+    if (!notice || !notice.media || !voiceAudioElement || isPreviewMode) return;
+    const mediaSrc = notice.media.startsWith('http') ? notice.media : `/media/${encodeURIComponent(notice.media)}`;
+    const lastPlayKey = `vnotice_voice_last_${currentScreenCode}_${notice.id}`;
+
+    if (voiceAudioElement.src !== mediaSrc && voiceAudioElement.src !== window.location.origin + mediaSrc) {
+      voiceAudioElement.src = mediaSrc;
+    }
+    voiceAudioElement.muted = false;
+    voiceAudioElement.volume = Math.max(0, Math.min(1, currentScreenSoundVolume / 100));
+    voiceAudioElement.currentTime = 0;
+
+    // Audio active: duration is server duration (audio_duration + 1)
+    const durSeconds = (typeof notice.audio_duration === 'number' && notice.audio_duration > 0)
+      ? notice.audio_duration
+      : 10;
+    const actualSlideDurSec = notice.duration || Math.round(durSeconds) + 1;
+
+    if (voiceSpeakerBadge) voiceSpeakerBadge.classList.remove('hidden');
+    setStageSpeakerIndicator('active');
+
+    voiceAudioElement.ontimeupdate = () => {
+      const cur = voiceAudioElement.currentTime || 0;
+      const dur = (typeof notice.audio_duration === 'number' && notice.audio_duration > 0)
+        ? notice.audio_duration
+        : ((isFinite(voiceAudioElement.duration) && voiceAudioElement.duration > 0) ? voiceAudioElement.duration : 10);
+      const pct = Math.min(100, (cur / dur) * 100);
+      if (voiceWaveformProgress) {
+        voiceWaveformProgress.style.width = `${pct}%`;
+      }
+      if (voiceTimeDisplay) {
+        voiceTimeDisplay.textContent = `${formatVoiceTime(cur)} / ${formatVoiceTime(dur)}`;
+      }
+      if (voiceWaveformTrack) {
+        const activeIdx = Math.floor((pct / 100) * 64);
+        const bars = voiceWaveformTrack.children;
+        for (let i = 0; i < bars.length; i++) {
+          if (i <= activeIdx) bars[i].classList.add('active');
+          else bars[i].classList.remove('active');
+        }
+      }
+    };
+
+    const playPromise = voiceAudioElement.play();
+    if (playPromise !== undefined) {
+      playPromise.then(() => {
+        isVoicePlaying = true;
+        setStageSpeakerIndicator('active');
+        sessionStorage.setItem(lastPlayKey, String(Date.now()));
+        clearTimeout(rotationTimer);
+        const durMs = actualSlideDurSec * 1000;
+        if (displayQueue.length > 1) {
+          rotationTimer = setTimeout(advanceNotice, durMs);
+        } else {
+          rotationTimer = setTimeout(renderStage, durMs);
+        }
+      }).catch(err => {
+        console.warn('Voice audio blocked:', err);
+        stopVoiceAudio(true);
+        audioReady = false;
+        sendHeartbeat();
+      });
+    }
+
+    voiceAudioElement.onended = () => {
+      stopVoiceAudio(true);
+      if (displayQueue.length > 1) {
+        advanceNotice();
+      }
+    };
+  }
+
+  function syncAudioStateOnActiveVoice(forceManual = false) {
+    if (isPreviewMode) {
+      stopVoiceAudio();
+      return;
+    }
+    if (activeCardType !== 'voice' || !currentPlayingNotice) return;
+    const noticeSound = Boolean(currentPlayingNotice.play_sound);
+    const repeatGap = (currentPlayingNotice.repeat_gap_minutes !== undefined && currentPlayingNotice.repeat_gap_minutes !== null) ? Number(currentPlayingNotice.repeat_gap_minutes) : 5;
+    const lastPlayKey = `vnotice_voice_last_${currentScreenCode}_${currentPlayingNotice.id}`;
+    let inRepeatGap = false;
+    if (repeatGap > 0 && !forceManual) {
+      const lastPlay = parseInt(sessionStorage.getItem(lastPlayKey) || '0', 10);
+      if (Date.now() - lastPlay < repeatGap * 60 * 1000) inRepeatGap = true;
+    }
+    const shouldPlaySound = noticeSound && currentScreenSoundEnabled && audioReady && (!inRepeatGap || forceManual);
+    if (shouldPlaySound && !isVoicePlaying) {
+      startVoicePlayback(currentPlayingNotice, forceManual);
+    } else if (!shouldPlaySound && isVoicePlaying) {
+      stopVoiceAudio(true);
+    } else if (!shouldPlaySound && !isVoicePlaying) {
+      setStageSpeakerIndicator('muted');
+    }
+  }
+
+  function retryVoiceAudioOnInteraction(forceManual = false) {
+    syncAudioStateOnActiveVoice(forceManual);
+  }
+
+  function renderVoiceNotice(notice) {
+    currentPlayingNotice = notice;
+    showCard('voice');
+
+    // 1. Render 64 waveform bars normalized so loudest peak reaches full height (100%)
+    let wf = notice.waveform;
+    try {
+      if (typeof wf === 'string') wf = JSON.parse(wf);
+    } catch (e) { wf = null; }
+    if (!Array.isArray(wf) || wf.length !== 64) {
+      wf = Array.from({ length: 64 }, (_, i) => Math.round(20 + Math.sin(i / 4) * 45 + Math.random() * 20));
+    }
+
+    const maxVal = Math.max(...wf.map(v => Number(v) || 0), 1);
+    const minHeightPct = 8; // Keep silence / low bars visible
+    const normalizedHeights = wf.map(v => {
+      const num = Math.max(0, Number(v) || 0);
+      if (maxVal <= 0) return minHeightPct;
+      const scaled = Math.round((num / maxVal) * 100);
+      return Math.max(minHeightPct, Math.min(100, scaled));
+    });
+
+    if (voiceWaveformTrack) {
+      voiceWaveformTrack.innerHTML = normalizedHeights.map((h, idx) => {
+        return `<span class="voice-bar" id="vbar-${idx}" style="height:${h}%"></span>`;
+      }).join('');
+    }
+    if (voiceWaveformProgress) {
+      voiceWaveformProgress.style.width = '0%';
+    }
+
+    // Elapsed and total time under waveform
+    const durSeconds = (typeof notice.audio_duration === 'number' && notice.audio_duration > 0)
+      ? notice.audio_duration
+      : 10;
+    if (voiceTimeDisplay) {
+      voiceTimeDisplay.textContent = `0:00 / ${formatVoiceTime(durSeconds)}`;
+    }
+
+    // 2. Repeat gap check
+    const repeatGap = (notice.repeat_gap_minutes !== undefined && notice.repeat_gap_minutes !== null) ? Number(notice.repeat_gap_minutes) : 5;
+    const lastPlayKey = `vnotice_voice_last_${currentScreenCode}_${notice.id}`;
+    let inRepeatGap = false;
+    if (repeatGap > 0) {
+      const lastPlay = parseInt(sessionStorage.getItem(lastPlayKey) || '0', 10);
+      const elapsed = Date.now() - lastPlay;
+      if (elapsed < repeatGap * 60 * 1000) {
+        inRepeatGap = true;
+      }
+    }
+
+    // 3. Rule 5: Never leave the stage empty: in the repeat gap with no caption, show the headline.
+    const captionText = (notice.caption || notice.body || '').trim();
+    if (voiceHeadline) {
+      voiceHeadline.textContent = notice.title || 'Voice Announcement';
+    }
+    if (voiceCaption) {
+      if (captionText) {
+        voiceCaption.textContent = captionText;
+        voiceCaption.classList.remove('hidden');
+        fitVoiceCaption();
+      } else {
+        voiceCaption.textContent = '';
+        voiceCaption.classList.add('hidden');
+      }
+    }
+
+    // 4. Sound decision
+    const noticeSound = Boolean(notice.play_sound);
+    const shouldPlaySound = !isPreviewMode && noticeSound && currentScreenSoundEnabled && audioReady && !inRepeatGap;
+
+    // 5. Silent slide duration fallback
+    const defaultSlideDur = 10;
+
+    if (shouldPlaySound && notice.media && voiceAudioElement) {
+      startVoicePlayback(notice, false);
+    } else {
+      // Silent slide (sound off, blocked, or in repeat gap) - ALWAYS show muted indicator
+      stopVoiceAudio(true);
+      clearTimeout(rotationTimer);
+      const durMs = defaultSlideDur * 1000;
+      if (displayQueue.length > 1) {
+        rotationTimer = setTimeout(advanceNotice, durMs);
+      } else {
+        rotationTimer = setTimeout(renderStage, durMs);
+      }
+    }
+  }
+
   function advanceNotice() {
     if (videoElement) {
       videoElement.pause();
       videoElement.muted = true;
       videoElement.volume = 0;
     }
+    stopVoiceAudio();
     if (stageSpeakerIndicator) stageSpeakerIndicator.classList.add('hidden');
     if (displayQueue.length <= 1) {
       renderStage();
@@ -1240,7 +1605,11 @@
       const prio = (notice.priority || 'normal').toLowerCase();
       const prioText = prio.charAt(0).toUpperCase() + prio.slice(1);
       const ntype = notice.type || 'text';
-      const typeText = ntype.charAt(0).toUpperCase() + ntype.slice(1);
+      let typeText = ntype.charAt(0).toUpperCase() + ntype.slice(1);
+      if (ntype === 'voice') {
+        const durSec = notice.audio_duration ? Math.round(notice.audio_duration) : (notice.duration || 10);
+        typeText = `🎙️ Voice (${durSec}s)`;
+      }
 
       const meta = document.createElement('div');
       meta.className = 'rail-item-meta';
@@ -1379,6 +1748,7 @@
     flagScheduler = new FlagStateMachine({
       onEnterStandup: () => {
         clearTimeout(rotationTimer);
+        stopVoiceAudio();
         if (videoElement) {
           videoElement.pause();
           videoElement.muted = true;
@@ -1405,6 +1775,7 @@
       onEnterFlag: () => {
         document.body.classList.add('flag-active');
         clearTimeout(rotationTimer);
+        stopVoiceAudio();
         if (videoElement) {
           videoElement.pause();
           videoElement.muted = true;

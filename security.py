@@ -79,11 +79,11 @@ api_key_rate_limiter = RateLimiter(max_attempts=15, window_seconds=600)
 # ==============================================================================
 # 3. Magic-Byte Content Sniffing & File Validation
 # ==============================================================================
-ALLOWED_EXTENSIONS = {"jpg", "jpeg", "png", "webp", "gif", "mp4", "webm"}
+ALLOWED_EXTENSIONS = {"jpg", "jpeg", "png", "webp", "gif", "mp4", "webm", "mp3", "m4a", "wav", "ogg"}
 
 def sniff_media_type(header_bytes: bytes) -> Optional[Tuple[str, str]]:
     """Inspects file header magic bytes. Returns (normalized_ext, media_category) or None.
-    media_category is 'image' or 'video'."""
+    media_category is 'image', 'video', or 'audio'."""
     if len(header_bytes) < 4:
         return None
 
@@ -100,10 +100,22 @@ def sniff_media_type(header_bytes: bytes) -> Optional[Tuple[str, str]]:
         return "gif", "image"
 
     # WEBP: RIFF....WEBP
-    if header_bytes.startswith(b"RIFF") and header_bytes[8:12] == b"WEBP":
+    if header_bytes.startswith(b"RIFF") and len(header_bytes) >= 12 and header_bytes[8:12] == b"WEBP":
         return "webp", "image"
 
-    # MP4: ....ftyp (box type at offset 4..8)
+    # WAV: RIFF....WAVE
+    if header_bytes.startswith(b"RIFF") and len(header_bytes) >= 12 and header_bytes[8:12] == b"WAVE":
+        return "wav", "audio"
+
+    # OGG: OggS
+    if header_bytes.startswith(b"OggS"):
+        return "ogg", "audio"
+
+    # MP3: ID3 or MPEG audio frame sync (0xFF and (b1 & 0xE0) == 0xE0)
+    if header_bytes.startswith(b"ID3") or (header_bytes[0] == 0xFF and (header_bytes[1] & 0xE0) == 0xE0):
+        return "mp3", "audio"
+
+    # MP4 / M4A: ....ftyp (box type at offset 4..8)
     if header_bytes[4:8] == b"ftyp":
         return "mp4", "video"
 
@@ -113,7 +125,13 @@ def sniff_media_type(header_bytes: bytes) -> Optional[Tuple[str, str]]:
 
     return None
 
-def save_stream_to_disk(file_stream, dest_path, max_bytes: int = 200 * 1024 * 1024, chunk_size: int = 64 * 1024) -> Tuple[str, str]:
+def save_stream_to_disk(
+    file_stream,
+    dest_path,
+    max_bytes: int = 200 * 1024 * 1024,
+    chunk_size: int = 64 * 1024,
+    expected_type: Optional[str] = None
+) -> Tuple[str, str]:
     """Streams file to disk in chunks, validating magic bytes on first chunk without
     loading the full file into memory. Returns (detected_ext, media_category)."""
     dest_path.parent.mkdir(parents=True, exist_ok=True)
@@ -123,10 +141,23 @@ def save_stream_to_disk(file_stream, dest_path, max_bytes: int = 200 * 1024 * 10
 
     detected = sniff_media_type(first_chunk)
     if not detected:
+        if expected_type == "voice":
+            raise ValueError("Unsupported or corrupted voice audio format. Allowed: MP3, M4A, WAV, WEBM, OGG.")
         raise ValueError("Unsupported or corrupted file format. Allowed: JPG, PNG, WEBP, GIF, MP4, WEBM.")
 
     ext, category = detected
+
+    if expected_type == "voice":
+        allowed_voice_exts = {"mp3", "m4a", "wav", "webm", "ogg", "mp4"}
+        if ext not in allowed_voice_exts:
+            raise ValueError("Unsupported or corrupted voice audio format. Allowed: MP3, M4A, WAV, WEBM, OGG.")
+        category = "voice"
+    elif category not in ("image", "video"):
+        raise ValueError("Unsupported or corrupted file format. Allowed: JPG, PNG, WEBP, GIF, MP4, WEBM.")
+
     total_bytes = len(first_chunk)
+    if total_bytes > max_bytes:
+        raise ValueError(f"File exceeds maximum allowed size ({max_bytes // (1024*1024)}MB).")
 
     try:
         with open(dest_path, "wb") as f:

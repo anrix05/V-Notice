@@ -86,7 +86,8 @@ MAX_CONTENT_LENGTH = MAX_UPLOAD_MB * 1024 * 1024
 # Allowed extensions
 ALLOWED_IMAGE_EXTENSIONS = {'jpg', 'jpeg', 'png', 'webp', 'gif'}
 ALLOWED_VIDEO_EXTENSIONS = {'mp4', 'webm'}
-ALLOWED_EXTENSIONS = ALLOWED_IMAGE_EXTENSIONS | ALLOWED_VIDEO_EXTENSIONS
+ALLOWED_AUDIO_EXTENSIONS = {'mp3', 'm4a', 'wav', 'webm', 'ogg'}
+ALLOWED_EXTENSIONS = ALLOWED_IMAGE_EXTENSIONS | ALLOWED_VIDEO_EXTENSIONS | ALLOWED_AUDIO_EXTENSIONS
 
 ALLOWED_MIME_TYPES = {
     'image/jpeg',
@@ -95,7 +96,22 @@ ALLOWED_MIME_TYPES = {
     'image/gif',
     'video/mp4',
     'video/webm',
+    'audio/mpeg',
+    'audio/mp3',
+    'audio/mp4',
+    'audio/x-m4a',
+    'audio/wav',
+    'audio/wave',
+    'audio/x-wav',
+    'audio/webm',
+    'audio/ogg',
 }
+
+# Voice Notices configuration
+VOICE_NOTICES_ENABLED = os.environ.get('VOICE_NOTICES_ENABLED', 'false').lower() in ('true', '1', 'yes')
+MAX_VOICE_DURATION_SECONDS = int(os.environ.get('MAX_VOICE_DURATION_SECONDS', 120))
+MAX_VOICE_UPLOAD_MB = int(os.environ.get('MAX_VOICE_UPLOAD_MB', 10))
+MAX_VOICE_CONTENT_LENGTH = MAX_VOICE_UPLOAD_MB * 1024 * 1024
 
 
 # Weather configuration (Phase 3: Resilient & Gracefully Degrading)

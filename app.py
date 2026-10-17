@@ -242,6 +242,7 @@ def get_system_weather():
             "urgent_chime": urgent_chime,
             "poll_interval_seconds": getattr(config, "POLL_INTERVAL_SECONDS", 5),
             "sse_enabled": getattr(config, "SSE_ENABLED", False),
+            "voice_notices_enabled": getattr(config, "VOICE_NOTICES_ENABLED", False),
         }
 
     now = time.time()
@@ -253,6 +254,7 @@ def get_system_weather():
         data["urgent_chime"] = urgent_chime
         data["poll_interval_seconds"] = getattr(config, "POLL_INTERVAL_SECONDS", 5)
         data["sse_enabled"] = getattr(config, "SSE_ENABLED", False)
+        data["voice_notices_enabled"] = getattr(config, "VOICE_NOTICES_ENABLED", False)
         return data
 
     temp = "30°C"
@@ -641,6 +643,8 @@ def generate_download_slug(notice, ext=None):
                 ext = "jpg"
             elif ntype == "video":
                 ext = "mp4"
+            elif ntype == "voice":
+                ext = "mp3"
             else:
                 ext = "txt"
     ext = ext.lstrip(".") or "txt"
@@ -709,8 +713,13 @@ def format_notice_for_display(notice):
 
     n["file_size_formatted"] = ""
     n["file_size_bytes"] = 0
+    n["media_url"] = ""
     if n.get("media"):
         m_filename = str(n["media"])
+        if m_filename.startswith("http://") or m_filename.startswith("https://"):
+            n["media_url"] = m_filename
+        else:
+            n["media_url"] = f"/media/{m_filename}"
         if not m_filename.startswith("http://") and not m_filename.startswith("https://"):
             media_path = None
             if hasattr(storage.media_storage, "get_path"):
@@ -803,8 +812,8 @@ def register_public_notice_routes(app):
         notice_type = str(notice.get("type") or "text").lower()
         media_val = str(notice.get("media") or "").strip()
 
-        # 1. Media Notice (image / video): Must NEVER fall back to .txt
-        if notice_type in ("image", "video"):
+        # 1. Media Notice (image / video / voice): Must NEVER fall back to .txt
+        if notice_type in ("image", "video", "voice"):
             if not media_val:
                 return Response(
                     "Media file not found for this notice.",
@@ -817,7 +826,12 @@ def register_public_notice_routes(app):
             if media_val.startswith("http://") or media_val.startswith("https://"):
                 parsed_url = urllib.parse.urlparse(media_val)
                 raw_ext = Path(parsed_url.path).suffix.lstrip(".").lower()
-                ext = raw_ext if raw_ext in ("jpg", "jpeg", "png", "webp", "gif", "mp4", "webm") else ("mp4" if notice_type == "video" else "jpg")
+                if notice_type == "voice":
+                    ext = raw_ext if raw_ext in ("mp3", "m4a", "wav", "webm", "ogg") else "mp3"
+                elif notice_type == "video":
+                    ext = raw_ext if raw_ext in ("mp4", "webm") else "mp4"
+                else:
+                    ext = raw_ext if raw_ext in ("jpg", "jpeg", "png", "webp", "gif") else "jpg"
                 slug = generate_download_slug(notice, ext=ext)
 
                 range_header = request.headers.get("Range")
@@ -851,11 +865,23 @@ def register_public_notice_routes(app):
                     finally:
                         remote_res.close()
 
-                mime = remote_res.headers.get("Content-Type")
-                if not mime or mime == "application/octet-stream":
-                    mime, _ = mimetypes.guess_type(slug)
-                if not mime:
-                    mime = "video/mp4" if notice_type == "video" else "image/jpeg"
+                if notice_type == "voice":
+                    if ext == "mp3":
+                        mime = "audio/mpeg"
+                    elif ext in ("wav", "ogg", "webm"):
+                        mime = f"audio/{ext}"
+                    elif ext in ("m4a", "mp4"):
+                        mime = "audio/mp4"
+                    else:
+                        mime = f"audio/{ext}"
+                elif notice_type == "video":
+                    mime = "video/mp4" if ext != "webm" else "video/webm"
+                else:
+                    mime = remote_res.headers.get("Content-Type")
+                    if not mime or mime == "application/octet-stream":
+                        mime, _ = mimetypes.guess_type(slug)
+                    if not mime:
+                        mime = "image/jpeg"
 
                 status_code = getattr(remote_res, "status", 200)
                 resp = Response(stream_with_context(stream_remote()), status=status_code, mimetype=mime)
@@ -893,9 +919,21 @@ def register_public_notice_routes(app):
 
             ext = media_path.suffix.lstrip(".").lower()
             slug = generate_download_slug(notice, ext=ext)
-            mime, _ = mimetypes.guess_type(str(media_path))
-            if not mime:
-                mime = "video/mp4" if notice_type == "video" else "image/jpeg"
+            if notice_type == "voice":
+                if ext == "mp3":
+                    mime = "audio/mpeg"
+                elif ext in ("wav", "ogg", "webm"):
+                    mime = f"audio/{ext}"
+                elif ext in ("m4a", "mp4"):
+                    mime = "audio/mp4"
+                else:
+                    mime = f"audio/{ext}"
+            elif notice_type == "video":
+                mime = "video/mp4" if ext != "webm" else "video/webm"
+            else:
+                mime, _ = mimetypes.guess_type(str(media_path))
+                if not mime:
+                    mime = "image/jpeg"
 
             file_size = media_path.stat().st_size
             resp = send_file(
@@ -1026,6 +1064,39 @@ def register_public_notice_routes(app):
     @app.route("/notice/<notice_id>/download", methods=["GET"])
     def legacy_notice_download_redirect(notice_id):
         return redirect(f"/n/{notice_id}/file", code=301)
+
+def serve_media_response(filename):
+    if filename.startswith("http://") or filename.startswith("https://"):
+        return redirect(filename)
+
+    folder = getattr(storage, "media_folder", None) or Path(config.MEDIA_FOLDER)
+    file_path = Path(folder) / filename
+    if not file_path.is_file():
+        file_path = Path(config.MEDIA_FOLDER) / filename
+        folder = config.MEDIA_FOLDER
+
+    if not file_path.is_file():
+        return jsonify({"error": "Media file not found"}), 404
+
+    ext = file_path.suffix.lstrip(".").lower()
+    is_voice = storage.is_voice_media(filename)
+    if is_voice or ext in ("mp3", "wav", "ogg", "m4a"):
+        if ext == "mp3":
+            mimetype = "audio/mpeg"
+        elif ext in ("wav", "ogg", "webm"):
+            mimetype = f"audio/{ext}"
+        elif ext in ("m4a", "mp4"):
+            mimetype = "audio/mp4"
+        else:
+            mimetype = f"audio/{ext}"
+    else:
+        mimetype, _ = mimetypes.guess_type(str(file_path))
+
+    response = send_from_directory(str(folder), filename, mimetype=mimetype, conditional=True)
+    response.headers["Cache-Control"] = "public, max-age=86400"
+    response.headers["Accept-Ranges"] = "bytes"
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    return response
 
 # ==============================================================================
 # DISPLAY APP (Port 5000)
@@ -1207,9 +1278,7 @@ def create_display_app():
 
     @app.route("/media/<path:filename>")
     def serve_media(filename):
-        response = send_from_directory(MEDIA_FOLDER, filename)
-        response.headers["Cache-Control"] = "public, max-age=86400"
-        return response
+        return serve_media_response(filename)
 
     @app.route("/api/health")
     def health():
@@ -1270,7 +1339,10 @@ def create_admin_app():
         return render_template(
             "admin.html",
             version=getattr(config, "VERSION", "2.2.0"),
-            is_cloud=getattr(storage.media_storage, "is_cloud", False)
+            is_cloud=getattr(storage.media_storage, "is_cloud", False),
+            voice_notices_enabled=getattr(config, "VOICE_NOTICES_ENABLED", False),
+            max_voice_duration=getattr(config, "MAX_VOICE_DURATION_SECONDS", 120),
+            max_voice_upload_mb=getattr(config, "MAX_VOICE_UPLOAD_MB", 10),
         )
 
     @app.route("/favicon.ico")
@@ -1881,9 +1953,7 @@ def create_admin_app():
 
     @app.route("/media/<path:filename>")
     def serve_media(filename):
-        response = send_from_directory(MEDIA_FOLDER, filename)
-        response.headers["Cache-Control"] = "public, max-age=86400"
-        return response
+        return serve_media_response(filename)
 
     @app.route("/api/health")
     def health():
@@ -2004,7 +2074,10 @@ def create_unified_app():
         return render_template(
             "admin.html",
             version=getattr(config, "VERSION", "2.2.0"),
-            is_cloud=getattr(storage.media_storage, "is_cloud", False)
+            is_cloud=getattr(storage.media_storage, "is_cloud", False),
+            voice_notices_enabled=getattr(config, "VOICE_NOTICES_ENABLED", False),
+            max_voice_duration=getattr(config, "MAX_VOICE_DURATION_SECONDS", 120),
+            max_voice_upload_mb=getattr(config, "MAX_VOICE_UPLOAD_MB", 10),
         )
 
     # 2. Display Kiosk UI
@@ -2672,14 +2745,7 @@ def create_unified_app():
 
     @app.route("/media/<path:filename>")
     def serve_media(filename):
-        if filename.startswith("http://") or filename.startswith("https://"):
-            return redirect(filename)
-        file_path = MEDIA_FOLDER / filename
-        if file_path.exists():
-            response = send_from_directory(MEDIA_FOLDER, filename)
-            response.headers["Cache-Control"] = "public, max-age=86400"
-            return response
-        return jsonify({"error": "Media file not found"}), 404
+        return serve_media_response(filename)
 
     @app.route("/api/health")
     def health():
