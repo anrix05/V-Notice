@@ -16,6 +16,7 @@ const SHELL_ASSETS = [
   '/display',
   '/manifest.webmanifest',
   '/static/manifest.json',
+  '/static/css/tokens.css',
   '/static/css/admin.css?v=9',
   '/static/js/admin.js?v=9',
   '/static/css/display.css?v=9',

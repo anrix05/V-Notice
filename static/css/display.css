@@ -1,3 +1,5 @@
+@import url('tokens.css');
+
 /* Self-hosted WOFF2 Fonts (Zero External / Google Fonts Dependencies) */
 @font-face {
   font-family: 'Inter';
@@ -54,23 +56,19 @@
    ========================================================================== */
 
 :root {
-  --bg: #0F172A;
-  --panel: #162238;
-  --panel-raised: #1C2B45;
-  --surface-stage: #141F36;
-  --surface-rail: #0E1626;
-  --border-interactive: rgba(59, 130, 246, 0.35);
-  --shadow-stage: 0 16px 48px -8px rgba(0, 0, 0, 0.65), 0 0 0 1px var(--border-interactive) inset;
-  --glow-info: rgba(59, 130, 246, 0.28);
-  --glow-urgent: rgba(229, 72, 77, 0.35);
+  --bg: var(--bg-page);
+  --panel: var(--bg-surface);
+  --panel-raised: var(--bg-raised);
+  --surface-stage: var(--bg-surface);
+  --surface-rail: var(--bg-page);
+  --shadow-stage: 0 16px 48px -8px rgba(0, 0, 0, 0.65), 0 0 0 1px var(--border) inset;
+  --glow-info: var(--interactive-bg);
+  --glow-urgent: var(--urgent-glow);
 
-  --blue: #2F6BFF;
-  --red: #E5484D;
-  --text: #F8FAFC;
-  --muted: #A3B1C6;
-  --text-secondary-bright: #CBD5E1;
-  --line: #24344F;
-  --line-light: #3A4C6B;
+  --blue: var(--interactive);
+  --red: var(--urgent);
+  --line: var(--border);
+  --line-light: var(--border-light);
   --radius-sm: 8px;
   --radius-panel: 12px;
   --radius-pill: 999px;
@@ -209,7 +207,7 @@ body.show-cursor {
 
 .urgent-state #display-header-logo .vnotice-fold,
 #display-header-logo.urgent-logo-active .vnotice-fold {
-  fill: #EF4444 !important;
+  fill: var(--urgent) !important;
   animation: none !important;
 }
 
@@ -245,7 +243,7 @@ body.show-cursor {
   align-items: center;
   gap: 6px;
   padding: 4px 10px;
-  background-color: rgba(22, 34, 56, 0.6);
+  background-color: var(--bg-glass);
   border: 1px solid var(--line);
   border-radius: var(--radius-sm);
   font-size: 13px;
@@ -331,8 +329,8 @@ body.show-cursor {
 .stage-panel {
   flex: 1 1 64%;
   background-color: var(--panel);
-  border: 1px solid rgba(59, 130, 246, 0.4);
-  box-shadow: 0 0 20px rgba(59, 130, 246, 0.15);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-stage);
   border-radius: var(--radius-panel);
   display: flex;
   flex-direction: column;
@@ -342,19 +340,19 @@ body.show-cursor {
 }
 
 .stage-panel.glow-info {
-  border: 1px solid rgba(59, 130, 246, 0.4);
-  box-shadow: 0 0 24px rgba(59, 130, 246, 0.25);
+  border: 1px solid var(--border-interactive);
+  box-shadow: 0 0 24px var(--glow-info);
 }
 
 .stage-panel.glow-urgent,
 .stage-panel.urgent-state {
-  border: 1px solid rgba(239, 68, 68, 0.4);
-  box-shadow: 0 0 28px rgba(239, 68, 68, 0.35);
+  border: 1px solid var(--urgent-border);
+  box-shadow: 0 0 28px var(--urgent-glow);
 }
 
 .stage-panel.glow-normal {
-  border: 1px solid rgba(148, 163, 184, 0.25);
-  box-shadow: 0 0 16px rgba(0, 0, 0, 0.3);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-stage);
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -379,8 +377,8 @@ body.show-cursor {
 }
 
 .pill-urgent {
-  background-color: var(--red);
-  color: #FFFFFF;
+  background-color: var(--urgent);
+  color: var(--bg-page);
   font-size: 14px;
   font-weight: 600;
   padding: 2px 10px;
@@ -600,9 +598,9 @@ body.show-cursor {
 .qr-pill-hint {
   font-size: 10px;
   font-weight: 500;
-  color: #8bb2ff;
-  background: rgba(47, 107, 255, 0.16);
-  border: 1px solid rgba(47, 107, 255, 0.3);
+  color: var(--interactive);
+  background: var(--interactive-bg);
+  border: 1px solid var(--border-interactive);
   border-radius: var(--radius-pill);
   padding: 1px 7px;
   width: fit-content;
@@ -1298,13 +1296,13 @@ body.show-cursor {
 
 /* Phase 5 Display UX: Urgent Glow & Empty State Reconnecting Pulse */
 .stage-panel.urgent-state {
-  border-color: rgba(229, 72, 77, 0.5);
-  box-shadow: 0 0 40px rgba(229, 72, 77, 0.15), inset 0 1px 0 rgba(229, 72, 77, 0.25);
+  border-color: var(--urgent-border);
+  box-shadow: 0 0 40px var(--urgent-bg), inset 0 1px 0 var(--urgent-border);
 }
 
 .display-ticker.urgent-ticker {
-  background-color: rgba(229, 72, 77, 0.06);
-  border-top-color: rgba(229, 72, 77, 0.35);
+  background-color: var(--ticker-urgent-bg, var(--urgent-bg));
+  border-top-color: var(--urgent-border);
 }
 
 .empty-icon.reconnecting {
@@ -1336,7 +1334,7 @@ body.show-cursor {
   font-weight: 700;
   font-size: 1.15rem;
   letter-spacing: -0.01em;
-  color: #F8FAFC;
+  color: var(--text);
   display: inline-flex;
   align-items: center;
 }
@@ -1349,7 +1347,7 @@ body.show-cursor {
 
 /* 1. Stage as Hero vs Receding Rail */
 .stage-panel {
-  background: radial-gradient(120% 120% at 20% 10%, rgba(30, 58, 138, 0.22) 0%, var(--surface-stage) 70%);
+  background: radial-gradient(120% 120% at 20% 10%, var(--interactive-bg) 0%, var(--surface-stage) 70%);
   border: 1px solid var(--border-interactive);
   box-shadow: var(--shadow-stage);
   border-radius: var(--radius-panel);
@@ -1358,16 +1356,16 @@ body.show-cursor {
 }
 
 .stage-panel.glow-info {
-  box-shadow: 0 16px 48px -8px rgba(0, 0, 0, 0.6), 0 0 60px -10px var(--glow-info), 0 0 0 1px rgba(59, 130, 246, 0.5) inset;
+  box-shadow: 0 16px 48px -8px rgba(0, 0, 0, 0.6), 0 0 60px -10px var(--glow-info), 0 0 0 1px var(--border-interactive) inset;
 }
 
 .stage-panel.glow-urgent {
-  box-shadow: 0 16px 48px -8px rgba(0, 0, 0, 0.6), 0 0 70px -5px var(--glow-urgent), 0 0 0 1px rgba(229, 72, 77, 0.6) inset;
+  box-shadow: 0 16px 48px -8px rgba(0, 0, 0, 0.6), 0 0 70px -5px var(--glow-urgent), 0 0 0 1px var(--urgent-border) inset;
 }
 
 .rail-panel {
   background: var(--surface-rail);
-  border: 1px solid rgba(255, 255, 255, 0.06);
+  border: 1px solid var(--border-subtle);
   border-radius: 10px;
   box-shadow: none;
 }
@@ -1405,7 +1403,7 @@ body.show-cursor {
   font-family: 'Inter', var(--font-stack);
   font-size: clamp(1.5rem, 2.4vw, 2.5rem);
   line-height: 1.38;
-  color: #CBD5E1;
+  color: var(--text-secondary-bright);
   padding-left: clamp(22px, 2.8vw, 42px);
   max-width: 90%;
   display: block;
@@ -1414,19 +1412,20 @@ body.show-cursor {
   overflow: visible;
 }
 
-/* Tasteful Deterministic Text Background Themes (WCAG Contrast > 8:1) */
+/* Tasteful Deterministic Text Background Themes (Deep Olive, Deep Brown, Deep Teal-Grey, Deep Maroon; WCAG Contrast > 12:1) */
 .notice-text.theme-deep-blue {
-  background: radial-gradient(circle at 10% 20%, #172554 0%, #0F172A 100%);
+  background: radial-gradient(circle at 10% 20%, #272A1C 0%, #131210 100%);
 }
 .notice-text.theme-indigo {
-  background: radial-gradient(circle at 10% 20%, #1E1B4B 0%, #0F172A 100%);
+  background: radial-gradient(circle at 10% 20%, #2B2019 0%, #131210 100%);
 }
 .notice-text.theme-teal {
-  background: radial-gradient(circle at 10% 20%, #042F2E 0%, #0F172A 100%);
+  background: radial-gradient(circle at 10% 20%, #1C2628 0%, #131210 100%);
 }
 .notice-text.theme-slate {
-  background: radial-gradient(circle at 10% 20%, #1E293B 0%, #0A0F1D 100%);
+  background: radial-gradient(circle at 10% 20%, #2D1C1F 0%, #131210 100%);
 }
+
 
 /* 3. Counters & Rail Header Pill */
 .stage-counter {
@@ -1445,8 +1444,8 @@ body.show-cursor {
 .rail-count-pill {
   font-size: 0.8rem;
   font-weight: 700;
-  background: rgba(59, 130, 246, 0.2);
-  color: #60A5FA;
+  background: var(--interactive-bg);
+  color: var(--interactive);
   padding: 2px 10px;
   border-radius: var(--radius-pill);
 }
@@ -1456,7 +1455,7 @@ body.show-cursor {
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  background: rgba(255, 255, 255, 0.4);
+  background: rgba(238, 235, 218, 0.4);
   transition: all 250ms ease;
   position: relative;
   overflow: hidden;
@@ -1466,7 +1465,7 @@ body.show-cursor {
   width: 34px;
   height: 8px;
   border-radius: var(--radius-pill);
-  background: rgba(255, 255, 255, 0.25);
+  background: rgba(238, 235, 218, 0.25);
 }
 
 .stage-dots .dot.active .dot-progress-fill {
@@ -1475,7 +1474,7 @@ body.show-cursor {
   top: 0;
   height: 100%;
   width: 0%;
-  background: #FFFFFF;
+  background: var(--text);
   border-radius: var(--radius-pill);
   animation: dotProgressFill linear forwards;
 }
@@ -1487,7 +1486,7 @@ body.show-cursor {
 
 @media (prefers-reduced-motion: reduce) {
   .stage-dots .dot.active {
-    background: #FFFFFF !important;
+    background: var(--text) !important;
   }
   .stage-dots .dot.active .dot-progress-fill {
     display: none !important;
@@ -1496,8 +1495,8 @@ body.show-cursor {
 
 /* 5. QR Card (Quieter than stage, reliable white QR canvas) */
 .rail-qr-card {
-  background: rgba(14, 22, 38, 0.85);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
   border-radius: 10px;
   padding: 12px 16px;
   display: flex;
@@ -1528,7 +1527,7 @@ body.show-cursor {
 .qr-label-head {
   font-size: 0.95rem;
   font-weight: 700;
-  color: #FFFFFF;
+  color: var(--text);
 }
 
 .qr-label-sub {
@@ -1639,12 +1638,12 @@ body.show-cursor {
 }
 
 .clock-sync-dot.sync-healthy {
-  background-color: #10B981;
-  box-shadow: 0 0 6px rgba(16, 185, 129, 0.7);
+  background-color: var(--live);
+  box-shadow: 0 0 6px var(--live-border);
 }
 
 .clock-sync-dot.sync-stale {
-  background-color: #64748B;
+  background-color: var(--text-muted);
   box-shadow: none;
 }
 
@@ -1657,8 +1656,8 @@ body.show-cursor {
   align-items: center;
   gap: 8px;
   padding: 4px 12px;
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: var(--chip-bg);
+  border: 1px solid var(--border);
   border-radius: var(--radius-pill);
   font-family: var(--font-stack);
   font-size: 13px;
@@ -1670,7 +1669,7 @@ body.show-cursor {
 }
 
 .dept-header-pill[style*="--dept-accent"] {
-  border-color: color-mix(in srgb, var(--dept-accent) 40%, rgba(255, 255, 255, 0.15));
+  border-color: color-mix(in srgb, var(--dept-accent) 40%, var(--border));
   box-shadow: 0 0 12px color-mix(in srgb, var(--dept-accent) 15%, transparent);
 }
 
@@ -1678,11 +1677,11 @@ body.show-cursor {
   font-family: 'Outfit', var(--font-stack);
   font-weight: 700;
   letter-spacing: 0.04em;
-  color: #FFFFFF;
+  color: var(--text);
 }
 
 .dept-header-pill[style*="--dept-accent"] .dept-code {
-  color: var(--dept-accent);
+  color: color-mix(in srgb, var(--dept-accent) 55%, var(--text));
 }
 
 .dept-sep {
@@ -1691,7 +1690,7 @@ body.show-cursor {
 }
 
 .dept-name {
-  color: var(--text-secondary-bright, #D1D5DB);
+  color: var(--text-secondary-bright);
   font-size: 12px;
   max-width: 320px;
   white-space: nowrap;
@@ -1700,9 +1699,9 @@ body.show-cursor {
 }
 
 .stage-audience {
-  background: rgba(59, 130, 246, 0.15);
-  color: #93C5FD;
-  border: 1px solid rgba(59, 130, 246, 0.3);
+  background: var(--interactive-bg);
+  color: var(--interactive);
+  border: 1px solid var(--border-interactive);
   font-size: 12px;
   font-weight: 600;
   padding: 2px 8px;
@@ -1712,9 +1711,9 @@ body.show-cursor {
 
 .badge-college-wide {
   display: inline-block;
-  background: rgba(59, 130, 246, 0.15);
-  color: #93C5FD;
-  border: 1px solid rgba(59, 130, 246, 0.3);
+  background: var(--interactive-bg);
+  color: var(--interactive);
+  border: 1px solid var(--border-interactive);
   font-size: 10px;
   font-weight: 600;
   padding: 1px 6px;
@@ -2066,12 +2065,12 @@ body.show-cursor {
   width: 26px;
   height: 26px;
   border-radius: 6px;
-  background: rgba(30, 41, 59, 0.85);
-  border: 1px solid rgba(59, 130, 246, 0.5);
-  color: #60A5FA;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-interactive);
+  color: var(--interactive);
   margin-left: 6px;
   vertical-align: middle;
-  box-shadow: 0 0 10px rgba(59, 130, 246, 0.25);
+  box-shadow: 0 0 10px var(--interactive-bg);
   animation: speaker-pulse 2s infinite ease-in-out;
   cursor: pointer;
   pointer-events: auto;
@@ -2081,8 +2080,8 @@ body.show-cursor {
 
 .stage-speaker-indicator:hover {
   transform: scale(1.12);
-  background: rgba(51, 65, 85, 0.95);
-  border-color: rgba(96, 165, 250, 0.8);
+  background: var(--bg-raised);
+  border-color: var(--interactive-hover);
 }
 
 .stage-speaker-indicator.hidden {
@@ -2090,8 +2089,8 @@ body.show-cursor {
 }
 
 .stage-speaker-indicator.is-muted {
-  border-color: rgba(148, 163, 184, 0.4);
-  color: #94A3B8;
+  border-color: var(--border);
+  color: var(--text-muted);
   box-shadow: none;
   animation: none;
 }
@@ -2166,7 +2165,7 @@ body.show-cursor {
   display: flex;
   align-items: center;
   justify-content: center;
-  background-color: #0B1020;
+  background-color: var(--bg-page);
   padding: 40px;
   box-sizing: border-box;
   text-align: center;
@@ -2201,14 +2200,14 @@ body.show-cursor {
 .standup-en {
   font-family: 'Outfit', 'Inter', system-ui, -apple-system, sans-serif;
   font-size: clamp(1.8rem, 4.5vw, 4.5rem);
-  color: #F8FAFC;
+  color: var(--text);
 }
 
 .standup-hi,
 .standup-mr {
   font-family: 'Noto Sans Devanagari', 'Inter', system-ui, -apple-system, sans-serif;
   font-size: clamp(1.6rem, 4vw, 4rem);
-  color: #F1F5F9;
+  color: var(--text);
 }
 
 body.flag-active .display-header,
@@ -2345,7 +2344,7 @@ body.flag-active #stage-qr-badge {
   justify-content: center;
   align-items: center;
   padding: 32px 48px;
-  background: radial-gradient(circle at 50% 30%, rgba(37, 99, 235, 0.18) 0%, rgba(15, 23, 42, 0.95) 70%);
+  background: radial-gradient(circle at 50% 30%, var(--interactive-bg) 0%, var(--bg-surface) 70%);
   border-radius: var(--radius-sm);
   position: relative;
   overflow: hidden;
@@ -2367,12 +2366,12 @@ body.flag-active #stage-qr-badge {
   align-items: center;
   gap: 8px;
   padding: 6px 16px;
-  background: rgba(37, 99, 235, 0.25);
-  border: 1px solid rgba(59, 130, 246, 0.4);
+  background: var(--interactive-bg);
+  border: 1px solid var(--border-interactive);
   border-radius: 9999px;
   font-size: 15px;
   font-weight: 600;
-  color: #93C5FD;
+  color: var(--interactive);
   letter-spacing: 0.5px;
   text-transform: uppercase;
 }
@@ -2385,7 +2384,7 @@ body.flag-active #stage-qr-badge {
   font-size: 44px;
   font-weight: 700;
   line-height: 1.2;
-  color: #F8FAFC;
+  color: var(--text);
   margin: 0;
   word-break: break-word;
   max-width: 900px;
@@ -2397,10 +2396,10 @@ body.flag-active #stage-qr-badge {
   height: 94px; /* ~30% taller than original 72px (72 * 1.30 = 93.6px) */
   position: relative;
   margin-top: 4px;
-  background: rgba(0, 0, 0, 0.35);
+  background: var(--waveform-track);
   padding: 10px 16px;
   border-radius: 12px;
-  border: 1px solid rgba(255, 255, 255, 0.12);
+  border: 1px solid var(--border);
   overflow: hidden;
   display: flex;
   align-items: center;
@@ -2420,14 +2419,14 @@ body.flag-active #stage-qr-badge {
 .voice-bar {
   flex: 1;
   min-width: 2px;
-  background: #94A3B8; /* Slate-400: high contrast (> 5:1 against dark track) */
+  background: var(--waveform-unplayed);
   border-radius: 2px;
   transition: height 0.1s ease, background-color 0.1s ease;
 }
 
 .voice-bar.active {
-  background: #38BDF8;
-  box-shadow: 0 0 6px rgba(56, 189, 248, 0.5);
+  background: var(--waveform-active);
+  box-shadow: 0 0 6px var(--interactive-bg);
 }
 
 .voice-waveform-progress {
@@ -2436,8 +2435,8 @@ body.flag-active #stage-qr-badge {
   top: 0;
   bottom: 0;
   width: 0%;
-  background: linear-gradient(90deg, rgba(56, 189, 248, 0.2) 0%, rgba(56, 189, 248, 0.4) 100%);
-  border-right: 2px solid #38BDF8;
+  background: linear-gradient(90deg, var(--interactive-bg) 0%, rgba(112, 166, 255, 0.35) 100%);
+  border-right: 2px solid var(--waveform-active);
   pointer-events: none;
   transition: width 0.08s linear;
   z-index: 2;
@@ -2446,7 +2445,7 @@ body.flag-active #stage-qr-badge {
 .voice-time-display {
   font-size: 14px;
   font-weight: 500;
-  color: #94A3B8;
+  color: var(--text-muted);
   letter-spacing: 0.5px;
   font-variant-numeric: tabular-nums;
   margin-top: 2px;
@@ -2457,7 +2456,7 @@ body.flag-active #stage-qr-badge {
 .voice-caption {
   font-size: 22px;
   line-height: 1.4;
-  color: #CBD5E1;
+  color: var(--text-secondary-bright);
   max-width: 820px;
   margin: 0;
   word-break: break-word;

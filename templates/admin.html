@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>V Notice — Portal Admin</title>
   <link rel="manifest" href="/manifest.webmanifest">
-  <meta name="theme-color" content="#0B1020">
+  <meta name="theme-color" content="#131210">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="V Notice">
@@ -17,6 +17,7 @@
   <meta property="og:description" content="Smart Digital Notice Board & Broadcast Management Portal">
   <meta property="og:image" content="/static/brand/og-image.png">
   <meta property="og:type" content="website">
+  <link rel="stylesheet" href="/static/css/tokens.css">
   <link rel="stylesheet" href="/static/css/admin.css?v=13">
   <script>
     (function() {
@@ -265,34 +266,43 @@
         <section class="tab-view-panel active" id="view-notices">
           
           <!-- Sticky Horizontally Scrollable Filter Chips Row -->
-          <div class="sticky-filter-bar">
-            <div class="chip-scroll-row" role="tablist" aria-label="Filter notices by status">
-              <button class="segment-tab active" data-filter="all" role="tab" aria-selected="true">
+          <div class="sticky-filter-bar" id="sticky-filter-bar">
+            <div class="chip-scroll-row" id="chip-scroll-row" role="tablist" aria-label="Filter notices by status">
+              <button class="segment-tab active" data-filter="all" role="tab" aria-selected="true" id="tab-filter-all">
                 All <span class="tab-count-pill" id="count-all">0</span>
               </button>
-              <button class="segment-tab" data-filter="live" role="tab" aria-selected="false">
+              <button class="segment-tab" data-filter="live" role="tab" aria-selected="false" id="tab-filter-live">
                 Live <span class="tab-count-pill" id="count-live">0</span>
               </button>
-              <button class="segment-tab" data-filter="scheduled" role="tab" aria-selected="false">
+              <button class="segment-tab" data-filter="scheduled" role="tab" aria-selected="false" id="tab-filter-scheduled">
                 Scheduled <span class="tab-count-pill" id="count-scheduled">0</span>
               </button>
-              <button class="segment-tab" data-filter="expired" role="tab" aria-selected="false">
+              <button class="segment-tab" data-filter="expired" role="tab" aria-selected="false" id="tab-filter-expired">
                 Expired <span class="tab-count-pill" id="count-expired">0</span>
               </button>
             </div>
 
-            <!-- Screen Dropdown / Filter -->
-            <div class="screen-select-wrap">
-              <label for="feed-screen-filter" class="screen-filter-label">Screen:</label>
-              <select id="feed-screen-filter" class="form-control screen-select" aria-label="Filter notices by screen">
-                <option value="all_screens" label="All">All Screens</option>
-                <option value="ALL" label="ALL">ALL - All Departments (college-wide)</option>
-                <option value="CMPN" label="CMPN">CMPN - Computer Engineering</option>
-                <option value="INFT" label="INFT">INFT - Information Technology</option>
-                <option value="EXTC" label="EXTC">EXTC - Electronics &amp; Telecommunication</option>
-                <option value="EXCS" label="EXCS">EXCS - Electronics &amp; Computer Science</option>
-                <option value="BIOM" label="BIOM">BIOM - Biomedical Engineering</option>
-              </select>
+            <!-- Row 2 / Desktop secondary: Screen Filter and Summary -->
+            <div class="filter-subrow" id="filter-subrow">
+              <span class="filter-count-summary" id="notices-count-summary-mobile">Showing 0 of 0</span>
+              <div class="screen-select-wrap">
+                <label for="feed-screen-filter" class="screen-filter-label" id="screen-filter-label">SCREEN:</label>
+                <div class="screen-chip-display" id="screen-chip-display" aria-hidden="true">
+                  <span class="screen-chip-text" id="screen-chip-text">Screen: All</span>
+                  <svg class="screen-chip-arrow" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true">
+                    <polyline points="6 9 12 15 18 9"></polyline>
+                  </svg>
+                </div>
+                <select id="feed-screen-filter" class="form-control screen-select" aria-label="Filter notices by screen">
+                  <option value="all_screens" label="All">All Screens</option>
+                  <option value="ALL" label="ALL">ALL - All Departments (college-wide)</option>
+                  <option value="CMPN" label="CMPN">CMPN - Computer Engineering</option>
+                  <option value="INFT" label="INFT">INFT - Information Technology</option>
+                  <option value="EXTC" label="EXTC">EXTC - Electronics &amp; Telecommunication</option>
+                  <option value="EXCS" label="EXCS">EXCS - Electronics &amp; Computer Science</option>
+                  <option value="BIOM" label="BIOM">BIOM - Biomedical Engineering</option>
+                </select>
+              </div>
             </div>
           </div>
 

@@ -438,6 +438,9 @@
         feedScreenFilter.appendChild(opt);
       });
       feedScreenFilter.value = cur || 'all_screens';
+      if (typeof updateScreenChipLabel === 'function') {
+        updateScreenChipLabel();
+      }
     }
     renderChipPicker(screens);
   }
@@ -692,10 +695,10 @@
   // Gradient tile background for text notices
   function getNoticeTileBg(id) {
     const gradients = [
-      'linear-gradient(135deg, #1E3A8A 0%, #172554 100%)',
-      'linear-gradient(135deg, #312E81 0%, #1E1B4B 100%)',
-      'linear-gradient(135deg, #064E3B 0%, #022C22 100%)',
-      'linear-gradient(135deg, #334155 0%, #0F172A 100%)'
+      'radial-gradient(circle at 10% 20%, #222B5C 0%, #15182D 100%)',
+      'radial-gradient(circle at 10% 20%, #282B4A 0%, #17192C 100%)',
+      'radial-gradient(circle at 10% 20%, #1D354E 0%, #131E33 100%)',
+      'radial-gradient(circle at 10% 20%, #2A3048 0%, #161826 100%)'
     ];
     if (!id) return gradients[0];
     let hash = 0;
@@ -986,6 +989,8 @@
 
     if (filtered.length === 0) {
       if (countSummaryEl) countSummaryEl.textContent = 'Showing 0 of 0';
+      const mobileCountEl = document.getElementById('notices-count-summary-mobile');
+      if (mobileCountEl) mobileCountEl.textContent = 'Showing 0 of 0';
       const emptyInfo = TAB_EMPTY_STATES[currentFilter] || TAB_EMPTY_STATES.all;
       noticesContainer.innerHTML = `
         <div class="notices-empty-view">
@@ -1010,8 +1015,13 @@
 
     // 5. Keyed incremental diffing (render initial 20 cards, load more on scroll)
     const visibleNotices = filtered.slice(0, noticesCurrentPage * noticesPageSize);
+    const summaryText = `Showing ${visibleNotices.length} of ${filtered.length}`;
     if (countSummaryEl) {
-      countSummaryEl.textContent = `Showing ${visibleNotices.length} of ${filtered.length}`;
+      countSummaryEl.textContent = summaryText;
+    }
+    const mobileCountEl = document.getElementById('notices-count-summary-mobile');
+    if (mobileCountEl) {
+      mobileCountEl.textContent = summaryText;
     }
 
     const existingCards = new Map();
@@ -1114,14 +1124,132 @@
   }
 
   // ==========================================================================
+  // Mobile Filter Bar Enhancements (Below 768px)
+  // ==========================================================================
+  function updateScreenChipLabel() {
+    const select = document.getElementById('feed-screen-filter');
+    const chipText = document.getElementById('screen-chip-text');
+    if (!select || !chipText) return;
+    const opt = select.options[select.selectedIndex];
+    if (!opt) return;
+    let label = opt.getAttribute('label') || opt.text;
+    if (select.value === 'all_screens' || select.value === 'ALL') {
+      label = 'All';
+    } else if (label.includes(' - ')) {
+      label = label.split(' - ')[0].trim();
+    }
+    chipText.textContent = `Screen: ${label}`;
+  }
+
+  function updateChipScrollFade() {
+    const row = document.getElementById('chip-scroll-row');
+    if (!row) return;
+    if (window.innerWidth > 768) {
+      row.classList.remove('has-overflow-right');
+      return;
+    }
+    const hasMore = (row.scrollWidth - row.clientWidth - row.scrollLeft) > 4;
+    if (hasMore) {
+      row.classList.add('has-overflow-right');
+    } else {
+      row.classList.remove('has-overflow-right');
+    }
+  }
+
+  function scrollActiveChipIntoView(tabEl) {
+    if (!tabEl) return;
+    tabEl.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'nearest' });
+    setTimeout(updateChipScrollFade, 250);
+  }
+
+  function initMobileFilterBar() {
+    const scrollContainer = document.getElementById('admin-scroll-container');
+    const filterBar = document.getElementById('sticky-filter-bar');
+    const chipRow = document.getElementById('chip-scroll-row');
+    const screenSelect = document.getElementById('feed-screen-filter');
+
+    if (screenSelect) {
+      screenSelect.addEventListener('change', updateScreenChipLabel);
+      updateScreenChipLabel();
+    }
+
+    if (chipRow) {
+      chipRow.addEventListener('scroll', updateChipScrollFade, { passive: true });
+      window.addEventListener('resize', updateChipScrollFade, { passive: true });
+      updateChipScrollFade();
+    }
+
+    const updateDesktopScroll = () => {
+      if (filterBar && scrollContainer) {
+        if (window.innerWidth > 768) {
+          filterBar.classList.toggle('is-scrolled', scrollContainer.scrollTop > 2);
+        } else {
+          filterBar.classList.remove('is-scrolled');
+        }
+      }
+    };
+    window.addEventListener('resize', updateDesktopScroll, { passive: true });
+    updateDesktopScroll();
+
+    if (scrollContainer && filterBar) {
+      let lastScrollTop = 0;
+      let ticking = false;
+      const scrollThreshold = 6;
+
+      scrollContainer.addEventListener('scroll', () => {
+        if (!ticking) {
+          window.requestAnimationFrame(() => {
+            if (window.innerWidth > 768) {
+              filterBar.classList.remove('filter-bar-hidden');
+              filterBar.classList.toggle('is-scrolled', scrollContainer.scrollTop > 2);
+              ticking = false;
+              return;
+            }
+
+            const currentScroll = scrollContainer.scrollTop;
+
+            // Always show at the top of the list
+            if (currentScroll <= 10) {
+              filterBar.classList.remove('filter-bar-hidden');
+              lastScrollTop = currentScroll;
+              ticking = false;
+              return;
+            }
+
+            const delta = currentScroll - lastScrollTop;
+            if (Math.abs(delta) > scrollThreshold) {
+              if (delta > 0 && currentScroll > 50) {
+                // Scrolling down -> hide bar
+                filterBar.classList.add('filter-bar-hidden');
+              } else if (delta < 0) {
+                // Scrolling up -> show bar
+                filterBar.classList.remove('filter-bar-hidden');
+              }
+              lastScrollTop = currentScroll;
+            }
+
+            ticking = false;
+          });
+          ticking = true;
+        }
+      }, { passive: true });
+    }
+  }
+
+  // ==========================================================================
   // Segmented Filter Controls
   // ==========================================================================
   segmentTabs.forEach(tab => {
     tab.addEventListener('click', () => {
-      segmentTabs.forEach(t => t.classList.remove('active'));
+      segmentTabs.forEach(t => {
+        t.classList.remove('active');
+        t.setAttribute('aria-selected', 'false');
+      });
       tab.classList.add('active');
+      tab.setAttribute('aria-selected', 'true');
       currentFilter = tab.getAttribute('data-filter') || 'all';
       renderNoticesList();
+      scrollActiveChipIntoView(tab);
     });
   });
 
@@ -2886,11 +3014,15 @@
 
   // Wire feed screen filter change listener immediately
   if (feedScreenFilter) {
-    feedScreenFilter.addEventListener('change', () => fetchNotices(true));
+    feedScreenFilter.addEventListener('change', () => {
+      updateScreenChipLabel();
+      fetchNotices(true);
+    });
   }
   // Initialize screens and auth
   loadScreens();
   checkAuthAndLoad();
+  initMobileFilterBar();
 
   // Background auto-sync in admin with pause on hidden and single catch-up fetch
   let noticesPollInterval = null;

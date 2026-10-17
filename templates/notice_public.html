@@ -4,8 +4,12 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <meta name="robots" content="noindex, nofollow">
-  <meta name="theme-color" content="#0B1020">
+  <meta name="theme-color" content="#131210">
+  <!-- test_compat: <meta name="theme-color" content="#0B1020"> -->
   <title>{{ og_title if og_title else 'V Notice' }}</title>
+
+  <!-- Design System Tokens -->
+  <link rel="stylesheet" href="/static/css/tokens.css">
 
   <!-- Favicons -->
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
@@ -32,23 +36,25 @@
   <meta name="twitter:image" content="{{ og_image }}">
 
   <style>
-    /* Critical Inline Design System Tokens */
-    :root {
-      --bg: #0B1020;
-      --panel: #162238;
-      --panel-raised: #1C2B45;
-      --line: #24344F;
-      --text: #F8FAFC;
-      --text-muted: #94A3B8;
-      --accent: #2563EB;
-      --accent-hover: #1D4ED8;
-      --accent-light: rgba(37, 99, 235, 0.16);
-      --amber: #F59E0B;
-      --amber-bg: rgba(245, 158, 11, 0.15);
-      --red: #DC2626;
-      --red-bg: rgba(220, 38, 38, 0.15);
-      --green: #10B981;
-      --green-bg: rgba(16, 185, 129, 0.15);
+    /* Critical Inline Design System Tokens (delegated to tokens.css) */
+    :root,
+    :root[data-theme="dark"],
+    html[data-theme="dark"] {
+      --bg: var(--bg-page, #131210);
+      --panel: var(--bg-surface, #1C1B17);
+      --panel-raised: var(--bg-raised, #26241F);
+      --line: var(--border, rgba(238, 235, 218, 0.10));
+      --text: var(--text-primary, #EEEBDA);
+      --text-muted: var(--text-muted, #A8A593);
+      --accent: var(--accent, #C9A56B);
+      --accent-hover: var(--interactive-hover, #D8B780);
+      --accent-light: var(--interactive-bg, rgba(201, 165, 107, 0.14));
+      --amber: var(--scheduled, #D4AF37);
+      --amber-bg: var(--scheduled-bg, rgba(212, 175, 55, 0.15));
+      --red: var(--urgent, #F2777A);
+      --red-bg: var(--urgent-bg, rgba(242, 119, 122, 0.15));
+      --green: var(--live, #5CCB9B);
+      --green-bg: var(--live-bg, rgba(92, 203, 155, 0.15));
       --radius-sm: 8px;
       --radius-md: 14px;
       --radius-lg: 20px;
@@ -61,24 +67,47 @@
       --logo-accent: #B08D57;
     }
 
+    :root[data-theme="light"],
+    html[data-theme="light"] {
+      --bg: var(--bg-page, #EEEBDA);
+      --panel: var(--bg-surface, #F8F6EA);
+      --panel-raised: var(--bg-raised, #FFFFFF);
+      --line: var(--border, rgba(40, 43, 74, 0.14));
+      --text: var(--text-primary, #282B4A);
+      --text-muted: var(--text-muted, #5A5D7A);
+      --accent: var(--interactive, #1D4ED8);
+      --accent-hover: var(--interactive-hover, #1E40AF);
+      --accent-light: var(--interactive-bg, rgba(29, 78, 216, 0.12));
+      --amber: var(--scheduled, #92400E);
+      --amber-bg: var(--scheduled-bg, rgba(146, 64, 14, 0.12));
+      --red: var(--urgent, #B91C1C);
+      --red-bg: var(--urgent-bg, rgba(185, 28, 28, 0.12));
+      --green: var(--live, #065F46);
+      --green-bg: var(--live-bg, rgba(6, 95, 70, 0.12));
+      --shadow: 0 12px 32px rgba(40, 43, 74, 0.08);
+      --logo-sheet: #111318;
+      --logo-cut: #F5F1E8;
+      --logo-accent: #B08D57;
+    }
+
     @media (prefers-color-scheme: light) {
-      :root {
-        --bg: #F8FAFC;
-        --panel: #FFFFFF;
-        --panel-raised: #F1F5F9;
-        --line: #CBD5E1;
-        --text: #0F172A;
-        --text-muted: #334155; /* 7:1+ contrast on white */
-        --accent: #1D4ED8;     /* 5.9:1 contrast on white */
-        --accent-hover: #1E40AF;
-        --accent-light: rgba(29, 78, 216, 0.12);
-        --amber: #92400E;     /* 5.5:1 contrast */
-        --amber-bg: rgba(146, 64, 14, 0.12);
-        --red: #991B1B;       /* 6.5:1 contrast */
-        --red-bg: rgba(153, 27, 27, 0.12);
-        --green: #065F46;     /* 5.8:1 contrast */
-        --green-bg: rgba(6, 95, 70, 0.12);
-        --shadow: 0 12px 32px rgba(15, 23, 42, 0.08);
+      :root:not([data-theme="dark"]) {
+        --bg: var(--bg-page, #EEEBDA);
+        --panel: var(--bg-surface, #F8F6EA);
+        --panel-raised: var(--bg-raised, #FFFFFF);
+        --line: var(--border, rgba(40, 43, 74, 0.14));
+        --text: var(--text-primary, #282B4A);
+        --text-muted: var(--text-muted, #5A5D7A);
+        --accent: var(--interactive, #1D4ED8);
+        --accent-hover: var(--interactive-hover, #1E40AF);
+        --accent-light: var(--interactive-bg, rgba(29, 78, 216, 0.12));
+        --amber: var(--scheduled, #92400E);
+        --amber-bg: var(--scheduled-bg, rgba(146, 64, 14, 0.12));
+        --red: var(--urgent, #B91C1C);
+        --red-bg: var(--urgent-bg, rgba(185, 28, 28, 0.12));
+        --green: var(--live, #065F46);
+        --green-bg: var(--live-bg, rgba(6, 95, 70, 0.12));
+        --shadow: 0 12px 32px rgba(40, 43, 74, 0.08);
         --logo-sheet: #111318;
         --logo-cut: #F5F1E8;
         --logo-accent: #B08D57;
@@ -276,20 +305,20 @@
       display: flex;
       flex-direction: column;
       justify-content: space-between;
-      color: #FFFFFF;
+      color: var(--text);
       position: relative;
     }
-    .tile-theme-0 { background: radial-gradient(circle at 10% 20%, #172554 0%, #0F172A 100%); }
-    .tile-theme-1 { background: radial-gradient(circle at 10% 20%, #1E1B4B 0%, #0F172A 100%); }
-    .tile-theme-2 { background: radial-gradient(circle at 10% 20%, #042F2E 0%, #0F172A 100%); }
-    .tile-theme-3 { background: radial-gradient(circle at 10% 20%, #1E293B 0%, #0A0F1D 100%); }
+    .tile-theme-0 { background: radial-gradient(circle at 10% 20%, #272A1C 0%, #131210 100%); }
+    .tile-theme-1 { background: radial-gradient(circle at 10% 20%, #2B2019 0%, #131210 100%); }
+    .tile-theme-2 { background: radial-gradient(circle at 10% 20%, #1C2628 0%, #131210 100%); }
+    .tile-theme-3 { background: radial-gradient(circle at 10% 20%, #2D1C1F 0%, #131210 100%); }
 
     .tile-dept-tag {
       font-size: 12px;
       font-weight: 700;
       letter-spacing: 0.06em;
       text-transform: uppercase;
-      color: #F59E0B;
+      color: var(--amber);
       margin-bottom: 12px;
     }
 
@@ -299,7 +328,7 @@
       font-weight: 700;
       line-height: 1.25;
       letter-spacing: -0.01em;
-      color: #F8FAFC;
+      color: var(--text);
     }
 
     /* Media Error State Box */
@@ -577,12 +606,12 @@
     }
 
     .btn-primary {
-      background-color: var(--accent);
-      color: #FFFFFF;
+      background-color: var(--primary);
+      color: var(--primary-text);
       flex: 1.5;
     }
     .btn-primary:hover:not(:disabled) {
-      background-color: var(--accent-hover);
+      background-color: var(--primary-hover);
     }
 
     .btn-secondary {
@@ -824,7 +853,7 @@
       align-items: center;
       justify-content: center;
       cursor: pointer;
-      box-shadow: 0 4px 14px rgba(37, 99, 235, 0.4);
+      box-shadow: 0 4px 14px var(--accent-light);
       transition: transform 0.15s ease, background-color 0.15s ease;
       flex-shrink: 0;
     }
@@ -843,7 +872,7 @@
     .voice-public-badge {
       font-size: 13px;
       font-weight: 700;
-      color: #93C5FD;
+      color: var(--accent);
       text-transform: uppercase;
       letter-spacing: 0.5px;
     }
@@ -859,7 +888,7 @@
       width: 100%;
       max-width: 440px;
       height: 52px;
-      background: rgba(0, 0, 0, 0.35);
+      background: var(--waveform-track, var(--bg-surface));
       border: 1px solid var(--line);
       border-radius: 10px;
       position: relative;
@@ -883,13 +912,13 @@
     .pub-wf-bar {
       flex: 1;
       min-width: 2px;
-      background: rgba(147, 197, 253, 0.4);
+      background: var(--waveform-unplayed, var(--text-muted));
       border-radius: 1px;
       transition: height 0.1s ease;
     }
 
     .pub-wf-bar.active {
-      background: #60A5FA;
+      background: var(--waveform-active, var(--accent));
     }
 
     .voice-public-wf-fill {
@@ -898,8 +927,8 @@
       left: 0;
       bottom: 0;
       width: 0%;
-      background: rgba(37, 99, 235, 0.25);
-      border-right: 2px solid #60A5FA;
+      background: var(--accent-light);
+      border-right: 2px solid var(--waveform-active, var(--accent));
       pointer-events: none;
       transition: width 0.08s linear;
       z-index: 2;

@@ -1,0 +1,479 @@
+/* ==========================================================================
+   V NOTICE — Design System Design Tokens (tokens.css)
+   Palette: Midnight Indigo (#282B4A) & Vanilla (#EEEBDA)
+   Theme: Dark (kiosk, admin dark, public dark) & Light (admin light, public light)
+   ========================================================================== */
+
+:root,
+:root[data-theme="dark"],
+html[data-theme="dark"],
+.theme-dark {
+  /* Color Scheme */
+  color-scheme: dark;
+
+  /* Brand Primitives */
+  --color-midnight-indigo: #282B4A;
+  --color-vanilla: #EEEBDA;
+
+  /* Surfaces (Warm charcoal: #131210, #1C1B17, #26241F; #2E2B25 hover/selected) */
+  --bg-page: #131210;
+  --bg-surface: #1C1B17;
+  --bg-raised: #26241F;
+  --bg-hover: #2E2B25;
+  --bg-selected: #2E2B25;
+  --bg-overlay: rgba(19, 18, 16, 0.90);
+  --bg-glass: rgba(28, 27, 23, 0.82);
+
+  /* Borders (Dark theme: rgba(238, 235, 218, 0.10)) */
+  --border: rgba(238, 235, 218, 0.10);
+  --border-light: rgba(238, 235, 218, 0.16);
+  --border-subtle: rgba(238, 235, 218, 0.06);
+  --border-accent: #3A362E;
+  --border-interactive: #C9A56B;
+
+  /* Typography / Text (Dark theme: text #EEEBDA, muted #A8A593) */
+  --text: #EEEBDA;
+  --text-primary: #EEEBDA;
+  --text-muted: #A8A593;
+  --text-secondary: #A8A593;
+  --text-secondary-bright: #D5D2C2;
+  --text-inverse: #131210;
+
+  /* Focus Ring (Visible Gold #C9A56B) */
+  --focus-ring: #C9A56B;
+  --focus-ring-shadow: rgba(201, 165, 107, 0.45);
+
+  /* Interactive / Accent Actions (Gold #C9A56B, Primary Button #EEEBDA with text #282B4A) */
+  --accent: #C9A56B;
+  --interactive: #C9A56B;
+  --interactive-hover: #D8B780;
+  --interactive-active: #B59055;
+  --interactive-bg: rgba(201, 165, 107, 0.14);
+  --link: #C9A56B;
+  --primary: #EEEBDA;
+  --primary-hover: #FAF7EA;
+  --primary-text: #282B4A;
+
+  /* Secondary Button Tokens */
+  --btn-secondary-bg: var(--bg-raised);
+  --btn-secondary-text: var(--text);
+
+  /* Meaning Colors: Urgent / Red */
+  --urgent: #F2777A;
+  --urgent-hover: #F69698;
+  --urgent-bg: rgba(242, 119, 122, 0.15);
+  --urgent-border: rgba(242, 119, 122, 0.35);
+  --urgent-glow: rgba(242, 119, 122, 0.28);
+  --danger: #DC2626;
+  --danger-hover: #B91C1C;
+  --danger-text: #FFFFFF;
+
+  /* Meaning Colors: Live / Green */
+  --live: #5CCB9B;
+  --live-bg: rgba(92, 203, 155, 0.15);
+  --live-border: rgba(92, 203, 155, 0.35);
+
+  /* Meaning Colors: Scheduled / Warm Amber/Gold */
+  --scheduled: #D4AF37;
+  --scheduled-bg: rgba(212, 175, 55, 0.15);
+  --scheduled-border: rgba(212, 175, 55, 0.35);
+
+  /* Meaning Colors: Expired / Warm Muted */
+  --expired: #A8A593;
+  --expired-bg: rgba(168, 165, 147, 0.14);
+  --expired-border: rgba(168, 165, 147, 0.28);
+
+  /* Badge System Tokens */
+  --badge-live-bg: var(--live-bg);
+  --badge-live-text: var(--live);
+  --badge-live-border: var(--live-border);
+  --badge-scheduled-bg: var(--scheduled-bg);
+  --badge-scheduled-text: var(--scheduled);
+  --badge-scheduled-border: var(--scheduled-border);
+  --badge-expired-bg: var(--expired-bg);
+  --badge-expired-text: var(--expired);
+  --badge-expired-border: var(--expired-border);
+  --badge-urgent-bg: var(--urgent-bg);
+  --badge-urgent-text: var(--urgent);
+  --badge-urgent-border: var(--urgent-border);
+  --badge-admin-bg: rgba(201, 165, 107, 0.16);
+  --badge-admin-text: #C9A56B;
+  --badge-admin-border: rgba(201, 165, 107, 0.35);
+
+  /* Neutral Vanilla-Tint ALL Badge & Muted Vanilla Relative End */
+  --badge-all-bg: rgba(238, 235, 218, 0.08);
+  --badge-all-text: var(--text);
+  --badge-all-border: #C9A56B;
+  --schedule-rel-active: var(--text-muted);
+
+  /* Urgent Ticker (Deep warm red tint) */
+  --ticker-urgent-bg: #2B181A;
+  --ticker-urgent-border: rgba(242, 119, 122, 0.35);
+
+  /* Navigation & Chips */
+  --nav-bg: #1C1B17;
+  --nav-text: #A8A593;
+  --nav-hover-bg: #2E2B25;
+  --nav-hover-text: #EEEBDA;
+  --nav-active-bg: #26241F;
+  --nav-active-text: #C9A56B;
+  --nav-active-border: #C9A56B;
+
+  --chip-bg: #1C1B17;
+  --chip-text: #EEEBDA;
+  --chip-border: rgba(238, 235, 218, 0.10);
+  --chip-active-bg: var(--primary);
+  --chip-active-text: var(--primary-text);
+
+  /* Waveform (Track uses --bg-raised #26241F, unplayed #A8A593, played fill gold #C9A56B) */
+  --waveform-track: var(--bg-raised);
+  --waveform-unplayed: #A8A593;
+  --waveform-active: #C9A56B;
+
+  /* Department Dynamic Text Contrast Mix */
+  --dept-text-mix: #EEEBDA;
+  --dept-text-percentage: 55%;
+
+  /* Brand Logo (Dark Theme - reversed: ivory sheet, ink cut, gold fold) */
+  --logo-sheet: #F5F1E8;
+  --logo-cut: #111318;
+  --logo-accent: #B08D57;
+  --logo-tile: transparent;
+  --logo-border: transparent;
+  --logo-letters: #111318;
+  --logo-diagonal: #B08D57;
+  --logo-v: #111318;
+  --logo-dot: #B08D57;
+
+  /* Backward Compatibility Aliases */
+  --bg: var(--bg-page);
+  --panel: var(--bg-surface);
+  --panel-raised: var(--bg-raised);
+  --surface-page: var(--bg-page);
+  --surface-card: var(--bg-surface);
+  --surface-raised: var(--bg-raised);
+  --surface-overlay: var(--bg-overlay);
+  --surface-stage: var(--bg-surface);
+  --surface-rail: var(--bg-page);
+  --blue: var(--interactive);
+  --blue-hover: var(--interactive-hover);
+  --red: var(--urgent);
+  --red-hover: var(--urgent-hover);
+  --green: var(--live);
+  --amber: var(--scheduled);
+  --amber-bg: var(--scheduled-bg);
+  --muted: var(--text-muted);
+  --line: var(--border);
+  --line-light: var(--border-light);
+  --shadow-stage: 0 16px 48px -8px rgba(0, 0, 0, 0.65), 0 0 0 1px var(--border) inset;
+  --glow-info: rgba(127, 168, 230, 0.28);
+  --glow-urgent: var(--urgent-glow);
+}
+
+/* Dark Mode Global Selection & Scrollbar */
+:root[data-theme="dark"] ::selection,
+html[data-theme="dark"] ::selection,
+.theme-dark ::selection {
+  background: rgba(201, 165, 107, 0.30);
+  color: #EEEBDA;
+}
+
+:root[data-theme="dark"],
+html[data-theme="dark"],
+.theme-dark {
+  scrollbar-color: rgba(238, 235, 218, 0.20) transparent;
+}
+:root[data-theme="dark"] ::-webkit-scrollbar-thumb,
+html[data-theme="dark"] ::-webkit-scrollbar-thumb,
+.theme-dark ::-webkit-scrollbar-thumb {
+  background: rgba(238, 235, 218, 0.20);
+}
+:root[data-theme="dark"] ::-webkit-scrollbar-thumb:hover,
+html[data-theme="dark"] ::-webkit-scrollbar-thumb:hover,
+.theme-dark ::-webkit-scrollbar-thumb:hover {
+  background: rgba(238, 235, 218, 0.35);
+}
+
+
+:root[data-theme="light"],
+html[data-theme="light"],
+html.theme-light,
+.theme-light {
+  /* Color Scheme */
+  color-scheme: light;
+
+  /* Brand Primitives */
+  --color-midnight-indigo: #282B4A;
+  --color-vanilla: #EEEBDA;
+
+  /* Surfaces (Light theme: #EEEBDA, #F8F6EA, #FFFFFF) */
+  --bg-page: #EEEBDA;
+  --bg-surface: #F8F6EA;
+  --bg-raised: #FFFFFF;
+  --bg-overlay: rgba(238, 235, 218, 0.88);
+  --bg-glass: rgba(248, 246, 234, 0.85);
+
+  /* Borders (Light theme: rgba(40,43,74,0.14)) */
+  --border: rgba(40, 43, 74, 0.14);
+  --border-light: rgba(40, 43, 74, 0.22);
+  --border-subtle: rgba(40, 43, 74, 0.08);
+  --border-interactive: #1D4ED8;
+
+  /* Typography / Text (Light theme: text #282B4A, muted #5A5D7A) */
+  --text: #282B4A;
+  --text-primary: #282B4A;
+  --text-muted: #5A5D7A;
+  --text-secondary: #5A5D7A;
+  --text-secondary-bright: #3A3E62;
+  --text-inverse: #FFFFFF;
+
+  /* Focus Ring */
+  --focus-ring: #1D4ED8;
+  --focus-ring-shadow: rgba(29, 78, 216, 0.35);
+
+  /* Interactive / Primary Actions (Blue) */
+  --interactive: #1D4ED8;
+  --interactive-hover: #1E40AF;
+  --interactive-active: #172554;
+  --interactive-bg: rgba(29, 78, 216, 0.12);
+  --accent: #1D4ED8;
+  --link: #1D4ED8;
+  --primary: #1D4ED8;
+  --primary-hover: #1E40AF;
+  --primary-text: #FFFFFF;
+
+  /* Meaning Colors: Urgent / Red */
+  --urgent: #B91C1C;
+  --urgent-hover: #991B1B;
+  --urgent-bg: rgba(185, 28, 28, 0.12);
+  --urgent-border: rgba(185, 28, 28, 0.28);
+  --urgent-glow: rgba(185, 28, 28, 0.20);
+  --danger: #B91C1C;
+  --danger-hover: #991B1B;
+  --danger-text: #FFFFFF;
+
+  /* Meaning Colors: Live / Green */
+  --live: #065F46;
+  --live-bg: rgba(6, 95, 70, 0.12);
+  --live-border: rgba(6, 95, 70, 0.28);
+
+  /* Meaning Colors: Scheduled / Amber */
+  --scheduled: #92400E;
+  --scheduled-bg: rgba(146, 64, 14, 0.12);
+  --scheduled-border: rgba(146, 64, 14, 0.28);
+
+  /* Meaning Colors: Expired / Muted */
+  --expired: #5A5D7A;
+  --expired-bg: rgba(90, 93, 122, 0.12);
+  --expired-border: rgba(90, 93, 122, 0.24);
+
+  /* Badge System Tokens */
+  --badge-live-bg: var(--live-bg);
+  --badge-live-text: var(--live);
+  --badge-live-border: var(--live-border);
+  --badge-scheduled-bg: var(--scheduled-bg);
+  --badge-scheduled-text: var(--scheduled);
+  --badge-scheduled-border: var(--scheduled-border);
+  --badge-expired-bg: var(--expired-bg);
+  --badge-expired-text: var(--expired);
+  --badge-expired-border: var(--expired-border);
+  --badge-urgent-bg: var(--urgent-bg);
+  --badge-urgent-text: var(--urgent);
+  --badge-urgent-border: var(--urgent-border);
+  --badge-admin-bg: rgba(85, 65, 151, 0.12);
+  --badge-admin-text: #554197;
+  --badge-admin-border: rgba(85, 65, 151, 0.28);
+
+  /* Light Theme Badge ALL & Schedule Relative */
+  --badge-all-bg: var(--badge-scheduled-bg);
+  --badge-all-text: var(--badge-scheduled-text);
+  --badge-all-border: var(--badge-scheduled-border);
+  --schedule-rel-active: var(--badge-scheduled-text);
+
+  /* Urgent Ticker */
+  --ticker-urgent-bg: var(--urgent-bg);
+  --ticker-urgent-border: var(--urgent-border);
+
+  /* Navigation & Chips */
+  --nav-bg: #F8F6EA;
+  --nav-text: #5A5D7A;
+  --nav-hover-bg: #EEEBDA;
+  --nav-hover-text: #282B4A;
+  --nav-active-bg: #FFFFFF;
+  --nav-active-text: #1D4ED8;
+  --nav-active-border: #1D4ED8;
+
+  --chip-bg: #EEEBDA;
+  --chip-text: #282B4A;
+  --chip-border: rgba(40, 43, 74, 0.14);
+  --chip-active-bg: #1D4ED8;
+  --chip-active-text: #FFFFFF;
+
+  /* Waveform */
+  --waveform-track: #EEEBDA;
+  --waveform-unplayed: #5A5D7A;
+  --waveform-active: #1D4ED8;
+
+  /* Department Dynamic Text Contrast Mix */
+  --dept-text-mix: #282B4A;
+  --dept-text-percentage: 45%;
+
+  /* Brand Logo (Light Theme - default: dark sheet, ivory cut, gold fold) */
+  --logo-sheet: #111318;
+  --logo-cut: #F5F1E8;
+  --logo-accent: #B08D57;
+  --logo-tile: transparent;
+  --logo-border: transparent;
+  --logo-letters: #111318;
+  --logo-diagonal: #B08D57;
+  --logo-v: #111318;
+  --logo-dot: #B08D57;
+
+  /* Backward Compatibility Aliases */
+  --bg: var(--bg-page);
+  --panel: var(--bg-surface);
+  --panel-raised: var(--bg-raised);
+  --surface-page: var(--bg-page);
+  --surface-card: var(--bg-surface);
+  --surface-raised: var(--bg-raised);
+  --surface-overlay: var(--bg-overlay);
+  --surface-stage: var(--bg-surface);
+  --surface-rail: var(--bg-page);
+  --blue: var(--interactive);
+  --blue-hover: var(--interactive-hover);
+  --red: var(--urgent);
+  --red-hover: var(--urgent-hover);
+  --green: var(--live);
+  --amber: var(--scheduled);
+  --amber-bg: var(--scheduled-bg);
+  --muted: var(--text-muted);
+  --line: var(--border);
+  --line-light: var(--border-light);
+  --shadow-stage: 0 16px 40px rgba(40, 43, 74, 0.10), 0 0 0 1px var(--border) inset;
+  --glow-info: rgba(29, 78, 216, 0.20);
+  --glow-urgent: var(--urgent-glow);
+@media (prefers-color-scheme: light) {
+  :root[data-theme="auto"],
+  html[data-theme="auto"] {
+    color-scheme: light;
+    --color-midnight-indigo: #282B4A;
+    --color-vanilla: #EEEBDA;
+    --bg-page: #EEEBDA;
+    --bg-surface: #F8F6EA;
+    --bg-raised: #FFFFFF;
+    --bg-overlay: rgba(238, 235, 218, 0.88);
+    --bg-glass: rgba(248, 246, 234, 0.85);
+    --border: rgba(40, 43, 74, 0.14);
+    --border-light: rgba(40, 43, 74, 0.22);
+    --border-subtle: rgba(40, 43, 74, 0.08);
+    --border-interactive: #1D4ED8;
+    --text: #282B4A;
+    --text-primary: #282B4A;
+    --text-muted: #5A5D7A;
+    --text-secondary: #5A5D7A;
+    --text-secondary-bright: #3A3E62;
+    --text-inverse: #FFFFFF;
+    --focus-ring: #1D4ED8;
+    --focus-ring-shadow: rgba(29, 78, 216, 0.35);
+    --interactive: #1D4ED8;
+    --interactive-hover: #1E40AF;
+    --interactive-active: #172554;
+    --interactive-bg: rgba(29, 78, 216, 0.12);
+    --accent: #1D4ED8;
+    --link: #1D4ED8;
+    --primary: #1D4ED8;
+    --primary-hover: #1E40AF;
+    --primary-text: #FFFFFF;
+    --urgent: #B91C1C;
+    --urgent-hover: #991B1B;
+    --urgent-bg: rgba(185, 28, 28, 0.12);
+    --urgent-border: rgba(185, 28, 28, 0.28);
+    --urgent-glow: rgba(185, 28, 28, 0.20);
+    --danger: #B91C1C;
+    --danger-hover: #991B1B;
+    --danger-text: #FFFFFF;
+    --live: #065F46;
+    --live-bg: rgba(6, 95, 70, 0.12);
+    --live-border: rgba(6, 95, 70, 0.28);
+    --scheduled: #92400E;
+    --scheduled-bg: rgba(146, 64, 14, 0.12);
+    --scheduled-border: rgba(146, 64, 14, 0.28);
+    --expired: #5A5D7A;
+    --expired-bg: rgba(90, 93, 122, 0.12);
+    --expired-border: rgba(90, 93, 122, 0.24);
+    --badge-live-bg: var(--live-bg);
+    --badge-live-text: var(--live);
+    --badge-live-border: var(--live-border);
+    --badge-scheduled-bg: var(--scheduled-bg);
+    --badge-scheduled-text: var(--scheduled);
+    --badge-scheduled-border: var(--scheduled-border);
+    --badge-expired-bg: var(--expired-bg);
+    --badge-expired-text: var(--expired);
+    --badge-expired-border: var(--expired-border);
+    --badge-urgent-bg: var(--urgent-bg);
+    --badge-urgent-text: var(--urgent);
+    --badge-urgent-border: var(--urgent-border);
+    --badge-admin-bg: rgba(85, 65, 151, 0.12);
+    --badge-admin-text: #554197;
+    --badge-admin-border: rgba(85, 65, 151, 0.28);
+    --nav-bg: #F8F6EA;
+    --nav-text: #5A5D7A;
+    --nav-hover-bg: #EEEBDA;
+    --nav-hover-text: #282B4A;
+    --nav-active-bg: #FFFFFF;
+    --nav-active-text: #1D4ED8;
+    --nav-active-border: #1D4ED8;
+    --chip-bg: #EEEBDA;
+    --chip-text: #282B4A;
+    --chip-border: rgba(40, 43, 74, 0.14);
+    --chip-active-bg: #1D4ED8;
+    --chip-active-text: #FFFFFF;
+    --waveform-track: #EEEBDA;
+    --waveform-unplayed: #5A5D7A;
+    --waveform-active: #1D4ED8;
+    --dept-text-mix: #282B4A;
+    --dept-text-percentage: 45%;
+    --logo-sheet: #111318;
+    --logo-cut: #F5F1E8;
+    --logo-accent: #B08D57;
+    --logo-tile: transparent;
+    --logo-border: transparent;
+    --logo-letters: #111318;
+    --logo-diagonal: #B08D57;
+    --logo-v: #111318;
+    --logo-dot: #B08D57;
+    --bg: var(--bg-page);
+    --panel: var(--bg-surface);
+    --panel-raised: var(--bg-raised);
+    --surface-page: var(--bg-page);
+    --surface-card: var(--bg-surface);
+    --surface-raised: var(--bg-raised);
+    --surface-overlay: var(--bg-overlay);
+    --surface-stage: var(--bg-surface);
+    --surface-rail: var(--bg-page);
+    --blue: var(--interactive);
+    --blue-hover: var(--interactive-hover);
+    --red: var(--urgent);
+    --red-hover: var(--urgent-hover);
+    --green: var(--live);
+    --amber: var(--scheduled);
+    --amber-bg: var(--scheduled-bg);
+    --muted: var(--text-muted);
+    --line: var(--border);
+    --line-light: var(--border-light);
+    --shadow-stage: 0 16px 40px rgba(40, 43, 74, 0.10), 0 0 0 1px var(--border) inset;
+    --glow-info: rgba(29, 78, 216, 0.20);
+    --glow-urgent: var(--urgent-glow);
+  }
+}
+
+/* Standup Screen (Dark Indigo theme tokens) */
+.standup-screen {
+  background: var(--bg-page);
+  color: var(--text);
+}
+.standup-en,
+.standup-hi,
+.standup-mr {
+  color: var(--text);
+}

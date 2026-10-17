@@ -11,18 +11,19 @@
   <meta property="og:description" content="Next-Gen Smart Digital Notice Board & Kiosk Broadcast Engine">
   <meta property="og:image" content="/static/brand/og-image.png">
   <meta property="og:type" content="website">
+  <link rel="stylesheet" href="/static/css/tokens.css">
   <style>
     :root {
-      --bg: #0F172A;
-      --panel: #162238;
-      --panel-raised: #1C2B45;
-      --panel-hover: #223454;
-      --line: #24344F;
-      --text: #F8FAFC;
-      --muted: #A3B1C6;
-      --blue: #2F6BFF;
-      --red: #E5484D;
-      --amber: #F59E0B;
+      --bg: var(--bg-page);
+      --panel: var(--bg-surface);
+      --panel-raised: var(--bg-raised);
+      --panel-hover: var(--bg-raised);
+      --line: var(--border);
+      --text: var(--text);
+      --muted: var(--text-muted);
+      --blue: var(--interactive);
+      --red: var(--urgent);
+      --amber: var(--scheduled);
       --font: system-ui, -apple-system, "Segoe UI", Roboto, "DejaVu Sans", Arial, sans-serif;
     }
     * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -212,7 +213,7 @@
       <div class="dept-grid">
         {% for dept in departments %}
           <a href="/display/{{ dept.code }}" class="dept-item">
-            <span class="dept-pill" style="{% if dept.accent_color %}border-color: {{ dept.accent_color }}55; color: {{ dept.accent_color }};{% endif %}">{{ dept.code }}</span>
+            <span class="dept-pill" style="{% if dept.accent_color %}border-color: color-mix(in srgb, {{ dept.accent_color }} 40%, var(--border)); color: color-mix(in srgb, {{ dept.accent_color }} 55%, var(--text));{% endif %}">{{ dept.code }}</span>
             <span class="dept-name">{{ dept.name }}</span>
           </a>
         {% endfor %}

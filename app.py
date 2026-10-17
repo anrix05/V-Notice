@@ -998,9 +998,9 @@ def register_public_notice_routes(app):
 
         try:
             from PIL import Image, ImageDraw
-            img = Image.new("RGB", (1200, 630), color="#0B1020")
+            img = Image.new("RGB", (1200, 630), color="#131210")
             draw = ImageDraw.Draw(img)
-            draw.rectangle([(24, 24), (1176, 606)], outline="#24344F", width=2)
+            draw.rectangle([(24, 24), (1176, 606)], outline="#26241F", width=2)
 
             logo_path = Path("static/brand/mark-180.png")
             if logo_path.exists():
@@ -1012,8 +1012,8 @@ def register_public_notice_routes(app):
                     pass
 
             dept = str(notice.get("screen_id") or "ALL").upper()
-            draw.text((144, 76), "V NOTICE", fill="#F8FAFC")
-            draw.text((144, 100), f"OFFICIAL CAMPUS ANNOUNCEMENT · {dept}", fill="#F59E0B")
+            draw.text((144, 76), "V NOTICE", fill="#EEEBDA")
+            draw.text((144, 100), f"OFFICIAL CAMPUS ANNOUNCEMENT · {dept}", fill="#FBBF24")
 
             title = str(notice.get("title") or "Notice").strip()
             words = title.split()
@@ -1029,7 +1029,7 @@ def register_public_notice_routes(app):
 
             y = 200
             for line in lines[:3]:
-                draw.text((64, y), line, fill="#F8FAFC")
+                draw.text((64, y), line, fill="#EEEBDA")
                 y += 50
 
             body = str(notice.get("body") or "").strip()
@@ -1047,7 +1047,7 @@ def register_public_notice_routes(app):
                     b_lines.append(" ".join(c_b))
                 y += 20
                 for line in b_lines[:3]:
-                    draw.text((64, y), line, fill="#94A3B8")
+                    draw.text((64, y), line, fill="#A9ABC4")
                     y += 36
 
             img.save(str(cache_file), format="PNG")

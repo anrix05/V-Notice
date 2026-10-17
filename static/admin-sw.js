@@ -15,6 +15,7 @@ const ADMIN_SHELL_ASSETS = [
   '/admin',
   '/manifest.webmanifest',
   '/static/manifest.json',
+  '/static/css/tokens.css',
   '/static/css/admin.css?v=12',
   '/static/js/admin.js?v=10',
   '/static/icons/icon-192.png',
@@ -113,7 +114,7 @@ self.addEventListener('fetch', (event) => {
         const cached = await cache.match('/admin');
         if (cached) return cached;
         return new Response(
-          '<!DOCTYPE html><html><head><title>Offline - V Notice Admin</title></head><body><h1>Offline</h1><p>V Notice Admin is currently offline. Please reconnect to the network.</p></body></html>',
+          '<!DOCTYPE html><html><head><title>Offline - V Notice Admin</title><style>body{background:#131210;color:#EEEBDA;font-family:sans-serif;display:flex;flex-direction:column;align-items:center;justify-content:center;height:100vh;margin:0;}</style></head><body><h1>Offline</h1><p>V Notice Admin is currently offline. Please reconnect to the network.</p></body></html>',
           { status: 503, headers: { 'Content-Type': 'text/html' } }
         );
       })
