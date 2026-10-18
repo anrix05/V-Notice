@@ -2499,25 +2499,107 @@
   const MAX_FILE_SIZE_MB = 200;
   const ALLOWED_EXTS = ['jpg', 'jpeg', 'png', 'webp', 'gif', 'mp4', 'webm'];
 
-  function handleFileSelected() {
+  async function resizeImageClientSide(file, maxDimension = 2560, quality = 0.85) {
+    return new Promise((resolve) => {
+      try {
+        const img = new Image();
+        const url = URL.createObjectURL(file);
+        img.onload = () => {
+          URL.revokeObjectURL(url);
+          let w = img.naturalWidth;
+          let h = img.naturalHeight;
+          if (!w || !h) {
+            resolve(file);
+            return;
+          }
+          if (w > maxDimension || h > maxDimension) {
+            if (w > h) {
+              h = Math.round((h * maxDimension) / w);
+              w = maxDimension;
+            } else {
+              w = Math.round((w * maxDimension) / h);
+              h = maxDimension;
+            }
+          }
+          const canvas = document.createElement('canvas');
+          canvas.width = w;
+          canvas.height = h;
+          const ctx = canvas.getContext('2d');
+          if (!ctx) {
+            resolve(file);
+            return;
+          }
+          ctx.drawImage(img, 0, 0, w, h);
+          const mime = file.type === 'image/png' ? 'image/png' : 'image/jpeg';
+          canvas.toBlob((blob) => {
+            if (!blob) {
+              resolve(file);
+              return;
+            }
+            try {
+              const resizedFile = new File([blob], file.name, {
+                type: mime,
+                lastModified: Date.now()
+              });
+              resolve(resizedFile);
+            } catch (_) {
+              resolve(blob);
+            }
+          }, mime, quality);
+        };
+        img.onerror = () => {
+          URL.revokeObjectURL(url);
+          resolve(file);
+        };
+        img.src = url;
+      } catch (e) {
+        resolve(file);
+      }
+    });
+  }
+
+  async function handleFileSelected() {
     if (mediaFileInput.files && mediaFileInput.files[0]) {
-      const file = mediaFileInput.files[0];
+      let file = mediaFileInput.files[0];
       const ext = file.name.split('.').pop().toLowerCase();
 
       // Allowed extension check
       if (!ALLOWED_EXTS.includes(ext)) {
         errMedia.textContent = `Unsupported file type (.${ext}). Allowed: jpg, png, webp, gif, mp4, webm.`;
         errMedia.classList.remove('hidden');
-        resetFileDrop();
+        clearSelectedFile();
+        return;
+      }
+
+      const isImage = ['jpg', 'jpeg', 'png', 'webp'].includes(ext);
+      if (isImage && file.size > 8 * 1024 * 1024) {
+        try {
+          const resized = await resizeImageClientSide(file, 2560, 0.85);
+          if (resized && resized.size < file.size) {
+            file = resized;
+            try {
+              const dt = new DataTransfer();
+              dt.items.add(file);
+              mediaFileInput.files = dt.files;
+            } catch (_) {}
+          }
+        } catch (_) {}
+      }
+
+      // Cloudinary image size check
+      const sizeMb = file.size / (1024 * 1024);
+      if (isImage && sizeMb > 10) {
+        errMedia.textContent = 'Image is over 10 MB, choose a smaller file';
+        errMedia.classList.remove('hidden');
+        clearSelectedFile();
         return;
       }
 
       // Max file size check
-      const sizeMb = file.size / (1024 * 1024);
       if (sizeMb > MAX_FILE_SIZE_MB) {
         errMedia.textContent = `File size (${sizeMb.toFixed(1)} MB) exceeds limit of ${MAX_FILE_SIZE_MB} MB.`;
         errMedia.classList.remove('hidden');
-        resetFileDrop();
+        clearSelectedFile();
         return;
       }
 
@@ -2850,7 +2932,22 @@
       }
 
       if (mediaFileInput.files && mediaFileInput.files[0]) {
-        formData.append('media_file', mediaFileInput.files[0]);
+        let f = mediaFileInput.files[0];
+        const fExt = f.name.split('.').pop().toLowerCase();
+        if (['jpg', 'jpeg', 'png', 'webp'].includes(fExt)) {
+          if (f.size > 8 * 1024 * 1024) {
+            try {
+              const resized = await resizeImageClientSide(f, 2560, 0.85);
+              if (resized && resized.size < f.size) f = resized;
+            } catch (_) {}
+          }
+          if (f.size > 10 * 1024 * 1024) {
+            errMedia.textContent = 'Image is over 10 MB, choose a smaller file';
+            errMedia.classList.remove('hidden');
+            return;
+          }
+        }
+        formData.append('media_file', f);
       }
     }
 

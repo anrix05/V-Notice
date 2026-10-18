@@ -257,7 +257,7 @@
       inset: 0;
       background: linear-gradient(90deg, var(--panel-raised) 25%, var(--line) 50%, var(--panel-raised) 75%);
       background-size: 200% 100%;
-      animation: skeleton-shimmer 1.5s infinite;
+      animation: skeleton-shimmer 1.5s infinite, css-skeleton-fade 3s forwards;
       z-index: 1;
       pointer-events: none;
       transition: opacity 200ms ease;
@@ -266,6 +266,29 @@
     @keyframes skeleton-shimmer {
       0% { background-position: 200% 0; }
       100% { background-position: -200% 0; }
+    }
+
+    @keyframes css-fallback-reveal {
+      0%, 99% {
+        opacity: 0;
+        filter: blur(12px);
+      }
+      100% {
+        opacity: 1;
+        filter: blur(0);
+        transform: scale(1);
+      }
+    }
+
+    @keyframes css-skeleton-fade {
+      0%, 99% {
+        opacity: 1;
+      }
+      100% {
+        opacity: 0;
+        pointer-events: none;
+        display: none;
+      }
     }
 
     .notice-img {
@@ -279,13 +302,15 @@
       opacity: 0;
       filter: blur(12px);
       transform: scale(0.99);
+      animation: css-fallback-reveal 3s forwards;
       transition: opacity 200ms ease, filter 200ms ease, transform 200ms ease;
     }
 
     .notice-img.loaded {
-      opacity: 1;
-      filter: blur(0);
-      transform: scale(1);
+      opacity: 1 !important;
+      filter: blur(0) !important;
+      transform: scale(1) !important;
+      animation: none !important;
     }
 
     .notice-video {
@@ -952,6 +977,50 @@
       margin-bottom: 6px;
     }
 
+    /* Voice error overlay */
+    .voice-public-error {
+      position: absolute;
+      inset: 0;
+      background: rgba(15, 23, 42, 0.95);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 12px;
+      z-index: 10;
+      border-radius: inherit;
+      padding: 16px;
+      text-align: center;
+    }
+
+    .voice-public-error.hidden {
+      display: none !important;
+    }
+
+    .voice-error-text {
+      font-size: 14px;
+      font-weight: 600;
+      color: #F87171;
+    }
+
+    .btn-voice-retry {
+      background: var(--accent);
+      color: #FFFFFF;
+      border: none;
+      padding: 6px 16px;
+      border-radius: var(--radius-pill);
+      font-size: 13px;
+      font-weight: 700;
+      cursor: pointer;
+      box-shadow: 0 2px 8px var(--accent-light);
+      transition: background-color 0.15s ease, transform 0.15s ease;
+    }
+
+    .btn-voice-retry:hover {
+      background: var(--accent-hover);
+      transform: scale(1.03);
+    }
+
     /* Motion Accessibility */
     @media (prefers-reduced-motion: reduce) {
       *, *::before, *::after {
@@ -998,18 +1067,36 @@
     {% if notice and is_active %}
       <article class="notice-card" aria-labelledby="notice-heading">
         <!-- Hero Media Area (Top, full width, natural aspect ratio) -->
+        <script>
+          window.onHeroImageLoad = function(img) {
+            if (!img) return;
+            img.classList.add('loaded');
+            var skeleton = document.getElementById('media-skeleton');
+            if (skeleton) {
+              skeleton.style.opacity = '0';
+              setTimeout(function() { skeleton.style.display = 'none'; }, 200);
+            }
+          };
+          window.onHeroImageError = function(img) {
+            var skeleton = document.getElementById('media-skeleton');
+            if (skeleton) skeleton.style.display = 'none';
+            if (img) img.style.display = 'none';
+            var errorBox = document.getElementById('media-error-box');
+            if (errorBox) errorBox.classList.remove('hidden');
+          };
+        </script>
         <div class="hero-media-area" id="hero-media-container">
           {% if notice.type == 'image' and notice.media %}
             <div class="media-skeleton" id="media-skeleton" aria-hidden="true"></div>
             <img 
-              src="{{ notice.media if notice.media.startswith('http') else '/media/' + notice.media }}" 
+              src="{{ notice.hero_display_url }}" 
               alt="{{ notice.title }}" 
               class="notice-img" 
               id="notice-media-img"
               loading="eager"
               decoding="async"
               onload="onHeroImageLoad(this)"
-              onerror="handleMediaError()"
+              onerror="onHeroImageError(this)"
               onclick="openZoomViewer()"
               tabindex="0"
               role="button"
@@ -1029,7 +1116,11 @@
               onerror="handleMediaError()"
             ></video>
           {% elif notice.type == 'voice' and notice.media %}
-            <div class="voice-public-player" id="voice-public-player">
+            <div class="voice-public-player" id="voice-public-player" style="position: relative;">
+              <div class="voice-public-error hidden" id="voice-public-error" role="alert">
+                <span class="voice-error-text" id="voice-error-text">Could not load audio</span>
+                <button type="button" class="btn-voice-retry" onclick="retryVoiceAudio()">Retry</button>
+              </div>
               <div class="voice-public-hero">
                 <button type="button" class="btn-voice-public-play" id="btn-voice-public-play" aria-label="Play voice announcement">
                   <span id="voice-public-play-icon">▶</span>
@@ -1043,11 +1134,19 @@
               </div>
               <div class="voice-public-waveform" id="voice-public-waveform" role="progressbar" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100" tabindex="0">
                 <div class="voice-public-wf-track" id="voice-public-wf-track">
-                  <!-- Waveform bars populated dynamically -->
+                  {% if notice.waveform_list %}
+                    {% for bar in notice.waveform_list %}
+                      <span class="pub-wf-bar" id="pub-bar-{{ loop.index0 }}" style="height: {{ bar }}%;"></span>
+                    {% endfor %}
+                  {% else %}
+                    {% for i in range(64) %}
+                      <span class="pub-wf-bar" id="pub-bar-{{ i }}" style="height: 35%;"></span>
+                    {% endfor %}
+                  {% endif %}
                 </div>
                 <div class="voice-public-wf-fill" id="voice-public-wf-fill"></div>
               </div>
-              <audio id="voice-public-audio" src="{{ notice.media if notice.media.startswith('http') else '/media/' + notice.media }}" preload="metadata"></audio>
+              <audio id="voice-public-audio" src="/n/{{ notice.id }}/audio" preload="metadata"></audio>
             </div>
           {% else %}
             <!-- Deterministic Gradient Headline Tile for Text Notices -->
@@ -1281,18 +1380,18 @@
   <!-- Client JavaScript -->
   <script>
     const noticeData = {
-      id: {{ (notice.id|tojson) if notice else 'null' }},
-      title: {{ (notice.title|tojson) if notice else '""' }},
-      body: {{ (notice.body|tojson) if notice else '""' }},
-      caption: {{ (notice.caption|tojson) if notice and notice.caption else '""' }},
-      waveform: {{ (notice.waveform|tojson) if notice and notice.waveform else 'null' }},
-      audioDuration: {{ (notice.audio_duration|tojson) if notice and notice.audio_duration else 'null' }},
-      type: {{ (notice.type|tojson) if notice else '"text"' }},
-      media: {{ (notice.media|tojson) if notice and notice.media else 'null' }},
-      downloadSlug: {{ (notice.download_slug|tojson) if notice else '"notice"' }},
-      fileSizeBytes: {{ (notice.file_size_bytes|tojson) if notice else '0' }},
-      startMs: {{ (notice.start|tojson) if notice and notice.start else 'null' }},
-      endMs: {{ (notice.end|tojson) if notice and notice.end else 'null' }}
+      id: {{ (notice.id if notice else None)|tojson|safe }},
+      title: {{ (notice.title if notice else "")|tojson|safe }},
+      body: {{ (notice.body if notice else "")|tojson|safe }},
+      caption: {{ (notice.caption if notice and notice.caption else "")|tojson|safe }},
+      waveform: {{ (notice.waveform if notice and notice.waveform else None)|tojson|safe }},
+      audioDuration: {{ (notice.audio_duration if notice and notice.audio_duration else None)|tojson|safe }},
+      type: {{ (notice.type if notice else "text")|tojson|safe }},
+      media: {{ (notice.media if notice and notice.media else None)|tojson|safe }},
+      downloadSlug: {{ (notice.download_slug if notice else "notice")|tojson|safe }},
+      fileSizeBytes: {{ (notice.file_size_bytes if notice else 0)|tojson|safe }},
+      startMs: {{ (notice.start if notice and notice.start else None)|tojson|safe }},
+      endMs: {{ (notice.end if notice and notice.end else None)|tojson|safe }}
     };
 
     // Hero image loading transition (fade-in 200ms & blur removal)
@@ -1304,6 +1403,14 @@
         skeleton.style.opacity = '0';
         setTimeout(() => { skeleton.style.display = 'none'; }, 200);
       }
+    }
+
+    function onHeroImageError(img) {
+      const skeleton = document.getElementById('media-skeleton');
+      if (skeleton) skeleton.style.display = 'none';
+      if (img) img.style.display = 'none';
+      const errorBox = document.getElementById('media-error-box');
+      if (errorBox) errorBox.classList.remove('hidden');
     }
 
     document.addEventListener('DOMContentLoaded', () => {
@@ -1360,10 +1467,16 @@
       const errorBox = document.getElementById('media-error-box');
       const mediaImg = document.getElementById('notice-media-img');
       const mediaVideo = document.getElementById('notice-media-video');
+      const skeleton = document.getElementById('media-skeleton');
       const cacheBust = '?t=' + Date.now();
       if (errorBox) errorBox.classList.add('hidden');
       if (mediaImg) {
+        if (skeleton) {
+          skeleton.style.display = 'block';
+          skeleton.style.opacity = '1';
+        }
         mediaImg.style.display = 'block';
+        mediaImg.classList.remove('loaded');
         const baseSrc = mediaImg.src.split('?')[0];
         mediaImg.src = baseSrc + cacheBust;
       }
@@ -1409,7 +1522,7 @@
     }
 
     let isSaving = false;
-    function triggerSaveDownload() {
+    async function triggerSaveDownload() {
       if (isSaving || !noticeData.id) return;
       isSaving = true;
 
@@ -1422,32 +1535,52 @@
       }
 
       const fileUrl = `/n/${noticeData.id}/file`;
-      const fileName = noticeData.downloadSlug;
+      const fileName = noticeData.downloadSlug || `notice_${noticeData.id}`;
 
       try {
-        // Direct browser download via hidden anchor
-        // /n/<id>/file serves Content-Disposition: attachment with correct filename & MIME
+        const response = await fetch(fileUrl, { method: 'GET' });
+        if (!response.ok) {
+          let errReason = `HTTP ${response.status}`;
+          try {
+            const errData = await response.json();
+            if (errData && errData.error) errReason = errData.error;
+          } catch (_) {
+            try {
+              const txt = await response.text();
+              if (txt && txt.length < 80) errReason = txt;
+            } catch (_) {}
+          }
+          throw new Error(errReason);
+        }
+
+        const blob = await response.blob();
+        if (!blob || blob.size === 0) {
+          throw new Error('Downloaded file was empty');
+        }
+
+        const blobUrl = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.style.display = 'none';
-        a.href = fileUrl;
-        a.setAttribute('download', fileName);
+        a.href = blobUrl;
+        a.download = fileName;
         document.body.appendChild(a);
         a.click();
         setTimeout(() => {
           try { document.body.removeChild(a); } catch (_) {}
-        }, 1500);
-        showToast('Saving to your device...');
+          URL.revokeObjectURL(blobUrl);
+        }, 3000);
+        showToast('Saved to your device');
       } catch (err) {
-        window.open(fileUrl, '_blank');
-        showToast('Press and hold the media to save');
+        console.error('Download error:', err);
+        showToast(`Could not download: ${err.message || 'Network error'}`, () => {
+          triggerSaveDownload();
+        });
       } finally {
-        setTimeout(() => {
-          isSaving = false;
-          if (saveBtn) {
-            saveBtn.disabled = false;
-            if (saveText) saveText.innerHTML = originalHtml;
-          }
-        }, 1200);
+        isSaving = false;
+        if (saveBtn) {
+          saveBtn.disabled = false;
+          if (saveText) saveText.innerHTML = originalHtml;
+        }
       }
     }
 
@@ -1704,16 +1837,80 @@
 
       if (!playBtn || !audio) return;
 
-      // Render 64 waveform bars
-      let wf = noticeData.waveform;
-      try {
-        if (typeof wf === 'string') wf = JSON.parse(wf);
-      } catch (e) { wf = null; }
-      if (!Array.isArray(wf) || wf.length !== 64) {
-        wf = Array.from({ length: 64 }, (_, i) => Math.round(20 + Math.sin(i / 4) * 45 + Math.random() * 20));
+      let stallTimer = null;
+      function showVoiceError(msg) {
+        if (stallTimer) { clearTimeout(stallTimer); stallTimer = null; }
+        const voiceErr = document.getElementById('voice-public-error');
+        const voiceErrText = document.getElementById('voice-error-text');
+        if (voiceErr) {
+          if (voiceErrText) voiceErrText.textContent = msg || 'Could not load audio';
+          voiceErr.classList.remove('hidden');
+        }
       }
 
-      if (track) {
+      function clearVoiceError() {
+        if (stallTimer) { clearTimeout(stallTimer); stallTimer = null; }
+        const voiceErr = document.getElementById('voice-public-error');
+        if (voiceErr) voiceErr.classList.add('hidden');
+      }
+
+      function startStallTimer() {
+        if (stallTimer) clearTimeout(stallTimer);
+        stallTimer = setTimeout(() => {
+          if (audio.readyState < 2 && !audio.paused) {
+            showVoiceError('Could not load audio');
+          }
+        }, 8000);
+      }
+
+      window.retryVoiceAudio = function() {
+        clearVoiceError();
+        const baseSrc = audio.src.split('?')[0];
+        audio.src = baseSrc + '?t=' + Date.now();
+        audio.load();
+        startStallTimer();
+        const p = audio.play();
+        if (p !== undefined) {
+          p.then(() => {
+            clearVoiceError();
+            if (playIcon) playIcon.textContent = '⏸';
+            playBtn.setAttribute('aria-label', 'Pause voice announcement');
+          }).catch(err => {
+            clearVoiceError();
+            showVoiceError('Playback failed: ' + (err.name === 'NotAllowedError' ? 'Interaction required' : (err.message || 'Error')));
+          });
+        }
+      };
+
+      audio.addEventListener('error', () => {
+        showVoiceError('Could not load audio');
+      });
+
+      audio.addEventListener('waiting', () => {
+        startStallTimer();
+      });
+
+      audio.addEventListener('stalled', () => {
+        startStallTimer();
+      });
+
+      audio.addEventListener('playing', () => {
+        clearVoiceError();
+      });
+
+      audio.addEventListener('canplay', () => {
+        clearVoiceError();
+      });
+
+      // Render 64 waveform bars if not already in DOM
+      if (track && track.children.length === 0) {
+        let wf = noticeData.waveform;
+        try {
+          if (typeof wf === 'string') wf = JSON.parse(wf);
+        } catch (e) { wf = null; }
+        if (!Array.isArray(wf) || wf.length !== 64) {
+          wf = Array.from({ length: 64 }, (_, i) => Math.round(20 + Math.sin(i / 4) * 45 + Math.random() * 20));
+        }
         track.innerHTML = wf.map((val, idx) => {
           const h = Math.max(10, Math.min(100, val));
           return `<span class="pub-wf-bar" id="pub-bar-${idx}" style="height:${h}%"></span>`;
@@ -1739,14 +1936,23 @@
       });
 
       playBtn.addEventListener('click', () => {
+        clearVoiceError();
         if (audio.paused) {
-          audio.play().then(() => {
-            if (playIcon) playIcon.textContent = '⏸';
-            playBtn.setAttribute('aria-label', 'Pause voice announcement');
-          }).catch(err => {
-            console.warn('Playback error:', err);
-          });
+          startStallTimer();
+          const playPromise = audio.play();
+          if (playPromise !== undefined) {
+            playPromise.then(() => {
+              clearVoiceError();
+              if (playIcon) playIcon.textContent = '⏸';
+              playBtn.setAttribute('aria-label', 'Pause voice announcement');
+            }).catch(err => {
+              clearVoiceError();
+              console.warn('Playback error:', err);
+              showVoiceError('Could not play audio: ' + (err.name === 'NotAllowedError' ? 'Interaction required' : (err.message || 'Error')));
+            });
+          }
         } else {
+          clearVoiceError();
           audio.pause();
           if (playIcon) playIcon.textContent = '▶';
           playBtn.setAttribute('aria-label', 'Play voice announcement');

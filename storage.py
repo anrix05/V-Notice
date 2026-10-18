@@ -19,6 +19,7 @@ except Exception:
 from pathlib import Path
 from werkzeug.utils import secure_filename
 from werkzeug.security import generate_password_hash, check_password_hash
+import config
 from config import (
     DB_FILE,
     DATA_FILE,
@@ -177,7 +178,8 @@ def probe_voice_media(file_path) -> Tuple[bool, Optional[float], str]:
 
 def sanitize_or_generate_waveform(raw_waveform, audio_file_path=None) -> str:
     """Validates that waveform is a list of exactly 64 integers in 0..100.
-    If valid, returns JSON string of the list. Otherwise, regenerates 64 values."""
+    If valid, returns JSON string of the list. Otherwise, generates from audio file
+    via ffmpeg/ffprobe when available, or returns a neutral static bar pattern."""
     if raw_waveform:
         try:
             val = raw_waveform
@@ -188,6 +190,37 @@ def sanitize_or_generate_waveform(raw_waveform, audio_file_path=None) -> str:
                 return json.dumps(cleaned)
         except Exception:
             pass
+
+    # Try generating waveform server-side from audio file if available
+    if audio_file_path:
+        p = Path(audio_file_path)
+        if p.is_file() and shutil.which("ffmpeg"):
+            try:
+                cmd = [
+                    "ffmpeg", "-y", "-i", str(p),
+                    "-ac", "1", "-ar", "8000", "-f", "s16le", "-"
+                ]
+                res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=6)
+                raw = res.stdout
+                if raw and len(raw) >= 128:
+                    import struct, math
+                    num_samples = len(raw) // 2
+                    samples = struct.unpack(f"<{num_samples}h", raw[:num_samples * 2])
+                    chunk_sz = max(1, num_samples // 64)
+                    rms_values = []
+                    for i in range(64):
+                        chunk = samples[i * chunk_sz:(i + 1) * chunk_sz]
+                        if chunk:
+                            rms = math.sqrt(sum(s * s for s in chunk) / len(chunk))
+                            rms_values.append(rms)
+                        else:
+                            rms_values.append(0.0)
+                    max_rms = max(rms_values) if rms_values else 0
+                    if max_rms > 0:
+                        peaks = [max(8, min(100, int(round((r / max_rms) * 90 + 10)))) for r in rms_values]
+                        return json.dumps(peaks)
+            except Exception as e:
+                logger.debug("Server-side waveform extraction via ffmpeg failed: %s", e)
 
     import math
     peaks = []
@@ -1468,7 +1501,6 @@ class NoticeStorage:
         media_filename = str(data.get("media", "")).strip() if data.get("media") else ""
         req_type = str(data.get("type", "text")).strip().lower()
         if req_type == "voice":
-            import config
             if not getattr(config, "VOICE_NOTICES_ENABLED", False):
                 raise ValueError("Voice notices are currently disabled.")
 
@@ -1519,6 +1551,14 @@ class NoticeStorage:
                 dest_temp.rename(final_path)
                 dest_temp = None
 
+                # Reject images over 10MB when cloud storage is active or on Render
+                if req_type == "image":
+                    file_sz = final_path.stat().st_size
+                    if (getattr(self.media_storage, "is_cloud", False) or getattr(config, "IS_RENDER", False)) and file_sz > 10 * 1024 * 1024:
+                        try: final_path.unlink()
+                        except Exception: pass
+                        raise ValueError("Image is over 10 MB, choose a smaller file")
+
                 if getattr(self.media_storage, "is_cloud", False):
                     try:
                         cloud_res_type = "video" if req_type == "voice" else "auto"
@@ -1531,7 +1571,17 @@ class NoticeStorage:
                             except Exception:
                                 pass
                     except Exception as e:
-                        logger.error("Cloud upload error, falling back to local file: %s", e)
+                        logger.error("Cloud upload error: %s", e)
+                        try:
+                            if final_path and final_path.exists():
+                                final_path.unlink()
+                        except Exception:
+                            pass
+                        err_str = str(e)
+                        if "too large" in err_str.lower() or "maximum is" in err_str.lower():
+                            raise ValueError("Image is over 10 MB, choose a smaller file")
+                        if getattr(config, "IS_RENDER", False) or getattr(self.media_storage, "is_cloud", False):
+                            raise ValueError(f"Cloud storage upload failed: {err_str}. Please try a smaller file.")
             elif req_type == "voice":
                 if not media_filename:
                     raise ValueError("Voice notice requires an audio recording or file.")
@@ -1723,6 +1773,14 @@ class NoticeStorage:
                 dest_temp.rename(final_path)
                 dest_temp = None
 
+                # Reject images over 10MB when cloud storage is active or on Render
+                if req_type == "image":
+                    file_sz = final_path.stat().st_size
+                    if (getattr(self.media_storage, "is_cloud", False) or getattr(config, "IS_RENDER", False)) and file_sz > 10 * 1024 * 1024:
+                        try: final_path.unlink()
+                        except Exception: pass
+                        raise ValueError("Image is over 10 MB, choose a smaller file")
+
                 if getattr(self.media_storage, "is_cloud", False):
                     try:
                         cloud_res_type = "video" if req_type == "voice" else "auto"
@@ -1735,7 +1793,17 @@ class NoticeStorage:
                             except Exception:
                                 pass
                     except Exception as e:
-                        logger.error("Cloud upload error, falling back to local file: %s", e)
+                        logger.error("Cloud upload error: %s", e)
+                        try:
+                            if final_path and final_path.exists():
+                                final_path.unlink()
+                        except Exception:
+                            pass
+                        err_str = str(e)
+                        if "too large" in err_str.lower() or "maximum is" in err_str.lower():
+                            raise ValueError("Image is over 10 MB, choose a smaller file")
+                        if getattr(config, "IS_RENDER", False) or getattr(self.media_storage, "is_cloud", False):
+                            raise ValueError(f"Cloud storage upload failed: {err_str}. Please try a smaller file.")
                 
                 if old_media and old_media != media_filename:
                     self.media_storage.delete(old_media)

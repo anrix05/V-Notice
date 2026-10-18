@@ -458,11 +458,11 @@ def apply_security_headers(app):
         response.headers["Content-Security-Policy"] = (
             "default-src 'self'; "
             "script-src 'self' 'unsafe-inline'; "
-            "style-src 'self' 'unsafe-inline'; "
-            "img-src 'self' data: blob: https://res.cloudinary.com https://*.cloudinary.com; "
+            "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
+            "img-src 'self' blob: https://res.cloudinary.com https://*.cloudinary.com; "
             "media-src 'self' blob: https://res.cloudinary.com https://*.cloudinary.com; "
             "connect-src 'self' https://res.cloudinary.com https://*.cloudinary.com; "
-            "font-src 'self'; "
+            "font-src 'self' https://fonts.gstatic.com; "
             "manifest-src 'self'; "
             "worker-src 'self'; "
             "frame-src 'self' http://localhost:5000 http://localhost:5001 http://127.0.0.1:5000 http://127.0.0.1:5001; "
@@ -740,6 +740,50 @@ def format_notice_for_display(notice):
                     n["file_size_formatted"] = f"{round(sz / (1024 * 1024), 1)} MB"
 
     n["download_slug"] = generate_download_slug(n)
+
+    # Hero image display URL (resized for display only, never 14MB original)
+    media_val = str(n.get("media") or "").strip()
+    notice_type = str(n.get("type") or "text").lower()
+    if media_val and notice_type == "image":
+        if "res.cloudinary.com" in media_val and "/upload/" in media_val:
+            if "w_1200" not in media_val:
+                n["hero_display_url"] = media_val.replace("/upload/", "/upload/w_1200,q_auto,f_auto/", 1)
+            else:
+                n["hero_display_url"] = media_val
+        elif media_val.startswith("http://") or media_val.startswith("https://"):
+            n["hero_display_url"] = media_val
+        else:
+            n["hero_display_url"] = f"/media/thumb/w1200/{media_val}"
+    else:
+        n["hero_display_url"] = n.get("media_url") or ""
+
+    # Voice waveform validation and pre-rendered bars
+    if notice_type == "voice":
+        wf_raw = n.get("waveform")
+        wf_list = None
+        try:
+            val = json.loads(wf_raw) if isinstance(wf_raw, str) else wf_raw
+            if isinstance(val, list) and len(val) == 64:
+                wf_list = [max(5, min(100, int(round(float(v))))) for v in val]
+        except Exception:
+            wf_list = None
+
+        if not wf_list:
+            audio_candidate = None
+            if media_val and not media_val.startswith("http"):
+                candidate = Path(MEDIA_FOLDER) / media_val
+                if candidate.is_file():
+                    audio_candidate = candidate
+            wf_json = storage.sanitize_or_generate_waveform(None, audio_file_path=audio_candidate)
+            n["waveform"] = wf_json
+            try:
+                wf_list = json.loads(wf_json)
+            except Exception:
+                wf_list = [50] * 64
+        else:
+            n["waveform"] = json.dumps(wf_list)
+        n["waveform_list"] = wf_list
+
     return n
 
 def render_inactive_public_page():
@@ -815,12 +859,10 @@ def register_public_notice_routes(app):
         # 1. Media Notice (image / video / voice): Must NEVER fall back to .txt
         if notice_type in ("image", "video", "voice"):
             if not media_val:
-                return Response(
-                    "Media file not found for this notice.",
-                    status=404,
-                    mimetype="text/plain; charset=utf-8",
-                    headers={"Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff"}
-                )
+                resp = jsonify({"error": "Media file not found for this notice."})
+                resp.status_code = 404
+                resp.headers["Cache-Control"] = "private, no-store"
+                return resp
 
             # Case A: Remote / Cloudinary URL
             if media_val.startswith("http://") or media_val.startswith("https://"):
@@ -848,12 +890,10 @@ def register_public_notice_routes(app):
                         att_slug = Path(slug).stem
                         att_url = media_val.replace("/upload/", f"/upload/fl_attachment:{att_slug}/", 1)
                         return redirect(att_url)
-                    return Response(
-                        "Remote media unavailable.",
-                        status=502,
-                        mimetype="text/plain; charset=utf-8",
-                        headers={"Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff"}
-                    )
+                    resp = jsonify({"error": "Remote media unavailable."})
+                    resp.status_code = 502
+                    resp.headers["Cache-Control"] = "private, no-store"
+                    return resp
 
                 def stream_remote():
                     try:
@@ -908,12 +948,10 @@ def register_public_notice_routes(app):
                     media_path = candidate
 
             if not media_path or not Path(media_path).is_file():
-                return Response(
-                    "Media file not found on server.",
-                    status=404,
-                    mimetype="text/plain; charset=utf-8",
-                    headers={"Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff"}
-                )
+                resp = jsonify({"error": "Media file not found on server."})
+                resp.status_code = 404
+                resp.headers["Cache-Control"] = "private, no-store"
+                return resp
 
             media_path = Path(media_path)
 
@@ -1065,9 +1103,151 @@ def register_public_notice_routes(app):
     def legacy_notice_download_redirect(notice_id):
         return redirect(f"/n/{notice_id}/file", code=301)
 
+    @app.route("/n/<notice_id>/audio", methods=["GET", "HEAD"])
+    def public_notice_audio(notice_id):
+        if not check_public_rate_limit(get_client_ip()):
+            return Response("Too Many Requests", status=429, headers={"Retry-After": "60"})
+
+        notice = storage.get_by_id(notice_id)
+        if not notice or notice.get("deleted") == 1 or notice.get("is_active") == 0:
+            return Response("Not found", status=404)
+
+        media_val = str(notice.get("media") or "").strip()
+        if not media_val:
+            return Response("Audio media not found", status=404)
+
+        parsed_url = urllib.parse.urlparse(media_val)
+        raw_ext = Path(parsed_url.path if media_val.startswith("http") else media_val).suffix.lstrip(".").lower()
+        if raw_ext == "mp3":
+            mime = "audio/mpeg"
+        elif raw_ext in ("wav", "ogg", "webm"):
+            mime = f"audio/{raw_ext}"
+        elif raw_ext in ("m4a", "mp4"):
+            mime = "audio/mp4"
+        else:
+            mime = "audio/webm"
+
+        # Case A: Remote / Cloudinary URL
+        if media_val.startswith("http://") or media_val.startswith("https://"):
+            range_header = request.headers.get("Range")
+            remote_headers = {"User-Agent": "VNotice/1.0"}
+            if range_header:
+                remote_headers["Range"] = range_header
+
+            req = urllib.request.Request(media_val, headers=remote_headers)
+            try:
+                remote_res = urllib.request.urlopen(req, timeout=12)
+            except Exception as e:
+                logger.warning("Failed streaming remote audio for notice %s: %s", notice_id, e)
+                return Response("Remote audio unavailable", status=502)
+
+            def stream_remote():
+                try:
+                    while True:
+                        chunk = remote_res.read(65536)
+                        if not chunk:
+                            break
+                        yield chunk
+                finally:
+                    remote_res.close()
+
+            status_code = getattr(remote_res, "status", 200)
+            resp = Response(stream_with_context(stream_remote()), status=status_code, mimetype=mime)
+            resp.headers["Accept-Ranges"] = "bytes"
+            resp.headers["Cache-Control"] = "public, max-age=86400"
+            resp.headers["X-Content-Type-Options"] = "nosniff"
+            if remote_res.headers.get("Content-Length"):
+                resp.headers["Content-Length"] = remote_res.headers.get("Content-Length")
+            if remote_res.headers.get("Content-Range"):
+                resp.headers["Content-Range"] = remote_res.headers.get("Content-Range")
+            return resp
+
+        # Case B: Local Media
+        media_path = None
+        if hasattr(storage.media_storage, "get_path"):
+            try:
+                media_path = storage.media_storage.get_path(media_val)
+            except Exception:
+                media_path = None
+        if not media_path or not Path(media_path).is_file():
+            candidate = Path(MEDIA_FOLDER) / media_val
+            if candidate.is_file():
+                media_path = candidate
+
+        if not media_path or not Path(media_path).is_file():
+            return Response("Local audio file not found", status=404)
+
+        resp = send_file(str(media_path), mimetype=mime, conditional=True)
+        resp.headers["Accept-Ranges"] = "bytes"
+        resp.headers["Cache-Control"] = "public, max-age=86400"
+        resp.headers["X-Content-Type-Options"] = "nosniff"
+        return resp
+
+    @app.route("/media/thumb/w1200/<path:filename>", methods=["GET", "HEAD"])
+    def public_media_thumb(filename):
+        return serve_media_thumb_w1200(filename)
+
+def serve_media_thumb_w1200(filename):
+    if filename.startswith("http://") or filename.startswith("https://"):
+        return redirect(filename)
+
+    folder = getattr(storage, "media_folder", None) or Path(config.MEDIA_FOLDER)
+    file_path = Path(folder) / filename
+    if not file_path.is_file():
+        file_path = Path(config.MEDIA_FOLDER) / filename
+
+    if not file_path.is_file():
+        return jsonify({"error": "Media file not found"}), 404
+
+    ext = file_path.suffix.lstrip(".").lower()
+    if ext not in ("jpg", "jpeg", "png", "webp"):
+        return serve_media_response(filename)
+
+    cache_dir = Path(config.STORAGE_DIR) / ".cache" / "w1200"
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    safe_name = re.sub(r"[^\w\-.]", "_", filename)
+    thumb_path = cache_dir / f"thumb_{safe_name}"
+
+    if thumb_path.is_file() and thumb_path.stat().st_mtime >= file_path.stat().st_mtime:
+        mimetype = "image/png" if ext == "png" else "image/jpeg"
+        resp = send_file(str(thumb_path), mimetype=mimetype, conditional=True)
+        resp.headers["Cache-Control"] = "public, max-age=86400"
+        resp.headers["Accept-Ranges"] = "bytes"
+        resp.headers["X-Content-Type-Options"] = "nosniff"
+        return resp
+
+    try:
+        from PIL import Image, ImageOps
+        with Image.open(file_path) as im:
+            im = ImageOps.exif_transpose(im)
+            orig_w, orig_h = im.size
+            if orig_w > 1200:
+                new_h = int(round((orig_h * 1200) / orig_w))
+                im = im.resize((1200, new_h), Image.Resampling.LANCZOS)
+            
+            save_format = "PNG" if ext == "png" else "JPEG"
+            if save_format == "JPEG" and im.mode in ("RGBA", "P"):
+                im = im.convert("RGB")
+            
+            thumb_path.parent.mkdir(parents=True, exist_ok=True)
+            im.save(str(thumb_path), format=save_format, quality=85, optimize=True)
+
+        mimetype = "image/png" if ext == "png" else "image/jpeg"
+        resp = send_file(str(thumb_path), mimetype=mimetype, conditional=True)
+        resp.headers["Cache-Control"] = "public, max-age=86400"
+        resp.headers["Accept-Ranges"] = "bytes"
+        resp.headers["X-Content-Type-Options"] = "nosniff"
+        return resp
+    except Exception as e:
+        logger.warning("Thumbnail generation failed for %s: %s", filename, e)
+        return serve_media_response(filename)
+
 def serve_media_response(filename):
     if filename.startswith("http://") or filename.startswith("https://"):
         return redirect(filename)
+
+    if request.args.get("w") == "1200":
+        return serve_media_thumb_w1200(filename)
 
     folder = getattr(storage, "media_folder", None) or Path(config.MEDIA_FOLDER)
     file_path = Path(folder) / filename
