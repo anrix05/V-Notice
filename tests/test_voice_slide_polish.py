@@ -5,7 +5,7 @@ from pathlib import Path
 from playwright.sync_api import sync_playwright
 
 BASE_URL = "http://localhost:5000"
-SCREENSHOTS_DIR = Path(__file__).resolve().parent.parent / "verification_voice_polish"
+SCREENSHOTS_DIR = Path(__file__).resolve().parent.parent / "archive" / "verification" / "verification_voice_polish"
 SCREENSHOTS_DIR.mkdir(parents=True, exist_ok=True)
 
 
