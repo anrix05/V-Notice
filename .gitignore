@@ -44,6 +44,7 @@ Desktop.ini
 *.log
 baseline_tests.txt
 post_cleanup_tests.txt
+PR_DESCRIPTION.md
 test-results/
 playwright-report/
 screenshots/
