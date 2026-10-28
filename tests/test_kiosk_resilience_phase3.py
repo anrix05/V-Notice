@@ -86,7 +86,7 @@ def test_offline_qr_library_exists():
 
 def test_kiosk_script_persistent_cache_flags():
     base = Path(__file__).resolve().parent.parent
-    kiosk_sh = (base / "systemd" / "kiosk.sh").read_text(encoding="utf-8")
+    kiosk_sh = (base / "deploy" / "raspberry-pi" / "kiosk.sh").read_text(encoding="utf-8")
     assert "--user-data-dir=" in kiosk_sh
     assert "--autoplay-policy=no-user-gesture-required" in kiosk_sh
     assert "--noerrdialogs" in kiosk_sh

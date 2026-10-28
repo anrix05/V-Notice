@@ -17,7 +17,8 @@ echo -e "${BLUE}      V NOTICE — RASPBERRY PI KIOSK AUTO-INSTALLER        ${NC
 echo -e "${BLUE}==========================================================${NC}"
 echo ""
 
-APP_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+APP_DIR="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 CURRENT_USER="$(whoami)"
 
 # Configurable Department Screen Code (default: EXCS, can be overridden via DEPARTMENT_CODE=CMPN ./install_rpi.sh)
@@ -105,9 +106,10 @@ sudo systemctl restart vnotice.service
 echo -e "${GREEN}✔ V Notice service installed and started successfully!${NC}"
 
 # 5. Configure Fullscreen Kiosk Mode on Boot
-# Launches Chromium via systemd/kiosk.sh with --autoplay-policy=no-user-gesture-required
+# Launches Chromium via deploy/raspberry-pi/kiosk.sh with --autoplay-policy=no-user-gesture-required
 echo -e "${BLUE}[5/5] Configuring Fullscreen Chromium Kiosk on display boot...${NC}"
-chmod +x "${APP_DIR}/systemd/kiosk.sh"
+chmod +x "${APP_DIR}/deploy/raspberry-pi/kiosk.sh"
+chmod +x "${APP_DIR}/scripts/linux/start.sh"
 chmod +x "${APP_DIR}/start.sh"
 
 # Setup autostart directory for desktop session
@@ -118,7 +120,7 @@ cat <<EOF > "${AUTOSTART_DIR}/vnotice-kiosk.desktop"
 [Desktop Entry]
 Type=Application
 Name=V Notice Kiosk (${DEPARTMENT_CODE})
-Exec=env DEPARTMENT_CODE=${DEPARTMENT_CODE} ${APP_DIR}/systemd/kiosk.sh
+Exec=env DEPARTMENT_CODE=${DEPARTMENT_CODE} ${APP_DIR}/deploy/raspberry-pi/kiosk.sh
 X-GNOME-Autostart-enabled=true
 EOF
 
@@ -140,10 +142,10 @@ echo -e "  - Biomedical Engineering:      https://v-notice.onrender.com/display/
 echo -e "  - College-Wide (All Boards):   https://v-notice.onrender.com/display/ALL"
 echo ""
 echo -e "To change the department screen code, run installer with:"
-echo -e "  ${BLUE}DEPARTMENT_CODE=CMPN ./install_rpi.sh${NC}"
+echo -e "  ${BLUE}DEPARTMENT_CODE=CMPN ./deploy/raspberry-pi/install_rpi.sh${NC}"
 echo ""
 echo -e "To launch fullscreen kiosk now, run:"
-echo -e "  ${BLUE}DEPARTMENT_CODE=${DEPARTMENT_CODE} ${APP_DIR}/systemd/kiosk.sh${NC}"
+echo -e "  ${BLUE}DEPARTMENT_CODE=${DEPARTMENT_CODE} ${APP_DIR}/deploy/raspberry-pi/kiosk.sh${NC}"
 echo ""
 echo -e "On reboot, the Raspberry Pi will automatically display V Notice ${DEPARTMENT_CODE} full screen!"
 echo ""

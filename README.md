@@ -1,359 +1,85 @@
-# V Notice — Smart Digital Notice Board
+# V Notice — Smart Campus Digital Notice Board & Kiosk
 
-> **MCA Project**  
-> *Platform: Raspberry Pi + 18-inch to 22-inch Monitor (Full HD 1080p / 900p / 720p & 7-inch LCD)*  
-> *Tagline: "Your Campus. Your Notices. One Display."*
+**V Notice** is a lightweight, offline-first smart digital notice board and announcement system purpose-built for college campus corridors, department lobbies, and academic kiosks. Running on a lean Python Flask backend (<60MB RAM footprint), it dynamically rotates campus announcements, urgent alerts, video broadcasts, and voice memos on standard 18"–22" monitors and Raspberry Pi kiosks, while providing faculty and department administrators with a mobile-friendly 30-second publishing dashboard and offering passing students instantaneous high-contrast announcement downloads via scan-to-phone QR codes.
 
 ---
 
-## 1. Project Overview
+## Repository Folder Map
 
-**V Notice** is a centralized smart digital notice board system developed for college campuses. It seamlessly connects faculty, administration, and students:
-
-- **Faculty and Staff** publish, schedule, categorize, edit, and broadcast announcements instantly from any smartphone, tablet, or laptop from anywhere.
-- **The Raspberry Pi** wall-mounted 18-inch to 22-inch monitor dynamically rotates active notices, prioritizes urgent campus alerts, plays campus video broadcasts, displays an Apple TV-style ambient frosted backdrop, and provides a continuous headline ticker with a live digital clock and campus weather readable from across corridors and lobbies.
-- **Scan-to-Phone QR Code**: A dedicated high-DPI QR card on the sidebar rail lets passing students scan from 10 feet away to download notices and posters directly to their phones over campus Wi-Fi.
-- **Zero manual refreshes**: The display automatically synchronizes within seconds via Server-Sent Events (SSE). Real-time additions, edits, and deletions reflect immediately.
-- **Offline resilience**: In the event of Wi-Fi or network dropouts, the display continues cycling cached notices from `localStorage` without interruptions or blank screens.
-
----
-
-## 2. System Architecture
-
-V Notice runs a unified Flask backend serving two distinct interfaces on dedicated ports:
-
-| Site | Port | Access | Description |
-| :--- | :---: | :--- | :--- |
-| **V Notice Display** | `5000` | Read-only (Public) | Dedicated department kiosk display (`/display/<CODE>`) or college-wide (`/display`) |
-| **V Notice Admin** | `5001` | Password-protected | Mobile-first portal to publish, schedule, and manage notices |
-
-```
-   [ Faculty Phone / Laptop (Anywhere) ]
-                     │
-                     ▼ (Cloudflare Tunnel / Campus Wi-Fi)
-       ┌─────────────────────────────────────────┐
-       │              Raspberry Pi               │
-       │                                         │
-       │  Port 5001: Admin Backend               │ ◄── Receives new & edited notices
-       │  Port 5000: Display Backend             │
-       │  Storage: notices.json + media/         │
-       │                                         │
-       │  Chromium Fullscreen Kiosk Mode         │ ──► Displays on 18"-22" Monitor
-       │  (http://localhost:5000)                │     1080p / 900p / 720p HDMI
-       └─────────────────────────────────────────┘
-```
-
-### Storage Layer (SQLite in WAL Mode)
-- **`notices.db`**: High-performance SQLite database operating in **Write-Ahead Logging (WAL)** mode with busy timeout handling, storing notices, screen definitions, and audit fields.
-- **Legacy Migration & Backup**: Automatically imports legacy `notices.json` on first run and preserves an untouched `notices.json.bak` backup.
-- **`media/` (`MEDIA_DIR`)**: Configurable media storage managed via `MediaStorageBackend` interface, with automated safe garbage collection (deleting only unreferenced media older than 10 minutes to protect in-flight uploads).
-
-> [!WARNING]
-> **Render Free Tier Ephemeral Storage Note:**  
-> Render's free web service containers run on an **ephemeral disk**. Notices and media uploaded during runtime are reset when a new Git build or container redeploy occurs.  
-> To persist notice data across redeploys, attach a Render Persistent Disk and set `STORAGE_DIR` (or `MEDIA_DIR`) to the mounted volume path.
+| Directory | Purpose & Contents |
+| :--- | :--- |
+| [**`docs/`**](docs/) | Architectural blueprints ([`ARCHITECTURE.md`](docs/ARCHITECTURE.md)), deployment manuals ([`SETUP.md`](docs/SETUP.md)), design system tokens ([`DESIGN.md`](docs/DESIGN.md)), product requirements ([`PRD.md`](docs/PRD.md)), architectural decision records ([`DECISIONS.md`](docs/DECISIONS.md)), QA test plans ([`TESTING.md`](docs/TESTING.md)), engineering rules ([`RULES.md`](docs/RULES.md)), and historical context ([`MEMORY.md`](docs/MEMORY.md)). |
+| [**`deploy/`**](deploy/) | Production deployment tooling: Raspberry Pi kiosk installer (`raspberry-pi/install_rpi.sh`), display-only thin client installer (`raspberry-pi/setup_rpi_kiosk_display_only.sh`), systemd units (`raspberry-pi/vnotice.service`), and Cloudflare remote admin tunnel launchers (`tunnel/`). |
+| [**`scripts/`**](scripts/) | Platform launchers for Windows (`scripts/windows/`) and Linux (`scripts/linux/`), plus brand asset generation (`generate_brand_assets.py`) and verification screenshot scripts (`capture_verification_screenshots.py`). |
+| [**`assets/`**](assets/) | Marketing and print assets, including the high-DPI vector poster generation harness (`assets/poster/`). |
+| [**`archive/`**](archive/) | Historical verification screenshot runs, UI audit snapshots, and legacy database migration backups (`archive/legacy/` and `archive/verification/`). |
+| [**`static/`**](static/) | Frontend client assets: design tokens (`css/tokens.css`), signage stylesheets (`css/`), vanilla JavaScript rotation engines (`js/`), self-hosted fonts (`fonts/`), official vector brand marks (`brand/`), PWA icons (`icons/`), and Service Workers (`sw.js`, `admin-sw.js`). |
+| [**`templates/`**](templates/) | Jinja2 HTML templates: kiosk digital signage interface (`display.html`), mobile-first admin CMS (`admin.html`), standalone public notice viewer (`notice_public.html`), and diagnostic error pages (`screen_not_found.html`). |
+| [**`tests/`**](tests/) | Automated pytest test suite covering authentication, storage CRUD, rate limiting, SSE real-time sync, video sound policy, voice notes, and UI responsiveness. |
+| **`media/`** | Runtime disk storage for uploaded notice flyers, videos, and voice notes (gitignored; managed with automated 10-minute safe garbage collection). |
 
 ---
 
-## 3. Key Upgrades & Features
+## Quick Start
 
-### 🌟 1. Ambient Frosted Backdrop
-For portrait posters and widescreen videos, instead of empty black dead bars on 18"–22" monitors, V Notice renders a soft, ambient frosted blur of the active media behind the centered artwork (like Apple TV and YouTube), creating a rich, premium television aesthetic.
+### 1. Windows (Local Development & Testing)
 
-### 📱 2. "Scan to Phone" QR Integration
-- **High-DPI Medium QR Card**: Positioned cleanly at the bottom of the "Up next" sidebar rail without obstructing the main stage.
-- **LAN IP Auto-Detection**: Generates the exact local Wi-Fi IP (e.g. `http://10.168.209.114:5000/notice/vnot0001?download=1`) so phones connect immediately.
-- **1-Tap Direct Download**: Automatically downloads the flyer/PDF straight into student phone storage.
+1. **Clone & Install Dependencies:**
+   ```powershell
+   git clone https://github.com/your-org/v-notice.git
+   cd v-notice
+   python -m venv venv
+   .\venv\Scripts\activate
+   pip install -r requirements.txt
+   ```
+2. **Start Servers (Dual-Port Mode):**
+   ```cmd
+   start.bat
+   ```
+   * *Display Screen (Read-Only):* `http://localhost:5000` (or `http://localhost:5000/display/EXCS`)
+   * *Admin Portal (Password Protected):* `http://localhost:5001/admin` (Default password: `vnotice2026`)
+3. **Launch Kiosk Display Window:**
+   ```cmd
+   scripts\windows\start_display.bat
+   ```
 
-### 🌦️ 3. Real-Time Campus Weather & Clock
-- Displays live temperature and condition icons (e.g. `29°C · Mumbai 🌤`) via Open-Meteo API.
-- Auto-detects campus geographic coordinates via IP fallback with 10-minute caching to eliminate unnecessary external calls.
+### 2. Raspberry Pi (Automated Corridor Kiosk)
 
-### ⚡ 4. Live Admin Preview & In-Place Editing
-- Instant visual file preview with aspect ratio detection (16:9, 4:3, 9:16 portrait) before uploading.
-- Edit existing notices directly (`PUT /api/notices/<id>`) without needing to delete and recreate.
+1. **1-Click Full Node Installation (Backend + Fullscreen Kiosk):**
+   ```bash
+   chmod +x deploy/raspberry-pi/install_rpi.sh
+   ./deploy/raspberry-pi/install_rpi.sh
+   ```
+   *Automatically configures system dependencies, Chromium enterprise autoplay policies, systemd auto-restart service (`vnotice.service`), and autostart on boot.*
+2. **Dedicated Department Screen Parameter:**
+   ```bash
+   DEPARTMENT_CODE=CMPN ./deploy/raspberry-pi/install_rpi.sh
+   ```
+3. **Display-Only Thin Client (Points to Cloud URL):**
+   ```bash
+   chmod +x deploy/raspberry-pi/setup_rpi_kiosk_display_only.sh
+   ./deploy/raspberry-pi/setup_rpi_kiosk_display_only.sh https://v-notice.onrender.com/display/ALL
+   ```
 
----
+### 3. Cloud Deployment (Render / Railway)
 
-
-### 🔐 6. Role-Based Permissions & Department Boundaries (Phase 6)
-- **Roles**:
-  - `super_admin`: Full access to college-wide (`ALL`) broadcasting, all department screens, screen CRUD, and user management. Authenticates via shared `ADMIN_PASSWORD` or user credentials.
-  - `dept_admin`: Restricted access. Can only create, edit, and delete notices whose targets are strictly within their assigned departments. Cannot target `ALL` unless specifically granted.
-- **Per-User Authentication**: Hashed password storage with constant-time password validation and brute-force rate limiting.
-- **Audit Logging**: Notices record the actual `created_by` and updater identity from the session.
-
-## 4. Notice Data Model
-
-Each notice adheres to the following JSON schema:
-
-```json
-{
-  "id": "vnot0001",
-  "title": "MCA Project Viva – Phase 1 Review",
-  "body": "Batch A & B: 9:00 AM · Lab B4. Carry printed spiral-bound synopsis and working demo on laptops.",
-  "priority": "urgent",
-  "type": "text",
-  "media": "",
-  "duration": 10,
-  "start": 1700000000000,
-  "end": 1900000000000
-}
-```
-
-- **Priority**: `urgent` (priority takeover), `normal` (standard rotation), `info` (guidelines/hours).
-- **Type**: `text` (large typography), `image` (poster with caption strip), `video` (plays with sound only when notice `play_sound` is true AND the screen's `sound_enabled` is true AND the browser allows audio; otherwise plays muted; preloaded next video remains strictly muted).
-- **Audio Attributes**: `has_audio` (`"true"`, `"false"`, or `"unknown"` via ffprobe), `play_sound` (boolean, default `false`).
-- **Start / End**: Timestamps in milliseconds for automated scheduling and expiry.
+V Notice supports single-port cloud environments out of the box via Gunicorn:
+* **Procfile & Railway:** Automatically executes `gunicorn app:unified_app -c gunicorn.conf.py` listening on the cloud provider's `$PORT`.
+* **Permanent Data Persistence:**  
+  * On **Render Free Tier**, the local filesystem is ephemeral (resets on container redeploy). To persist notices and media, attach a Render Persistent Disk and set `STORAGE_DIR=/var/data`, or configure `CLOUDINARY_URL` for cloud media storage.
+  * On **Railway**, attach a persistent volume and configure `STORAGE_DIR` to the mount path.
 
 ---
 
-## 5. REST API Specification
+## Documentation Index
 
-| Method | Endpoint | Site | Auth Required | Description |
-| :--- | :--- | :--- | :---: | :--- |
-| `GET` | `/api/notices` | Display (5000) | No | Returns currently active notices (`start <= now <= end`) |
-| `GET` | `/api/notices` | Admin (5001) | Yes (`X-Password`) | Returns all notices with computed status (`live`, `scheduled`, `expired`) |
-| `POST` | `/api/notices` | Admin (5001) | Yes (`X-Password`) | Creates new notice (supports multipart form for file uploads) |
-| `PUT` | `/api/notices/<id>` | Admin (5001) | Yes (`X-Password`) | Updates existing notice title, body, priority, or schedule |
-| `DELETE` | `/api/notices/<id>` | Admin (5001) | Yes (`X-Password`) | Deletes notice and associated media file from storage |
-| `GET` | `/notice/<id>/download` | Display (5000) | No | Triggers 1-tap download of the notice media/text to phone |
-| `GET` | `/api/system-info` | Display (5000) | No | Returns auto-detected campus weather, LAN IP, and ports |
-| `GET` | `/api/events/today` | Display (5000) | No | Returns server time and today's next flag event for screen (cached 5s) |
-| `POST` | `/api/events/flag/start` | Both | Token (`Bearer`) | External trigger: forces flag display on specified screens |
-| `POST` | `/api/events/flag/end` | Both | Token (`Bearer`) | External trigger: ends active flag override on specified screens |
-| `POST` | `/api/login` | Admin (5001) | No | Authenticates admin password |
-| `POST` | `/api/logout` | Admin (5001) | No | Terminates session |
-| `GET` | `/media/<file>` | Both | No | Serves uploaded images and video files |
-| `GET` | `/api/health` | Both | No | Health check endpoint |
+Comprehensive documentation is maintained in the [`docs/`](docs/) directory:
 
----
-
-## Configuration & Environment Variables
-
-All settings use safe defaults and can be customized via `.env` or container environment variables:
-
-| Variable | Default | Description |
-| :--- | :--- | :--- |
-| `ADMIN_PASSWORD` | *(set in .env)* | Plaintext password or secret for Admin Portal authentication. |
-| `ADMIN_PASSWORD_HASH` | *empty* | Optional Werkzeug hash taking precedence over plaintext password. |
-| `SECRET_KEY` | *auto-generated* | Secret key for session cookies. **Mandatory in production**. |
-| `STORAGE_DIR` | `./` | Root directory for SQLite database and storage. |
-| `MEDIA_DIR` | `${STORAGE_DIR}/media` | Dedicated directory for uploaded posters and videos. |
-| `DB_FILE` | `${STORAGE_DIR}/notices.db` | Path to the SQLite WAL database file. |
-| `DISPLAY_PORT` | `5000` | Local port for Kiosk Display (Mode B). |
-| `ADMIN_PORT` | `5001` | Local port for Admin Portal (Mode B). |
-| `PORT` | `5000` | Dynamic single port for cloud deployments (Render / Railway). |
-| `WEATHER_ENABLED` | `true` | Toggle live campus weather widget in display header. |
-| `WEATHER_LABEL` | `Mumbai` | City/Campus label displayed in kiosk weather widget. |
-| `WEATHER_LAT` | `19.0760` | Campus latitude for live weather forecast. |
-| `WEATHER_LON` | `72.8777` | Campus longitude for live weather forecast. |
-| `PUBLIC_BASE_URL` | *empty* | Public URL (e.g. `https://v-notice.onrender.com`) for scan-to-phone QR codes. |
-| `URGENT_CHIME` | `false` | Enable client-side synthetic two-tone audio chime when urgent notices activate. |
-| `MAX_UPLOAD_MB` | `200` | Maximum file upload size in Megabytes (default 200MB). |
-| `POLL_INTERVAL_SECONDS` | `5` | Base polling interval for kiosk display and admin feed sync. |
-| `SSE_ENABLED` | `false` | Enable Server-Sent Events stream (`/api/events`). Disabled by default to protect Gunicorn sync workers from thread starvation. |
-| `VIDEO_SOUND_ENABLED` | `true` | Master feature flag for selective video audio playback. |
-| `FLAG_EVENT_ENABLED` | `false` | Master feature flag for daily fullscreen national flag event (default OFF until enabled in Admin). |
-| `FLAG_TRIGGER_TOKEN` | *empty* | Optional secret Bearer token for external trigger endpoints (`/api/events/flag/start` and `/end`). 404 when unset. |
-| `LOG_LEVEL` | `INFO` | Logging verbosity (`DEBUG`, `INFO`, `WARNING`, `ERROR`). |
-
----
-
-## 6. Quick Start & Local Execution
-
-### Prerequisites
-- Python 3.10+ (Tested on Python 3.12 & 3.13)
-- Modern web browser (Chrome, Edge, Chromium, Firefox)
-
-### Installation
-```bash
-# 1. Clone repository
-git clone https://github.com/anrix05/V-Notice.git
-cd V-Notice
-
-# 2. Install dependencies
-pip install -r requirements.txt
-
-# 3. Create .env file (optional, defaults provided)
-cp .env.example .env
-```
-
-### Running the Server
-```bash
-python app.py
-```
-*(On Windows, you can simply double-click `start.bat`)*
-
-This automatically starts:
-- **Display Interface**: `http://localhost:5000`
-- **Admin Management Portal**: `http://localhost:5001`
-- **Admin Password**: Configured via `ADMIN_PASSWORD` in `.env`
-
----
-
-## 7. Remote Management from Anywhere (Cloudflare Tunnel)
-
-To allow faculty or administrators to manage notices from home or mobile data outside campus Wi-Fi, run the 1-click Cloudflare Tunnel:
-
-### Windows:
-- Double-click **`start_tunnel.bat`** to start remote access.
-- Cloudflare will print your secure HTTPS URL (e.g. `https://random.trycloudflare.com`).
-- Double-click **`stop_tunnel.bat`** to close public access.
-
-### Raspberry Pi (Linux):
-```bash
-# Expose the Admin port (5001)
-cloudflared tunnel --url http://localhost:5001
-```
-
----
-
-## 8. Raspberry Pi Deployment & Kiosk Mode
-
-### Hardware
-- **Raspberry Pi 4 / 3B+**
-- **18-inch to 22-inch Monitor** (Full HD 1080p / 900p / 720p via HDMI)
-- **5V / 3A USB-C Power Supply**
-
-### Auto-Start Services Configuration
-
-1. **Systemd Service (`/etc/systemd/system/vnotice.service`)**:
-```bash
-sudo cp systemd/vnotice.service /etc/systemd/system/
-sudo systemctl daemon-reload
-sudo systemctl enable --now vnotice.service
-```
-
-2. **Chromium Kiosk Auto-Start on Boot**:
-Make [`systemd/kiosk.sh`](systemd/kiosk.sh) executable and add to autostart:
-```bash
-chmod +x systemd/kiosk.sh
-mkdir -p ~/.config/autostart
-nano ~/.config/autostart/vnotice-kiosk.desktop
-```
-Add the following content:
-```ini
-[Desktop Entry]
-Type=Application
-Name=V Notice Kiosk
-Exec=/home/pi/v-notice/systemd/kiosk.sh
-X-GNOME-Autostart-enabled=true
-```
-
-
-### ⚡ 6. Kiosk Resilience & Offline Architecture
-- **Offline-capable Service Worker (`static/sw.js`)**: Pre-caches the display shell, scripts, styles, and self-hosted fonts. Operates completely without Internet once loaded.
-- **Self-Hosted Typography**: Fully bundles `Inter` and `Outfit` WOFF2 fonts with `font-display: swap`. Zero requests made to Google Fonts.
-- **Bounded Media Cache & Orphan Cleanup**: Caches up to 50 active media posters/videos. Automatically evicts cached files that are no longer referenced by active notices upon syncing.
-- **Graceful Weather Degradation**: Weather queries time out after 3 seconds. Cached weather is shown for up to 60 minutes; if unavailable, the weather widget hides silently without ugly error boxes.
-- **Pure Client-Side QR Generation**: Uses vendored `qrcode.min.js` to render crisp high-DPI QR codes locally without external API dependencies.
-- **Audio Architecture & Selective Video Sound**: Gentle synthetic two-tone chime via Web Audio API for urgent alerts (default disabled via `URGENT_CHIME=false`), wrapped in safe autoplay catch blocks. Video notices play unmuted ONLY if the notice has sound enabled (`play_sound: true`), the target screen has sound enabled (`sound_enabled: 1`), and the browser environment allows audio playback (`audio_ready: true`). In all other cases, videos play strictly muted (`muted=true, volume=0`). Preloaded background videos always remain strictly muted. Audio stops cleanly on slide change with no tail, and display volume honors the per-screen volume setting.
-
-
-### ⚡ 7. High-Efficiency Sync Engine
-- **Conditional HTTP Polling with ETag**: Server attaches a deterministic 16-character SHA-256 `ETag` to `/api/notices`. Kiosk and Admin send `If-None-Match`. When notices have not changed, server returns HTTP `304 Not Modified` with zero payload body—consuming negligible bandwidth and CPU.
-- **Adaptive Backoff with Random Jitter**: If connection drops or server errors occur, polling frequency scales down via exponential backoff (up to 60s) with 0–500ms random jitter, preventing "thundering herd" reconnect storms on campus networks.
-- **Gunicorn Thread Protection**: Server-Sent Events (SSE) `/api/events` is optional (`SSE_ENABLED=false` by default) to prevent long-lived connections from exhausting synchronous WSGI worker threads on Raspberry Pi 3B+ hardware.
-- **Tab Visibility Throttling**: The Admin portal throttles polling when the browser tab is hidden in the background, waking immediately via `visibilitychange` when focused.
-
-
-### ⚡ 8. Observability, Healthchecks & Production Operations
-- **Deep Healthcheck Endpoint (`/api/health`)**: Actively probes SQLite database connectivity, journal mode (`wal`), storage directory writability, remaining disk capacity, system uptime, and memory footprint. Returns HTTP 503 if dependencies fail.
-- **Ultra-Lean Memory Footprint (<60MB Target)**: Real-time RSS process memory tracking via Linux `/proc/self/status` and native Windows APIs. Backend memory usage remains at ~35MB, well below the 60MB target for Raspberry Pi 3B+ hardware.
-- **Structured Request Logging**: Formats all HTTP requests with ISO timestamps, HTTP method, URL path, response status, client IP, and request duration in milliseconds.
-
-
-### ⚡ 9. Brand Identity & Vector Monogram
-V Notice features an official **merged "VN" monogram** built on Concept A shared-stem geometry:
-- **The Mark**: The V's right arm *is* the N's left stem. Refined optically with equalized 10.8px stroke weight, 15.5-unit open notch at top, and amber `#F59E0B` diagonal tucked cleanly under white `#F8FAFC` stems with zero slivers.
-- **Variants**:
-  - `mark-obsidian`: Obsidian `#0B1020` base with 1px `#334155` border, white letters, amber diagonal.
-  - `mark-light-tile`: Light `#F8FAFC` base with 1px `#CBD5E1` border, dark `#0B1020` letters, amber diagonal.
-  - `mark-mono-dot`: Notched notification dot on last stem; crimson `#EF4444` dot for emergency/urgent broadcasts.
-  - `favicon-16` / `favicon-32`: Simplified cut with no border, +15% stroke width, and widened notch for crisp micro-rendering.
-- **Wordmark & Typography**: "V Notice" set in **Outfit 700 (Bold)**, letter-spacing `-0.01em`, solid single color.
-- **Dynamic Swapping**: Driven directly by CSS variables (`--logo-tile`, `--logo-border`, `--logo-letters`, `--logo-diagonal`) across dark and light admin themes. On kiosk displays, the amber diagonal features a subtle 2.4s pulse (disabled under `prefers-reduced-motion`).
-
-
-### ⚡ 10. Sound on Kiosks & NTP Time Synchronization
-
-#### Sound on Kiosks
-Modern web browsers (Chrome, Chromium, Edge) enforce strict autoplay policies that block unmuted audio playback unless the user has interacted with the page via a click or tap. Web application code cannot override this browser security policy from JavaScript. Therefore:
-- **Normal Browser Tab**: Opening a kiosk URL in a normal desktop or laptop browser tab requires one click anywhere on the page to unlock sound. If unclicked, the kiosk gracefully plays video notices muted, reports `"Sound blocked"` to the admin portal, and automatically unlocks sound on the first physical screen interaction without showing intrusive popups or buttons.
-- **Dedicated Kiosk Displays (Sound Without a Click)**: Physical kiosk boards should be launched with the Chromium flag `--autoplay-policy=no-user-gesture-required` and a dedicated `--user-data-dir` so unmuted audio plays seamlessly on boot without needing any manual touch or click.
-
-**Windows Launch Command**:
-```cmd
-start_display.bat https://v-notice.onrender.com/display/ALL
-```
-*(Or simply run `start_display.bat` to launch with the default college-wide display URL).*
-
-**Linux / Raspberry Pi Launch Command**:
-```bash
-./start_display.sh https://v-notice.onrender.com/display/ALL
-```
-*(Or on Raspberry Pi systems configured with systemd, [`systemd/kiosk.sh`](systemd/kiosk.sh) automatically passes this flag on boot).*
-
-**Enterprise & Managed PCs**:
-For institutional deployments with managed Chrome or Edge browsers via Group Policy or Google Admin Console, configure the **`AutoplayAllowlist`** enterprise policy:
-```json
-{
-  "AutoplayAllowlist": ["https://v-notice.onrender.com", "http://localhost:5000"]
-}
-```
-This grants automatic unmuted audio permission to the campus display URLs across all managed workstations and screens without command-line flags.
-
-#### NTP Time Synchronization
-  ```bash
-  # Enable and check NTP synchronization
-  sudo timedatectl set-ntp true
-  timedatectl status
-  ```
-  The kiosk display also actively computes the round-trip network clock offset against server time every 5 minutes, maintaining sub-second synchronization across all screens even if an individual device clock drifts.
-
-
-### ⚡ 11. Daily National Flag Events & Rehearsal Workflow
-V Notice supports multiple scheduled daily flag events (up to 6 events, e.g. **11:00 National Anthem** and **17:00 Vande Mataram**) across all campus screens.
-
-> [!IMPORTANT]
-> **NO AUDIO IN V NOTICE**: V Notice does **NOT** play, store, or reference any anthem or Vande Mataram audio files. The separate Raspberry Pi sound system plays the audio over physical PA speakers. V Notice is responsible exclusively for showing the trilingual stand-up prompt screen and the fullscreen National Flag.
-
-#### Rehearsal Procedure (Step-by-Step)
-1. **Keep Events Disabled During Initial Setup**: Keep `FLAG_EVENT_ENABLED=false` in `.env` (or keep both event toggles disabled in the Admin portal under **Settings > Daily flag events**) until both events have been fully rehearsed on-site.
-2. **Time Each Event Separately with a Stopwatch**:
-   - Rehearse the National Anthem and Vande Mataram **separately**, as the two audio tracks have different durations (e.g., standard National Anthem audio is ~52 seconds, whereas Vande Mataram audio recordings vary widely, typically 65 to 90 seconds).
-   - Use a stopwatch to time the physical Raspberry Pi audio playback from the opening cue to the last reverberation.
-3. **Set Duration with Buffer**:
-   - For each event in Admin Settings, set the **Duration** to the timed length **plus approximately 5 seconds** (e.g., 52s audio + 5s = 57 seconds duration; 85s audio + 5s = 90 seconds duration). This buffer ensures the flag remains proudly on screen until the music and echo have fully concluded.
-4. **Align Start Offset with Physical Audio**:
-   - Have one person stationed by the Raspberry Pi audio system and another observing the kiosk display.
-   - Use **"Run now on screen..."** on each card to trigger a live rehearsal.
-   - If the audio system has a startup latency (e.g., amplifier relay delay) or begins before/after the scheduled minute, adjust the **Start offset in seconds** (-60 to +60 seconds) until visual transition and sound start simultaneously.
-5. **Configure Stand-up Prompts**:
-   - Enable **Show stand-up text** to display the 15-second trilingual countdown prompt before the flag.
-   - Review or customize the English, Hindi, and Marathi prompts (max 60 characters each). The "Reset to default" link restores official college defaults.
-6. **Enable and Save**:
-   - Toggle the switch to ON for each rehearsed event.
-   - Set `FLAG_EVENT_ENABLED=true` in `.env` (or leave default true) and save settings. The state machine will automatically transition between events throughout the day without requiring kiosk page reloads.
-
-#### Optional External Trigger API (Disabled by Default)
-If the external Raspberry Pi audio system has network capabilities, it can trigger or end a flag screen event programmatically via HTTP POST:
-- Endpoints: `POST /api/events/flag/start` and `POST /api/events/flag/end`
-- Authenticated via `Authorization: Bearer <FLAG_TRIGGER_TOKEN>` header (configured via `FLAG_TRIGGER_TOKEN` in `.env`). If unset, endpoints return HTTP 404 with zero information leakage.
-- Rate-limited to 10 requests per minute.
-
-```bash
-# Start fullscreen flag display across all boards for 60 seconds
-curl -X POST https://v-notice.onrender.com/api/events/flag/start \
-  -H "Authorization: Bearer YOUR_FLAG_TRIGGER_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{"screens": "ALL", "duration_seconds": 60}'
-
-# End fullscreen flag display immediately and return to normal rotation
-curl -X POST https://v-notice.onrender.com/api/events/flag/end \
-  -H "Authorization: Bearer YOUR_FLAG_TRIGGER_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{"screens": "ALL"}'
-```
-
+* 📐 [**System Architecture (`docs/ARCHITECTURE.md`)**](docs/ARCHITECTURE.md) — Comprehensive technical blueprint, dual-port model, SQLite WAL engine, SSE real-time sync, and known limitations.
+* 🚀 [**Deployment & Setup Manual (`docs/SETUP.md`)**](docs/SETUP.md) — Step-by-step installation guides for Raspberry Pi, Linux, Docker, Windows, and Cloud platforms.
+* 🎨 [**Design System Specification (`docs/DESIGN.md`)**](docs/DESIGN.md) — Document Sheet Monogram brand geometry, design tokens, color palette, and layout rules.
+* 📋 [**Product Requirements Document (`docs/PRD.md`)**](docs/PRD.md) — Product vision, user personas, success metrics, and release phases.
+* ⚖️ [**Architectural Decision Records (`docs/DECISIONS.md`)**](docs/DECISIONS.md) — ADR log detailing decisions on dual-port security, frosted backdrops, and video sound policy.
+* 🧪 [**Testing & QA Specification (`docs/TESTING.md`)**](docs/TESTING.md) — Test matrix, Playwright verification, security audits, and regression checklists.
+* 📜 [**Engineering Rules & Contracts (`docs/RULES.md`)**](docs/RULES.md) — Development invariants, security boundaries, and coding standards.
+* 🧠 [**Project Memory & Context (`docs/MEMORY.md`)**](docs/MEMORY.md) — Historical development notes, commit milestones, and implementation logs.

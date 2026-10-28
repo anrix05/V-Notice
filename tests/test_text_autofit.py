@@ -34,7 +34,7 @@ RESOLUTIONS = [
 
 def test_screenshots_exist():
     """Verify before and after screenshots exist and are valid for both 1920x1080 and 800x480."""
-    base_dir = Path(__file__).resolve().parent.parent / "verification_text_fit"
+    base_dir = Path(__file__).resolve().parent.parent / "archive" / "verification" / "verification_text_fit"
     if not base_dir.exists():
         pytest.skip("verification_text_fit directory not present in environment")
     required = [
