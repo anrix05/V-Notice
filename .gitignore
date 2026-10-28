@@ -46,6 +46,7 @@ baseline_tests.txt
 post_cleanup_tests.txt
 test-results/
 playwright-report/
+screenshots/
 test_*.png
 *_backup/
 static/brand/contact-sheet.png
