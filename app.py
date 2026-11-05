@@ -1462,6 +1462,11 @@ def create_display_app():
 
     @app.route("/api/health")
     def health():
+        return jsonify({"status": "ok"}), 200
+
+    @app.route("/api/health/details")
+    @read_admin_required
+    def health_details():
         data, code = get_health_payload("vnotice-display")
         return jsonify(data), code
 
@@ -2137,6 +2142,11 @@ def create_admin_app():
 
     @app.route("/api/health")
     def health():
+        return jsonify({"status": "ok"}), 200
+
+    @app.route("/api/health/details")
+    @read_admin_required
+    def health_details():
         data, code = get_health_payload("vnotice-admin")
         return jsonify(data), code
 
@@ -2929,6 +2939,11 @@ def create_unified_app():
 
     @app.route("/api/health")
     def health():
+        return jsonify({"status": "ok"}), 200
+
+    @app.route("/api/health/details")
+    @read_admin_required
+    def health_details():
         data, code = get_health_payload("vnotice-unified")
         return jsonify(data), code
 

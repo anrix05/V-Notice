@@ -178,9 +178,9 @@ pytest -v
 
 
 - **Phase 7 (Quality, Observability & Healthchecks):** `tests/test_quality_observability_phase7.py`
-  - Tests `/api/health` payload schema, database connectivity, and media storage writability.
-  - Tests HTTP 503 response when database connectivity fails.
-  - Tests process RSS memory budget (<60MB target on Raspberry Pi 3B+).
+  - Tests `/api/health` lightweight liveness check returning only `{"status": "ok"}`.
+  - Tests `/api/health/details` admin-only diagnostic payload (database connectivity, media storage writability, and HTTP 503 response on database failure).
+  - Tests process RSS memory budget (<60MB target on Raspberry Pi 3B+) via `/api/health/details`.
   - Tests dual-mode healthcheck coverage across Mode A (`unified_app`) and Mode B (`display_app`, `admin_app`).
 
 ---
@@ -188,8 +188,11 @@ pytest -v
 ### Phase 7: Observability & Production Verification
 - [ ] **Healthcheck Endpoint (`/api/health`):**
   1. Query `curl http://localhost:5000/api/health` (or `http://localhost:5001/api/health`).
+  2. Verify response code is `200 OK` and payload returns only `{"status": "ok"}`.
+- [ ] **Detailed Health & Diagnostics Endpoint (`/api/health/details`):**
+  1. Query `curl -H "X-Password: <ADMIN_PASSWORD>" http://localhost:5000/api/health/details` (or `http://localhost:5001/api/health/details`). Requires admin credentials; unauthenticated requests return `401 Unauthorized`.
   2. Verify response code is `200 OK` and payload includes `"status": "healthy"`, `"database": {"connected": true, "journal_mode": "wal"}`, `"storage": {"writable": true}`, and `"memory_rss_mb"`.
 - [ ] **Memory Footprint Verification:**
-  1. Confirm that `memory_rss_mb` in `/api/health` remains below 60MB during active kiosk playback.
+  1. Query `/api/health/details` with admin credentials (`-H "X-Password: <ADMIN_PASSWORD>"`) and confirm that `memory_rss_mb` remains below 60MB during active kiosk playback.
 - [ ] **Structured Request Logging:**
   1. Check terminal stdout/stderr: verify requests log ISO timestamps, method, endpoint, status code, duration in milliseconds, and client IP.

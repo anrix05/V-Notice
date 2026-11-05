@@ -141,3 +141,12 @@
   1. Upgrade `/api/health` to perform active read checks on SQLite (`SELECT 1`, `PRAGMA journal_mode`), verify `MEDIA_DIR` write permissions, and calculate free disk space via `shutil.disk_usage`.
   2. Implement a zero-dependency process RSS memory reader utilizing `/proc/self/status` on Linux (Raspberry Pi/Render containers) and native Win32 `GetProcessMemoryInfo` on Windows.
   3. Emit structured request logs (`METHOD /path STATUS - DURATIONms (IP)`) and return HTTP 503 if any core subsystem fails.
+
+## Decision 21: Lightweight liveness health check
+- **Date:** 2026-11-05
+- **Status:** Accepted (Phase 7, Supersedes Decision 20)
+- **Context:** A heavy health check can fail under load (e.g. SQLite database locked or busy during heavy write transactions or file I/O) and cause container or orchestrator restarts, false downtime alerts, or cascading failures.
+- **Decision:**
+  1. Make public `GET /api/health` a cheap, zero-dependency liveness endpoint returning HTTP 200 with `{"status": "ok"}` without database access, file or media scans, network calls, or memory profiling, responding in milliseconds even when SQLite is locked. It requires no authentication and exposes no sensitive internal details.
+  2. Move the detailed health diagnostics (database connectivity, PRAGMA checks, notice/screen counts, storage writability, disk free space, and process RSS memory profiling) to `GET /api/health/details`, restricted to admin access only (returns HTTP 401 unauthenticated).
+  3. This decision supersedes Decision 20 regarding the public `/api/health` endpoint implementation.

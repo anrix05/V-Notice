@@ -161,7 +161,7 @@ Enforces physical network port isolation for maximum local security:
 | **Phase 4** | Sync Efficiency | ✅ Completed | Deterministic SHA-256 ETag, HTTP 304 Not Modified, adaptive backoff with jitter, optional SSE stream. |
 | **Phase 5** | Display UX | ✅ Completed | 280ms card transitions, GPU-accelerated ticker marquee, urgent takeover state glow, responsive 18"–22" typography. |
 | **Phase 6** | Admin UX | ✅ Completed | Audit Logs viewer modal, rate-limit 429 countdown, pre-upload dropzone validation, 1-click presets. |
-| **Phase 7** | Quality & Observability | ✅ Completed | Comprehensive `/api/health` check, zero-dependency RSS memory profiling (<60MB), structured request logging, 44 pytest tests. |
+| **Phase 7** | Quality & Observability | ✅ Completed | Liveness check at /api/health, admin-only diagnostics at /api/health/details, memory profiling, structured logging. |
 | **Phase 8** | Public Notice Page & Display QR | ✅ Completed | Mobile-first `/n/<id>` route, `/n/<id>/file` attachment streaming, zero-leakage 404 diffs, Axe-core zero contrast violations, and QR barcode decode tests. |
 
 
