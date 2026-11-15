@@ -1,0 +1,38 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 600" width="100%" height="100%" preserveAspectRatio="xMidYMid meet">
+  <!-- Indian National Flag (3:2 Ratio) -->
+  <g id="flag-bands">
+    <rect id="band-saffron" class="flag-band" x="0" y="0" width="900" height="200" fill="#FF9933" />
+    <rect id="band-white" class="flag-band" x="0" y="200" width="900" height="200" fill="#FFFFFF" />
+    <rect id="band-green" class="flag-band" x="0" y="400" width="900" height="200" fill="#138808" />
+  </g>
+  <g id="ashoka-chakra" transform="translate(450, 300)">
+    <circle id="chakra-rim" cx="0" cy="0" r="73.40" fill="none" stroke="#000080" stroke-width="3.2" />
+    <circle id="chakra-hub" cx="0" cy="0" r="13.50" fill="#000080" />
+    <g id="chakra-spokes">
+      <line class="spoke" x1="13.50" y1="0.00" x2="71.80" y2="0.00" stroke="#000080" stroke-width="2.4" stroke-linecap="round" />
+      <line class="spoke" x1="13.04" y1="3.49" x2="69.35" y2="18.58" stroke="#000080" stroke-width="2.4" stroke-linecap="round" />
+      <line class="spoke" x1="11.69" y1="6.75" x2="62.18" y2="35.90" stroke="#000080" stroke-width="2.4" stroke-linecap="round" />
+      <line class="spoke" x1="9.55" y1="9.55" x2="50.77" y2="50.77" stroke="#000080" stroke-width="2.4" stroke-linecap="round" />
+      <line class="spoke" x1="6.75" y1="11.69" x2="35.90" y2="62.18" stroke="#000080" stroke-width="2.4" stroke-linecap="round" />
+      <line class="spoke" x1="3.49" y1="13.04" x2="18.58" y2="69.35" stroke="#000080" stroke-width="2.4" stroke-linecap="round" />
+      <line class="spoke" x1="0.00" y1="13.50" x2="0.00" y2="71.80" stroke="#000080" stroke-width="2.4" stroke-linecap="round" />
+      <line class="spoke" x1="-3.49" y1="13.04" x2="-18.58" y2="69.35" stroke="#000080" stroke-width="2.4" stroke-linecap="round" />
+      <line class="spoke" x1="-6.75" y1="11.69" x2="-35.90" y2="62.18" stroke="#000080" stroke-width="2.4" stroke-linecap="round" />
+      <line class="spoke" x1="-9.55" y1="9.55" x2="-50.77" y2="50.77" stroke="#000080" stroke-width="2.4" stroke-linecap="round" />
+      <line class="spoke" x1="-11.69" y1="6.75" x2="-62.18" y2="35.90" stroke="#000080" stroke-width="2.4" stroke-linecap="round" />
+      <line class="spoke" x1="-13.04" y1="3.49" x2="-69.35" y2="18.58" stroke="#000080" stroke-width="2.4" stroke-linecap="round" />
+      <line class="spoke" x1="-13.50" y1="0.00" x2="-71.80" y2="0.00" stroke="#000080" stroke-width="2.4" stroke-linecap="round" />
+      <line class="spoke" x1="-13.04" y1="-3.49" x2="-69.35" y2="-18.58" stroke="#000080" stroke-width="2.4" stroke-linecap="round" />
+      <line class="spoke" x1="-11.69" y1="-6.75" x2="-62.18" y2="-35.90" stroke="#000080" stroke-width="2.4" stroke-linecap="round" />
+      <line class="spoke" x1="-9.55" y1="-9.55" x2="-50.77" y2="-50.77" stroke="#000080" stroke-width="2.4" stroke-linecap="round" />
+      <line class="spoke" x1="-6.75" y1="-11.69" x2="-35.90" y2="-62.18" stroke="#000080" stroke-width="2.4" stroke-linecap="round" />
+      <line class="spoke" x1="-3.49" y1="-13.04" x2="-18.58" y2="-69.35" stroke="#000080" stroke-width="2.4" stroke-linecap="round" />
+      <line class="spoke" x1="0.00" y1="-13.50" x2="0.00" y2="-71.80" stroke="#000080" stroke-width="2.4" stroke-linecap="round" />
+      <line class="spoke" x1="3.49" y1="-13.04" x2="18.58" y2="-69.35" stroke="#000080" stroke-width="2.4" stroke-linecap="round" />
+      <line class="spoke" x1="6.75" y1="-11.69" x2="35.90" y2="-62.18" stroke="#000080" stroke-width="2.4" stroke-linecap="round" />
+      <line class="spoke" x1="9.55" y1="-9.55" x2="50.77" y2="-50.77" stroke="#000080" stroke-width="2.4" stroke-linecap="round" />
+      <line class="spoke" x1="11.69" y1="-6.75" x2="62.18" y2="-35.90" stroke="#000080" stroke-width="2.4" stroke-linecap="round" />
+      <line class="spoke" x1="13.04" y1="-3.49" x2="69.35" y2="-18.58" stroke="#000080" stroke-width="2.4" stroke-linecap="round" />
+    </g>
+  </g>
+</svg>

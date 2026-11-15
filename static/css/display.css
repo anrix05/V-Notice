@@ -146,13 +146,15 @@ body.show-cursor {
 }
 
 [data-display-logo="obsidian"] {
-  --logo-sheet: #F5F1E8;
+  --logo-mark: #EEEBDA;
+  --logo-arcs: #B08D57;
+  --logo-sheet: var(--logo-mark);
   --logo-cut: #111318;
-  --logo-accent: #B08D57;
+  --logo-accent: var(--logo-arcs);
 }
 
 .logo-mark {
-  width: 32px;
+  width: 45.5px;
   height: 32px;
   display: flex;
   align-items: center;
@@ -169,45 +171,71 @@ body.show-cursor {
   display: block;
 }
 
+.logo-lockup-text {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 2px;
+  line-height: 1;
+}
+
 .logo-text {
   font-family: 'Outfit', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   font-size: 18px;
   font-weight: 700;
   letter-spacing: -0.01em;
+  line-height: 1.1;
   color: var(--text);
 }
 
-/* Fold Corner 2.4s Subtle Brightness Pulse on Display ONLY */
-@keyframes vnotice-fold-pulse {
+.logo-descriptor {
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-size: 6.8px;
+  font-weight: 500;
+  letter-spacing: 0.20em;
+  text-transform: uppercase;
+  color: rgba(238, 235, 218, 0.70);
+  line-height: 1;
+}
+
+/* Broadcast Arcs 2.4s Subtle Brightness Pulse on Display ONLY (Staggered by 0.2s) */
+@keyframes vnotice-arc-pulse {
   0%, 100% {
     filter: brightness(1);
     opacity: 0.95;
   }
   50% {
-    filter: brightness(1.35);
+    filter: brightness(1.28);
     opacity: 1;
   }
 }
 
-.display-header .vnotice-fold {
-  animation: vnotice-fold-pulse 2.4s ease-in-out infinite;
-  transform-origin: center;
+.display-header .vnotice-arcs path:nth-child(1) {
+  animation: vnotice-arc-pulse 2.4s ease-in-out infinite;
+}
+.display-header .vnotice-arcs path:nth-child(2) {
+  animation: vnotice-arc-pulse 2.4s ease-in-out infinite 0.2s;
+}
+.display-header .vnotice-arcs path:nth-child(3) {
+  animation: vnotice-arc-pulse 2.4s ease-in-out infinite 0.4s;
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .display-header .vnotice-fold {
+  .display-header .vnotice-arcs path {
     animation: none !important;
   }
 }
 
-/* Urgent Takeover Logo State: Fold corner turns #EF4444 */
+/* Urgent Takeover Logo State: Arcs turn #EF4444 */
 .display-urgent-dot {
   display: none;
 }
 
+.urgent-state #display-header-logo .vnotice-arcs path,
+#display-header-logo.urgent-logo-active .vnotice-arcs path,
 .urgent-state #display-header-logo .vnotice-fold,
 #display-header-logo.urgent-logo-active .vnotice-fold {
-  fill: var(--urgent) !important;
+  stroke: #EF4444 !important;
   animation: none !important;
 }
 

@@ -9,7 +9,7 @@
  *  - Media/Range requests (206 Partial Content): NEVER cached, pass through
  */
 
-const ADMIN_SHELL_CACHE = 'vnotice-admin-shell-v1';
+const ADMIN_SHELL_CACHE = 'vnotice-admin-shell-v2';
 
 const ADMIN_SHELL_ASSETS = [
   '/admin',

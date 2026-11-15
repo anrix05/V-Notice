@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 500 500" width="100%" height="100%">
+  <g transform="translate(70, 70)">
+    <path d="M40 35 H245 L325 115 V345 H40 Z" fill="var(--logo-sheet, #111318)" class="vnotice-sheet"/>
+    <path d="M245 35 V115 H325 Z" fill="var(--logo-accent, #B08D57)" class="vnotice-fold"/>
+    <path d="M82 112 H128 L182 260 L236 112 H282 L205 315 H159 Z" fill="var(--logo-cut, #F5F1E8)" class="vnotice-v"/>
+    <path d="M82 342 H282" stroke="var(--logo-accent, #B08D57)" stroke-width="8" stroke-linecap="square" class="vnotice-line"/>
+  </g>
+</svg>

@@ -62,9 +62,11 @@
       --shadow: 0 16px 40px rgba(0, 0, 0, 0.45);
       --font-body: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
       --font-heading: 'Outfit', system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
-      --logo-sheet: #F5F1E8;
+      --logo-mark: #EEEBDA;
+      --logo-arcs: #B08D57;
+      --logo-sheet: var(--logo-mark);
       --logo-cut: #111318;
-      --logo-accent: #B08D57;
+      --logo-accent: var(--logo-arcs);
     }
 
     :root[data-theme="light"],
@@ -85,9 +87,11 @@
       --green: var(--live, #065F46);
       --green-bg: var(--live-bg, rgba(6, 95, 70, 0.12));
       --shadow: 0 12px 32px rgba(40, 43, 74, 0.08);
-      --logo-sheet: #111318;
+      --logo-mark: #131210;
+      --logo-arcs: #8A6B3A;
+      --logo-sheet: var(--logo-mark);
       --logo-cut: #F5F1E8;
-      --logo-accent: #B08D57;
+      --logo-accent: var(--logo-arcs);
     }
 
     @media (prefers-color-scheme: light) {
@@ -108,9 +112,11 @@
         --green: var(--live, #065F46);
         --green-bg: var(--live-bg, rgba(6, 95, 70, 0.12));
         --shadow: 0 12px 32px rgba(40, 43, 74, 0.08);
-        --logo-sheet: #111318;
+        --logo-mark: #131210;
+        --logo-arcs: #8A6B3A;
+        --logo-sheet: var(--logo-mark);
         --logo-cut: #F5F1E8;
-        --logo-accent: #B08D57;
+        --logo-accent: var(--logo-arcs);
       }
     }
 
@@ -177,9 +183,17 @@
     }
 
     .brand-mark {
-      width: 32px;
+      width: 45.5px;
       height: 32px;
       flex-shrink: 0;
+    }
+
+    .brand-text-group {
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      gap: 2px;
+      line-height: 1;
     }
 
     .brand-name {
@@ -187,7 +201,18 @@
       font-size: 19px;
       font-weight: 700;
       letter-spacing: -0.01em;
+      line-height: 1.1;
       color: var(--text);
+    }
+
+    .brand-desc {
+      font-family: var(--font-body);
+      font-size: 7px;
+      font-weight: 500;
+      letter-spacing: 0.20em;
+      text-transform: uppercase;
+      color: var(--text-muted, #6E685F);
+      line-height: 1;
     }
 
     .dept-chip {
@@ -1036,15 +1061,20 @@
   <!-- Slim App Bar -->
   <header class="app-header" role="banner">
     <div class="brand-group">
-      <svg class="brand-mark" viewBox="0 0 500 500" fill="none" aria-hidden="true">
-        <g transform="translate(70, 70)">
-          <path d="M40 35 H245 L325 115 V345 H40 Z" fill="var(--logo-sheet, #F5F1E8)"/>
-          <path d="M245 35 V115 H325 Z" fill="var(--logo-accent, #B08D57)"/>
-          <path d="M82 112 H128 L182 260 L236 112 H282 L205 315 H159 Z" fill="var(--logo-cut, #111318)"/>
-          <path d="M82 342 H282" stroke="var(--logo-accent, #B08D57)" stroke-width="8" stroke-linecap="square"/>
+      <svg class="brand-mark" viewBox="0 0 415 292" width="45.5" height="32" fill="none" aria-hidden="true">
+        <g id="mark" class="vnotice-mark" fill="var(--logo-mark, #131210)">
+          <path d="M 0 71 L 130 118 L 153.5 118 L 207 226 L 260.5 118 L 284 118 L 414 71 L 414 268 L 277 233 L 283 222 L 390 239 L 390 102 L 308 123 L 228 291 L 186 291 L 106 123 L 24 102 L 24 239 L 131 222 L 137 233 L 0 268 Z"/>
+        </g>
+        <g id="arcs" class="vnotice-arcs" fill="none" stroke="var(--logo-arcs, #8A6B3A)" stroke-linecap="round">
+          <path d="M 109.19 45.14 A 155.50 155.50 0 0 1 304.81 45.14" stroke-width="20"/>
+          <path d="M 142.13 75.87 A 116.00 116.00 0 0 1 271.87 75.87" stroke-width="19"/>
+          <path d="M 172.26 105.84 A 76.50 76.50 0 0 1 241.74 105.84" stroke-width="18"/>
         </g>
       </svg>
-      <span class="brand-name">V Notice</span>
+      <div class="brand-text-group">
+        <span class="brand-name">V Notice</span>
+        <span class="brand-desc">DIGITAL NOTICE PLATFORM</span>
+      </div>
     </div>
     {% if notice and is_active %}
       <span class="dept-chip" aria-label="Department">{{ notice.display_dept }}</span>

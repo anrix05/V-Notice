@@ -134,10 +134,12 @@ html[data-theme="dark"],
   --dept-text-mix: #EEEBDA;
   --dept-text-percentage: 55%;
 
-  /* Brand Logo (Dark Theme - reversed: ivory sheet, ink cut, gold fold) */
-  --logo-sheet: #F5F1E8;
+  /* Brand Logo (Dark Theme: vanilla mark #EEEBDA, gold arcs #B08D57) */
+  --logo-mark: #EEEBDA;
+  --logo-arcs: #B08D57;
+  --logo-sheet: var(--logo-mark);
   --logo-cut: #111318;
-  --logo-accent: #B08D57;
+  --logo-accent: var(--logo-arcs);
   --logo-tile: transparent;
   --logo-border: transparent;
   --logo-letters: #111318;
@@ -318,10 +320,12 @@ html.theme-light,
   --dept-text-mix: #282B4A;
   --dept-text-percentage: 45%;
 
-  /* Brand Logo (Light Theme - default: dark sheet, ivory cut, gold fold) */
-  --logo-sheet: #111318;
+  /* Brand Logo (Light Theme: ink mark #131210, darker gold arcs #8A6B3A) */
+  --logo-mark: #131210;
+  --logo-arcs: #8A6B3A;
+  --logo-sheet: var(--logo-mark);
   --logo-cut: #F5F1E8;
-  --logo-accent: #B08D57;
+  --logo-accent: var(--logo-arcs);
   --logo-tile: transparent;
   --logo-border: transparent;
   --logo-letters: #111318;
@@ -433,9 +437,11 @@ html.theme-light,
     --waveform-active: #1D4ED8;
     --dept-text-mix: #282B4A;
     --dept-text-percentage: 45%;
-    --logo-sheet: #111318;
+    --logo-mark: #131210;
+    --logo-arcs: #8A6B3A;
+    --logo-sheet: var(--logo-mark);
     --logo-cut: #F5F1E8;
-    --logo-accent: #B08D57;
+    --logo-accent: var(--logo-arcs);
     --logo-tile: transparent;
     --logo-border: transparent;
     --logo-letters: #111318;

@@ -1,7 +1,12 @@
 # V Notice
 
 <p align="center">
-  <img src="static/brand/logo-obsidian.svg" width="64" height="64" alt="V Notice Monogram Logo" />
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="static/brand/logo-lockup-dark.svg">
+    <source media="(prefers-color-scheme: light)" srcset="static/brand/logo-lockup-light.svg">
+    <img alt="V Notice — DIGITAL NOTICE PLATFORM" src="static/brand/logo-lockup-dark.svg" width="340" />
+  </picture>
+  <br />
   <br />
   <strong>Smart Digital Notice Board & Announcement Kiosk Platform</strong>
   <br />

@@ -7,51 +7,58 @@
 
 ---
 
-## 1. Brand Identity & Document Sheet Monogram
+## 1. Brand Identity & Geometric Vector Mark
 
-The official V Notice mark is the **Document Sheet Monogram** with folded corner and underline, built on final vector geometry:
+The official V Notice mark features a bold geometric **"V" centered in a wide bow-tie shaped screen frame** (an outlined shape widening toward the left and right edges and narrowing behind the V) with **three concentric broadcast arcs** above the V's top (small, medium, large), built on exact vector geometry within a 415×292 canvas (`viewBox="0 0 415 292"`, aspect ratio 1.4212):
 
-* **Monogram Geometry & Transform:**
-  Group transform `translate(70, 70)` within standard 500×500 canvas (`viewBox="0 0 500 500"`):
-  - *Sheet:* `M40 35 H245 L325 115 V345 H40 Z`
-  - *Fold:* `M245 35 V115 H325 Z`
-  - *V Cutout:* `M82 112 H128 L182 260 L236 112 H282 L205 315 H159 Z`
-  - *Line:* `M82 342 H282`, stroke-width 8, square caps
+* **Mark Geometry & Parts:**
+  - *Group `mark`:* Geometric V with 63.4° arm slope (`dx/dy = 0.5`), flat 54px arm tops at `y = 118`, inner notch vertex at `(207, 226)`, flat 42px bottom tip at `y = 291`; bow-tie screen frame with 24px vertical borders at `x = 0..24` and `x = 390..414`, sloping top borders from `(0, 71)` to `(130, 118)` and `(414, 71)` to `(284, 118)`, and sloping bottom borders from `(0, 268)` to `(137, 233)` and `(414, 268)` to `(277, 233)`.
+  - *Group `arcs`:* Three concentric broadcast arcs centered at `(207, 166)` with round caps and consistent stroke widths:
+    - *Outer Arc 3:* Radius `R = 155.5`, stroke 20px, span -39° to +39°
+    - *Middle Arc 2:* Radius `R = 116.0`, stroke 19px, span -34° to +34°
+    - *Inner Arc 1:* Radius `R = 76.5`, stroke 18px, span -27° to +27°
 * **Brand Color Palette:**
-  - *Ink:* `#111318` (Primary solid sheet fill on light surfaces; V cut on dark surfaces)
-  - *Ivory:* `#F5F1E8` (V cutout fill on light surfaces; reversed sheet on dark surfaces)
-  - *Gold:* `#B08D57` (The single brand accent replacing amber `#F59E0B`; used for the fold corner and underline)
-  - *Urgent Red:* `#EF4444` (Fold corner takeover in urgent broadcast state)
+  - *Vanilla:* `#EEEBDA` (Primary mark fill on dark surfaces: kiosk, dark admin, dark public notice)
+  - *Ink:* `#131210` (Primary mark fill on light surfaces: light admin, light public page)
+  - *Gold:* `#B08D57` (Concentric broadcast arcs on dark surfaces; 6.06:1 contrast ratio > 4.5:1 WCAG AA)
+  - *Darker Gold:* `#8A6B3A` (Broadcast arcs on light surfaces; 4.39:1 contrast ratio > 3:1 WCAG AA on vanilla `#F5F1E8`)
+  - *Urgent Red:* `#EF4444` (Arcs takeover in urgent broadcast state)
 * **Surface Rules & Theme Variables:**
-  - *Light Surfaces (Default Mark):* Sheet `#111318`, V cutout `#F5F1E8`, Fold & Line `#B08D57`.
-  - *Dark Surfaces (Kiosk, Dark Admin):* Reversed mark so ink does not vanish into dark backgrounds — Sheet `#F5F1E8`, V cutout `#111318`, Fold & Line `#B08D57`.
+  - *Dark Surfaces (Kiosk, Dark Admin):* Mark `#EEEBDA`, Arcs `#B08D57`.
+  - *Light Surfaces (Light Admin, Light Public Page):* Mark `#131210`, Arcs `#8A6B3A`.
   - Driven by CSS custom properties:
-    - `--logo-sheet`: `#F5F1E8` (dark) / `#111318` (light)
-    - `--logo-cut`: `#111318` (dark) / `#F5F1E8` (light)
-    - `--logo-accent`: `#B08D57`
+    - `--logo-mark`: `#EEEBDA` (dark) / `#131210` (light)
+    - `--logo-arcs`: `#B08D57` (dark) / `#8A6B3A` (light)
+    - Backward-compatible aliases: `--logo-sheet: var(--logo-mark)`, `--logo-accent: var(--logo-arcs)`
 * **Typography & Lockups:**
-  - *Wordmark "V Notice":* Outfit 700 (Bold) selected over 600 for optimal optical weight counterbalancing the solid document sheet. Letter-spacing `-0.01em`. Cap height ~0.34 of monogram height. Text block vertically centered on monogram center line across all lockups.
-  - *Descriptor "DIGITAL NOTICE PLATFORM":* Inter 500 (Medium), uppercase, letter-spacing `0.26em`. Left edge aligned flush with the left edge of "V" (0px offset). Color `#8A6B3A` on light surfaces (5.01:1 contrast ratio > 4.5:1 WCAG AA), ivory at 70% (`rgba(245, 241, 232, 0.7)`) on dark surfaces. Hidden under 160px wide; never used on kiosk or in favicons.
-  - *Outlines:* Final lockup SVGs convert text to `<path>` outlines, accompanied by editable-text comment fallbacks.
+  - *Wordmark "V Notice":* Outfit 700 (Bold) for clean geometric optical balance. Letter-spacing `-0.01em`. Cap height ~0.34 of mark height. Vertically centered on mark center line across lockups.
+  - *Descriptor "DIGITAL NOTICE PLATFORM":* Inter 500 (Medium), uppercase, letter-spacing `0.20em`. Left edge aligned flush with the left edge of "V" in wordmark, right edge aligned with the right edge of "Notice". Color `#6E685F` on light surfaces (4.89:1 contrast ratio > 4.5:1 WCAG AA), vanilla at 70% (`rgba(238, 235, 218, 0.70)`) on dark surfaces (7.95:1 contrast ratio > 4.5:1 WCAG AA).
+  - *Visibility Rule:* Appears ONLY in lockup files, Open Graph image, and stacked login card. Never in kiosk header, admin header, public page header, favicons, or app icons; hidden in any lockup rendered under 160px wide.
+  - *Outlines:* Final lockup SVGs convert text to `<path>` outlines, accompanied by editable-text comment fallbacks specifying font families, sizes, and tracking.
+* **Compact Cut for Tiny Sizes:**
+  - Wide bow-tie frame lines are omitted for ultra-small sizes to guarantee crisp rendering without sub-pixel blur.
+  - Retains the bold central "V" and concentric broadcast arcs within a rounded-square tile style (`rx="64"` in 320×320 box).
+  - 16px & 24px cut uses two thickened arcs (stroke 32px & 28px) ensuring the arcs never turn to mush at tiny resolutions.
+  - Used for `favicon-16.svg`, `favicon-32.svg`, `favicon.ico` (16, 32, 48), `apple-touch-icon.png` (180), `icon-192.png`, `icon-512.png`, and maskable icons (full-bleed `#131210` background with compact mark inside central 80% safe zone).
 * **Special States & Animation:**
-  - *Urgent Broadcast Takeover:* The fold corner turns `#EF4444` (replaces legacy crimson dot).
-  - *Kiosk-Only Pulse:* A 2.4s brightness pulse (`brightness(1)` to `brightness(1.35)`) on the fold corner only, automatically disabled under `@media (prefers-reduced-motion: reduce)`.
-  - *Admin Portal:* Zero animation.
+  - *Urgent Broadcast Takeover:* The three broadcast arcs turn `#EF4444` (replaces legacy crimson fold/dot).
+  - *Kiosk-Only Pulse:* A subtle 2.4s brightness pulse (`brightness(1)` to `brightness(1.28)`) on the broadcast arcs (staggered by 0.2s per arc) on the kiosk header only, automatically disabled under `@media (prefers-reduced-motion: reduce)`.
+  - *Admin Portal & Public Notice:* Zero animation.
 * **Asset Catalog:**
-  - `static/brand/logo-obsidian.svg` (Default dark sheet mark)
-  - `static/brand/logo-light-tile.svg` (Reversed ivory sheet mark for dark surfaces)
-  - `static/brand/logo-mono-dot.svg` (Standard brand mark)
-  - `static/brand/logo-urgent.svg` (Urgent state with #EF4444 fold corner)
-  - `static/brand/favicon-16.svg` & `static/brand/favicon-32.svg` (Favicon cuts: gold line dropped, no outer border, V cut thickened +15%, widened notch)
+  - `static/brand/logo-obsidian.svg` (Default dark surface mark: vanilla mark, gold arcs)
+  - `static/brand/logo-light-tile.svg` (Light surface mark: ink mark, dark gold arcs)
+  - `static/brand/logo-mono-dot.svg` (Standard brand mark asset)
+  - `static/brand/logo-urgent.svg` (Urgent state with #EF4444 broadcast arcs)
+  - `static/brand/favicon-16.svg` & `static/brand/favicon-32.svg` (Compact cut favicons: 2 thicker arcs for 16px, 3 arcs for 32px)
   - `static/favicon.svg` (Dark/light mode preference-aware root favicon)
-  - `static/brand/logo-lockup-dark.svg` & `static/brand/logo-lockup-light.svg` (Horizontal lockups with outlined typography)
-  - `static/brand/logo-lockup-stacked-dark.svg` & `static/brand/logo-lockup-stacked-light.svg` (Stacked lockups with outlined typography)
-  - `static/favicon.ico` (Multi-resolution 16, 32, 48 from simplified cut)
-  - `static/apple-touch-icon.png` (180×180 iOS home screen bookmark)
-  - `static/icons/icon-192.png`, `static/icons/icon-512.png`
-  - `static/icons/icon-512-maskable.png` (Full-bleed `#111318` with reversed monogram in central 80% safe zone)
-  - `static/brand/og-image.png` (1200×630 Open Graph preview)
-  - `static/brand/contact-sheet.png` (Verification contact sheet across 16, 24, 32, 64, 180px on Light, Dark, and Kiosk #0F172A surfaces for Normal & Urgent states)
+  - `static/brand/logo-lockup-dark.svg` & `static/brand/logo-lockup-light.svg` (Horizontal lockups with outlined typography and "DIGITAL NOTICE BOARD" descriptor)
+  - `static/brand/logo-lockup-stacked-dark.svg` & `static/brand/logo-lockup-stacked-light.svg` (Stacked lockups with outlined typography and descriptor)
+  - `static/favicon.ico` (Multi-resolution 16, 32, 48 from simplified compact cut)
+  - `static/apple-touch-icon.png` (180×180 iOS home screen bookmark with compact mark)
+  - `static/icons/icon-192.png`, `static/icons/icon-512.png` (PWA compact icons)
+  - `static/icons/icon-192-maskable.png`, `static/icons/icon-512-maskable.png` (Full-bleed `#131210` with compact mark in central 80% safe zone)
+  - `static/brand/og-image.png` (1200×630 Open Graph preview: dark warm `#131210` background, centered lockup with descriptor)
+  - `static/brand/contact-sheet.png` (Verification contact sheet across 16, 24, 32, 48, 64, 180px on Light, Dark, and #131210 surfaces for Full Mark and Compact Cut in Normal & Urgent states)
 
 ---
 

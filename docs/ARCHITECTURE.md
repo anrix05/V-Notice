@@ -84,12 +84,12 @@ D:\V Notice\
 │
 ├── archive/                           # Historical test records and legacy artifacts
 │   ├── README.md                      # Inventory of archived materials
-│   ├── legacy/                        # Legacy backups (notices.backup.json, old brand cuts)
+│   ├── legacy/                        # Legacy backups (notices.backup.json, old brand cuts, brand_prev_mark)
 │   └── verification/                  # Visual audit captures (mobile perf, text fit, voice)
 │
 ├── static/                            # Frozen static assets served by Flask
 │   ├── audio/                         # Silent WAV buffer for browser autoplay unlock
-│   ├── brand/                         # Vector brand marks, lockups, and monograms
+│   ├── brand/                         # Geometric vector mark, broadcast arcs, lockups, and compact cuts
 │   ├── css/                           # Styling (tokens.css, display.css, admin.css)
 │   ├── fonts/                         # Self-hosted WOFF2 fonts (Inter, Outfit, Noto Sans Devanagari)
 │   ├── icons/                         # Progressive Web App manifest icons
