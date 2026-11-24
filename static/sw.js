@@ -6,7 +6,7 @@
  *  - API (/api/notices, /api/system-info): Stale-While-Revalidate
  */
 
-const SHELL_CACHE = 'vnotice-shell-v7';
+const SHELL_CACHE = 'vnotice-shell-v8';
 const MEDIA_CACHE = 'vnotice-media-v1';
 const API_CACHE = 'vnotice-api-v2';
 const MAX_MEDIA_ITEMS = 50;

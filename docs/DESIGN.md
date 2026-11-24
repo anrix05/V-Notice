@@ -9,48 +9,45 @@
 
 ## 1. Brand Identity & Geometric Vector Mark
 
-The official V Notice mark features a bold geometric **"V" centered in a wide bow-tie shaped screen frame** (an outlined shape widening toward the left and right edges and narrowing behind the V) with **three concentric broadcast arcs** above the V's top (small, medium, large), built on exact vector geometry within a 415×292 canvas (`viewBox="0 0 415 292"`, aspect ratio 1.4212):
+The official V Notice mark features a bold geometric **"V" made of one rounded stroke with two gold signal arcs at the upper right** (`viewBox="44 20 134 132"`):
 
-* **Mark Geometry & Parts:**
-  - *Group `mark`:* Geometric V with 63.4° arm slope (`dx/dy = 0.5`), flat 54px arm tops at `y = 118`, inner notch vertex at `(207, 226)`, flat 42px bottom tip at `y = 291`; bow-tie screen frame with 24px vertical borders at `x = 0..24` and `x = 390..414`, sloping top borders from `(0, 71)` to `(130, 118)` and `(414, 71)` to `(284, 118)`, and sloping bottom borders from `(0, 268)` to `(137, 233)` and `(414, 268)` to `(277, 233)`.
-  - *Group `arcs`:* Three concentric broadcast arcs centered at `(207, 166)` with round caps and consistent stroke widths:
-    - *Outer Arc 3:* Radius `R = 155.5`, stroke 20px, span -39° to +39°
-    - *Middle Arc 2:* Radius `R = 116.0`, stroke 19px, span -34° to +34°
-    - *Inner Arc 1:* Radius `R = 76.5`, stroke 18px, span -27° to +27°
+* **Mark Geometry & Paths:**
+  - *V path:* `<path d="M64 70 L96 132 L128 70" fill="none" stroke="var(--logo-v)" stroke-width="24" stroke-linecap="round" stroke-linejoin="round"/>`
+  - *Inner Arc:* `<path d="M133.7 48.8 A22 22 0 0 1 149.2 64.3" fill="none" stroke="var(--logo-arcs)" stroke-width="9" stroke-linecap="round"/>`
+  - *Outer Arc:* `<path d="M137.8 33.3 A38 38 0 0 1 164.7 60.2" fill="none" stroke="var(--logo-arcs)" stroke-width="9" stroke-linecap="round"/>`
+  - *Tile version for icons (`viewBox="0 0 200 200"`):* `<rect width="200" height="200" rx="44" fill="#131210"/>` behind the same paths.
 * **Brand Color Palette:**
-  - *Vanilla:* `#EEEBDA` (Primary mark fill on dark surfaces: kiosk, dark admin, dark public notice)
-  - *Ink:* `#131210` (Primary mark fill on light surfaces: light admin, light public page)
-  - *Gold:* `#B08D57` (Concentric broadcast arcs on dark surfaces; 6.06:1 contrast ratio > 4.5:1 WCAG AA)
-  - *Darker Gold:* `#8A6B3A` (Broadcast arcs on light surfaces; 4.39:1 contrast ratio > 3:1 WCAG AA on vanilla `#F5F1E8`)
-  - *Urgent Red:* `#EF4444` (Arcs takeover in urgent broadcast state)
+  - *Vanilla:* `#EEEBDA` (Primary mark stroke `--logo-v` on dark surfaces: kiosk, dark admin, dark public notice)
+  - *Ink:* `#131210` (Primary mark stroke `--logo-v` on light surfaces: light admin, light public page)
+  - *Gold:* `#B08D57` (Signal arcs `--logo-arcs` on dark surfaces; 6.06:1 contrast ratio > 4.5:1 WCAG AA)
+  - *Darker Gold:* `#8A6B3A` (Signal arcs `--logo-arcs` on light surfaces; 4.39:1 contrast ratio > 3:1 WCAG AA on vanilla `#F5F1E8`)
+  - *Urgent Red:* `#EF4444` (Signal arcs takeover in urgent broadcast state)
 * **Surface Rules & Theme Variables:**
-  - *Dark Surfaces (Kiosk, Dark Admin):* Mark `#EEEBDA`, Arcs `#B08D57`.
-  - *Light Surfaces (Light Admin, Light Public Page):* Mark `#131210`, Arcs `#8A6B3A`.
-  - Driven by CSS custom properties:
-    - `--logo-mark`: `#EEEBDA` (dark) / `#131210` (light)
+  - *Dark Surfaces (Kiosk, Dark Admin):* `--logo-v: #EEEBDA`, `--logo-arcs: #B08D57`.
+  - *Light Surfaces (Light Admin, Light Public Page):* `--logo-v: #131210`, `--logo-arcs: #8A6B3A`.
+  - Driven by CSS custom properties with backward-compatible aliases:
+    - `--logo-v`: `#EEEBDA` (dark) / `#131210` (light)
     - `--logo-arcs`: `#B08D57` (dark) / `#8A6B3A` (light)
-    - Backward-compatible aliases: `--logo-sheet: var(--logo-mark)`, `--logo-accent: var(--logo-arcs)`
+    - Backward-compatible aliases: `--logo-mark: var(--logo-v)`, `--logo-accent: var(--logo-arcs)`
 * **Typography & Lockups:**
-  - *Wordmark "V Notice":* Outfit 700 (Bold) for clean geometric optical balance. Letter-spacing `-0.01em`. Cap height ~0.34 of mark height. Vertically centered on mark center line across lockups.
-  - *Descriptor "DIGITAL NOTICE PLATFORM":* Inter 500 (Medium), uppercase, letter-spacing `0.20em`. Left edge aligned flush with the left edge of "V" in wordmark, right edge aligned with the right edge of "Notice". Color `#6E685F` on light surfaces (4.89:1 contrast ratio > 4.5:1 WCAG AA), vanilla at 70% (`rgba(238, 235, 218, 0.70)`) on dark surfaces (7.95:1 contrast ratio > 4.5:1 WCAG AA).
-  - *Visibility Rule:* Appears ONLY in lockup files, Open Graph image, and stacked login card. Never in kiosk header, admin header, public page header, favicons, or app icons; hidden in any lockup rendered under 160px wide.
+  - *Wordmark "V Notice":* Outfit 600 (SemiBold) for clean geometric optical balance. Letter-spacing `-0.01em`, same color as the V, vertically centered on mark center line across lockups.
+  - *Descriptor "DIGITAL NOTICE BOARD":* Inter 500 (Medium), uppercase, letter-spacing `0.25em`, muted. Left edge aligned flush with the left edge of "V" in wordmark.
+  - *Visibility Rule:* Appears ONLY in lockup files and Open Graph image. Never in kiosk header, admin header, public page header, or favicons.
   - *Outlines:* Final lockup SVGs convert text to `<path>` outlines, accompanied by editable-text comment fallbacks specifying font families, sizes, and tracking.
 * **Compact Cut for Tiny Sizes:**
-  - Wide bow-tie frame lines are omitted for ultra-small sizes to guarantee crisp rendering without sub-pixel blur.
-  - Retains the bold central "V" and concentric broadcast arcs within a rounded-square tile style (`rx="64"` in 320×320 box).
-  - 16px & 24px cut uses two thickened arcs (stroke 32px & 28px) ensuring the arcs never turn to mush at tiny resolutions.
-  - Used for `favicon-16.svg`, `favicon-32.svg`, `favicon.ico` (16, 32, 48), `apple-touch-icon.png` (180), `icon-192.png`, `icon-512.png`, and maskable icons (full-bleed `#131210` background with compact mark inside central 80% safe zone).
+  - For 16px and 32px resolutions, a compact cut is used: thicker V (stroke 30), only the inner arc (stroke 11), and no fine details so it stays crisp and readable.
+  - Used for `favicon-16.svg`, `favicon-32.svg`, `favicon.ico` (16, 32, 48), `apple-touch-icon.png` (180), `icon-192.png`, `icon-512.png`, and maskable icons (full-bleed `#131210` background with mark inside central 80% safe zone).
 * **Special States & Animation:**
-  - *Urgent Broadcast Takeover:* The three broadcast arcs turn `#EF4444` (replaces legacy crimson fold/dot).
-  - *Kiosk-Only Pulse:* A subtle 2.4s brightness pulse (`brightness(1)` to `brightness(1.28)`) on the broadcast arcs (staggered by 0.2s per arc) on the kiosk header only, automatically disabled under `@media (prefers-reduced-motion: reduce)`.
+  - *Urgent Broadcast Takeover:* The signal arcs turn `#EF4444`.
+  - *Kiosk-Only Pulse:* A subtle 2.4s brightness pulse on the signal arcs only on the kiosk header, automatically disabled under `@media (prefers-reduced-motion: reduce)`.
   - *Admin Portal & Public Notice:* Zero animation.
 * **Asset Catalog:**
-  - `static/brand/logo-obsidian.svg` (Default dark surface mark: vanilla mark, gold arcs)
-  - `static/brand/logo-light-tile.svg` (Light surface mark: ink mark, dark gold arcs)
+  - `static/brand/logo-obsidian.svg` (Default dark surface mark: vanilla V, gold arcs)
+  - `static/brand/logo-light-tile.svg` (Light surface mark: ink V, dark gold arcs)
   - `static/brand/logo-mono-dot.svg` (Standard brand mark asset)
-  - `static/brand/logo-urgent.svg` (Urgent state with #EF4444 broadcast arcs)
-  - `static/brand/favicon-16.svg` & `static/brand/favicon-32.svg` (Compact cut favicons: 2 thicker arcs for 16px, 3 arcs for 32px)
-  - `static/favicon.svg` (Dark/light mode preference-aware root favicon)
+  - `static/brand/logo-urgent.svg` (Urgent state with #EF4444 signal arcs)
+  - `static/brand/favicon-16.svg` & `static/brand/favicon-32.svg` (Compact cut favicons: thicker V, single inner arc)
+  - `static/favicon.svg` (Root favicon tile)
   - `static/brand/logo-lockup-dark.svg` & `static/brand/logo-lockup-light.svg` (Horizontal lockups with outlined typography and "DIGITAL NOTICE BOARD" descriptor)
   - `static/brand/logo-lockup-stacked-dark.svg` & `static/brand/logo-lockup-stacked-light.svg` (Stacked lockups with outlined typography and descriptor)
   - `static/favicon.ico` (Multi-resolution 16, 32, 48 from simplified compact cut)

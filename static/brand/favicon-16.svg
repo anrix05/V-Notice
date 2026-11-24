@@ -1,10 +1,7 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 320" width="100%" height="100%">
-  <rect width="320" height="320" rx="64" fill="#131210"/>
-  <g class="vnotice-mark" fill="#EEEBDA">
-    <path d="M 65 130 H 125 L 160 210 L 195 130 H 255 L 190 275 H 130 Z"/>
-  </g>
-  <g class="vnotice-arcs" fill="none" stroke="#B08D57" stroke-linecap="round">
-    <path d="M 73.01 93.30 A 130.00 130.00 0 0 1 246.99 93.30" stroke-width="32"/>
-    <path d="M 117.61 122.13 A 80.00 80.00 0 0 1 202.39 122.13" stroke-width="28"/>
-  </g>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" width="100%" height="100%">
+  <rect width="200" height="200" rx="44" fill="#131210"/>
+  <path d="M64 70 L96 132 L128 70" fill="none" stroke="#EEEBDA"
+    stroke-width="30" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M133.7 48.8 A22 22 0 0 1 149.2 64.3" fill="none"
+    stroke="#B08D57" stroke-width="11" stroke-linecap="round"/>
 </svg>
