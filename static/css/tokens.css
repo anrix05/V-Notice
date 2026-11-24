@@ -144,7 +144,7 @@ html[data-theme="dark"],
   --logo-border: transparent;
   --logo-letters: #111318;
   --logo-diagonal: #B08D57;
-  --logo-v: #111318;
+  --logo-v: #EEEBDA;
   --logo-dot: #B08D57;
 
   /* Backward Compatibility Aliases */
@@ -330,7 +330,7 @@ html.theme-light,
   --logo-border: transparent;
   --logo-letters: #111318;
   --logo-diagonal: #B08D57;
-  --logo-v: #111318;
+  --logo-v: #131210;
   --logo-dot: #B08D57;
 
   /* Backward Compatibility Aliases */
@@ -446,7 +446,7 @@ html.theme-light,
     --logo-border: transparent;
     --logo-letters: #111318;
     --logo-diagonal: #B08D57;
-    --logo-v: #111318;
+    --logo-v: #131210;
     --logo-dot: #B08D57;
     --bg: var(--bg-page);
     --panel: var(--bg-surface);
