@@ -79,12 +79,15 @@ Traditional college paper notice boards suffer from physical clutter, print dela
 - **Live Sidebar Rail:** Real-time digital clock, campus weather widget, upcoming announcement queue, and high-DPI QR code.
 - **Deterministic Color Theming:** Notice IDs generate beautiful, reproducible gradient backdrops for text-only notices.
 
-### 📱 Administration & Department Targeting
-- **Mobile-First CMS:** Fully responsive publishing portal optimized for quick smartphone uploads between classes.
+### 📱 Administration, Accounts & Department Targeting
+- **Role-Based Access Control:** Separate `admin` and `faculty` accounts with per-department scoping, optional `can_post_college_wide` and `can_post_urgent` switches, and notice ownership (`Posted by` attribution).
+- **One-Time Invite & Reset Links:** Admins invite faculty or issue password resets via single-use, SHA-256-hashed 72-hour links (`/invite/<token>`) with WhatsApp sharing and instant session revocation ("Sign out everywhere").
+- **Bulk Faculty CSV Import:** Upload `.csv` rosters (up to 500 rows / 1 MB) with server-side preview (duplicate, email, department, role, and CSV-injection checks), atomic batch creation, and one-time invite-link CSV export.
+- **Mobile-First Admin PWA:** Responsive mobile & desktop dashboard with dark/light/auto themes, mobile navigation drawer, and two-column desktop notice composer.
 - **Multi-Department Filtering:** Route announcements to individual departmental screens (e.g., `CMPN`, `EXCS`, `MECH`) or broadcast campus-wide to `ALL`.
 - **1-Click Expiration Presets:** Quick buttons for `End of Today`, `3 Days`, `1 Week`, or `1 Month`, plus custom datetime pickers.
 - **Client-Side Aspect Ratio Guidance:** Live dimension badge warns users if an uploaded flyer does not match common display ratios before uploading.
-- **Comprehensive Audit Trail:** Logs all creations, modifications, restorations, and deletions with client IP tracking.
+- **Comprehensive Audit Trail:** Logs logins, account invites, bulk imports, session revocations, creations, modifications, restorations, and deletions with client IP tracking.
 
 ### 🌐 Public Notice Landing (`/n/<id>`)
 - **Direct QR Access:** Scanning the on-screen QR code opens a mobile-optimized notice card directly in the student's browser.
@@ -239,7 +242,11 @@ DEPARTMENT_CODE=CMPN ./deploy/raspberry-pi/install_rpi.sh
 1. Connect the repository as a Web Service.
 2. **Build Command:** `pip install -r requirements.txt`
 3. **Start Command:** `gunicorn app:unified_app -c gunicorn.conf.py`
-4. Set required environment variables: `SECRET_KEY` and `ADMIN_PASSWORD_HASH`.
+4. Set required environment variables: `SECRET_KEY` (32+ chars) and `ADMIN_PASSWORD` / `ADMIN_PASSWORD_HASH` (12+ chars), plus `PUBLIC_BASE_URL` for invite links and QR codes.
+5. Create your first database admin account via CLI:
+   ```bash
+   python manage.py create-admin --email admin@college.edu --name "Portal Admin"
+   ```
 
 ---
 
@@ -256,6 +263,14 @@ Configure settings via `.env` file or hosting provider environment variables:
 | `DISPLAY_PORT` | Port for read-only kiosk display (Mode B) | `5000` | Local |
 | `ADMIN_PORT` | Port for admin management portal (Mode B) | `5001` | Local |
 | `PORT` | Dynamic single port assigned by cloud providers | `5000` | Cloud (Mode A) |
+| `PUBLIC_BASE_URL` | Public HTTPS origin for QR codes and invite links | Request origin | Cloud / Prod |
+| `TRUSTED_PROXY_HOPS` | Proxy hops for `ProxyFix` client IP resolution | `1` (Render) / `0` | All |
+| `ALLOW_API_KEY_AUTH` | Enable `X-Password` header auth for scripts | `false` | Production |
+| `ALLOW_BOOTSTRAP_ADMIN` | Allow env `ADMIN_PASSWORD` break-glass login | Auto until 1st admin | All |
+| `INVITE_EXPIRY_HOURS` | Invite and password-reset link lifetime | `72` | All |
+| `ADMIN_SESSION_HOURS` | Admin browser session lifetime | `8` | All |
+| `FACULTY_SESSION_DAYS` | Faculty browser session lifetime | `30` | All |
+| `SHOW_POSTED_BY_ON_DISPLAY` | Show author name on public/kiosk displays | `false` | All |
 | `STORAGE_DIR` | Base directory for database and media | `./` | All |
 | `DB_FILE` | Path to SQLite database file | `./notices.db` | All |
 | `MEDIA_DIR` | Path to media upload directory | `./media` | All |
@@ -276,9 +291,11 @@ Configure settings via `.env` file or hosting provider environment variables:
 ```text
 V-Notice/
 ├── app.py                      # Application factories (Display, Admin, Unified)
-├── config.py                   # Environment configuration & constants
+├── config.py                   # Environment configuration & startup secret checks
+├── manage.py                   # Admin CLI (create-admin, invite generation)
 ├── storage.py                  # SQLite database engine, migrations & media storage
-├── security.py                 # Rate limiting, CSRF tokens & password hashing
+├── security.py                 # Rate limiting, CSRF tokens & password validation
+├── common_passwords.txt        # Bundled common-password blocklist
 ├── gunicorn.conf.py            # Production WSGI server configuration
 ├── templates/                  # Jinja2 templates (display, admin, public views)
 ├── static/                     # CSS design tokens, vanilla JS engines & brand vectors
@@ -296,10 +313,11 @@ V-Notice/
 ## Security & Resilience
 
 - **Physical Network Isolation:** On-campus kiosks run on Port 5000 with zero mutation endpoints.
-- **Timing-Safe Authentication:** Cryptographic password verification prevents timing-channel side attacks.
-- **Brute-Force Lockout:** In-memory rate limiting locks out IP addresses after 5 failed login attempts for 10 minutes.
-- **CSRF Token Verification:** All state modifications require valid session CSRF tokens (exempt for authenticated `X-Password` API calls).
-- **Magic-Byte File Sniffing:** Verifies true file binary headers before saving files to disk.
+- **Production Startup Validation:** Refuses to boot in production when `SECRET_KEY` (< 32 chars) or `ADMIN_PASSWORD` (< 12 chars or known default) is missing or weak.
+- **Account & IP Throttling:** `ProxyFix`-aware client IP and per-account rate limiting with growing delays and uniform error messages.
+- **Session & Invite Hardening:** HttpOnly/SameSite=Lax session cookies (`Secure` in production), `session_version` instant revocation, SHA-256-hashed single-use invite tokens, and `Referrer-Policy: no-referrer` + `Cache-Control: no-store` on `/invite/<token>`.
+- **CSRF & Password Policy:** CSRF token verification on all session mutations; 12+ character minimum with bundled common-password rejection.
+- **Magic-Byte File Sniffing:** Verifies true file binary headers before saving uploads and defends CSV exports against formula injection.
 - **Disk Protection GC:** Automated garbage collection deletes orphaned media files older than 10 minutes, protecting Raspberry Pi SD cards.
 
 ---
