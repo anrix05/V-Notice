@@ -283,7 +283,7 @@ sequenceDiagram
 
 | Variable | Default | Purpose & Description |
 | :--- | :---: | :--- |
-| `ADMIN_PASSWORD` | `vnotice2026` | Plaintext fallback administrative password. |
+| `ADMIN_PASSWORD` | `<set-in-env>` | Plaintext fallback administrative password (set a strong `ADMIN_PASSWORD` >= 12 chars and `SECRET_KEY` >= 32 chars). |
 | `ADMIN_PASSWORD_HASH` | *Empty* | Werkzeug cryptographic password hash (takes precedence over plaintext password). |
 | `SECRET_KEY` | *Generated* | Session cookie encryption secret. Mandatory in production mode. |
 | `PRODUCTION` / `FLASK_ENV` | `false` / `development` | Strict production security mode (refuses to start on default/insecure secret key). |

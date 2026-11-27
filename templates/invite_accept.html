@@ -1,0 +1,290 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="auto">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="robots" content="noindex, nofollow">
+  <meta name="referrer" content="no-referrer">
+  <title>V Notice — {{ 'Choose a new password' if purpose == 'reset' else 'Account setup' }}</title>
+  <meta name="description" content="Set up or reset your V Notice faculty or admin account password.">
+  <link rel="stylesheet" href="/static/css/tokens.css">
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 20px 16px;
+      background: var(--bg-page);
+      color: var(--text-primary);
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      line-height: 1.5;
+    }
+    .card {
+      width: 100%;
+      max-width: 440px;
+      background: var(--bg-surface);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 28px 22px;
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.16);
+    }
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 18px;
+    }
+    .brand-mark {
+      width: 34px;
+      height: 34px;
+      flex-shrink: 0;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 10px;
+      background: var(--interactive-bg);
+      border: 1px solid var(--border-light);
+    }
+    .brand-title {
+      font-size: 1.05rem;
+      font-weight: 700;
+      letter-spacing: -0.01em;
+      color: var(--text-primary);
+    }
+    h1 {
+      font-size: 1.35rem;
+      font-weight: 700;
+      margin-bottom: 6px;
+      color: var(--text-primary);
+    }
+    .subtitle {
+      font-size: 0.92rem;
+      color: var(--text-muted);
+      margin-bottom: 14px;
+    }
+    .chips-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-bottom: 20px;
+    }
+    .dept-chip {
+      display: inline-flex;
+      align-items: center;
+      padding: 4px 10px;
+      border-radius: 999px;
+      font-size: 0.78rem;
+      font-weight: 600;
+      background: var(--interactive-bg);
+      color: var(--accent);
+      border: 1px solid var(--border-light);
+    }
+    .field {
+      margin-bottom: 14px;
+    }
+    label {
+      display: block;
+      font-size: 0.875rem;
+      font-weight: 600;
+      margin-bottom: 6px;
+      color: var(--text-secondary);
+    }
+    .pw-wrap {
+      position: relative;
+      display: flex;
+      align-items: center;
+    }
+    .pw-wrap input {
+      width: 100%;
+      min-height: 44px;
+      padding: 10px 68px 10px 12px;
+      border-radius: 10px;
+      border: 1px solid var(--border-light);
+      background: var(--bg-page);
+      color: var(--text-primary);
+      font-size: 1rem;
+    }
+    .pw-wrap input:focus {
+      outline: 2px solid var(--focus-ring);
+      outline-offset: 1px;
+    }
+    .btn-toggle-pw {
+      position: absolute;
+      right: 4px;
+      min-width: 56px;
+      min-height: 44px;
+      padding: 0 10px;
+      border: none;
+      border-radius: 8px;
+      background: transparent;
+      color: var(--accent);
+      font-size: 0.85rem;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    .checks-row {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      margin: 6px 0 18px;
+      font-size: 0.84rem;
+      color: var(--text-muted);
+    }
+    .check-item.ok {
+      color: var(--live);
+    }
+    .check-item.bad {
+      color: var(--urgent);
+    }
+    .error-box {
+      padding: 12px 14px;
+      border-radius: 10px;
+      background: var(--urgent-bg);
+      border: 1px solid var(--urgent-border);
+      color: var(--urgent);
+      font-size: 0.92rem;
+      margin-bottom: 16px;
+    }
+    .btn-submit {
+      width: 100%;
+      min-height: 44px;
+      padding: 11px 16px;
+      border: none;
+      border-radius: 10px;
+      background: var(--primary);
+      color: var(--primary-text);
+      font-size: 1rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: opacity 0.15s ease;
+    }
+    .btn-submit:disabled {
+      opacity: 0.65;
+      cursor: not-allowed;
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .btn-submit { transition: none; }
+    }
+  </style>
+</head>
+<body>
+  <main class="card">
+    <div class="brand">
+      <span class="brand-mark" aria-hidden="true">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+          <path d="M5 5L12 19L19 5" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </span>
+      <span class="brand-title">V Notice</span>
+    </div>
+
+    {% if error_message and not valid %}
+      <h1>Link unavailable</h1>
+      <p class="error-box" role="alert">{{ error_message }}</p>
+    {% else %}
+      <h1>Welcome, {{ user.name }}</h1>
+      <p class="subtitle">{{ 'Choose a new password' if purpose == 'reset' else 'Set a password to activate your account' }}</p>
+
+      <div class="chips-row" aria-label="Assigned departments">
+        {% if user.departments %}
+          {% for dept in user.departments %}
+            <span class="dept-chip">{{ dept }}</span>
+          {% endfor %}
+        {% else %}
+          <span class="dept-chip">College-wide</span>
+        {% endif %}
+      </div>
+
+      {% if error_message %}
+        <p class="error-box" role="alert">{{ error_message }}</p>
+      {% endif %}
+
+      <form id="invite-accept-form" method="POST" action="/invite/{{ token }}/accept">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+
+        <div class="field">
+          <label for="password">{{ 'Choose a new password' if purpose == 'reset' else 'Password' }}</label>
+          <div class="pw-wrap">
+            <input id="password" name="password" type="password" autocomplete="new-password" minlength="12" required autofocus>
+            <button type="button" class="btn-toggle-pw" data-target="password" aria-label="Show password">Show</button>
+          </div>
+        </div>
+
+        <div class="field">
+          <label for="confirm_password">Confirm password</label>
+          <div class="pw-wrap">
+            <input id="confirm_password" name="confirm_password" type="password" autocomplete="new-password" minlength="12" required>
+            <button type="button" class="btn-toggle-pw" data-target="confirm_password" aria-label="Show confirm password">Show</button>
+          </div>
+        </div>
+
+        <div class="checks-row" aria-live="polite">
+          <span id="pw-len-check" class="check-item">0 / 12 characters minimum</span>
+          <span id="pw-match-check" class="check-item">Re-enter the same password to confirm</span>
+        </div>
+
+        <button id="btn-accept-submit" class="btn-submit" type="submit">Set password and sign in</button>
+      </form>
+    {% endif %}
+  </main>
+
+  {% if valid %}
+  <script>
+    (function () {
+      var pw = document.getElementById('password');
+      var pw2 = document.getElementById('confirm_password');
+      var lenEl = document.getElementById('pw-len-check');
+      var matchEl = document.getElementById('pw-match-check');
+      var form = document.getElementById('invite-accept-form');
+      var submitBtn = document.getElementById('btn-accept-submit');
+
+      if (pw) pw.focus();
+
+      document.querySelectorAll('.btn-toggle-pw').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+          var target = document.getElementById(btn.getAttribute('data-target'));
+          if (!target) return;
+          var isHidden = target.type === 'password';
+          target.type = isHidden ? 'text' : 'password';
+          btn.textContent = isHidden ? 'Hide' : 'Show';
+          btn.setAttribute('aria-label', isHidden ? 'Hide password' : 'Show password');
+        });
+      });
+
+      function updateChecks() {
+        var v1 = pw ? pw.value : '';
+        var v2 = pw2 ? pw2.value : '';
+        if (lenEl) {
+          lenEl.textContent = v1.length + ' / 12 characters minimum';
+          lenEl.className = 'check-item ' + (v1.length >= 12 ? 'ok' : (v1.length > 0 ? 'bad' : ''));
+        }
+        if (matchEl) {
+          if (!v2) {
+            matchEl.textContent = 'Re-enter the same password to confirm';
+            matchEl.className = 'check-item';
+          } else if (v1 === v2) {
+            matchEl.textContent = 'Passwords match';
+            matchEl.className = 'check-item ok';
+          } else {
+            matchEl.textContent = 'Passwords do not match';
+            matchEl.className = 'check-item bad';
+          }
+        }
+      }
+
+      if (pw) pw.addEventListener('input', updateChecks);
+      if (pw2) pw2.addEventListener('input', updateChecks);
+
+      if (form && submitBtn) {
+        form.addEventListener('submit', function () {
+          submitBtn.disabled = true;
+          submitBtn.textContent = 'Setting password...';
+        });
+      }
+    })();
+  </script>
+  {% endif %}
+</body>
+</html>

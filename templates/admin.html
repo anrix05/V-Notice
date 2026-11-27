@@ -4,6 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>V Notice — Portal Admin</title>
+  <meta name="description" content="Manage campus digital notice boards, screens, faculty accounts, and schedules in V Notice.">
   <link rel="manifest" href="/manifest.webmanifest">
   <meta name="theme-color" content="#131210">
   <meta name="mobile-web-app-capable" content="yes">
@@ -18,7 +19,7 @@
   <meta property="og:image" content="/static/brand/og-image.png">
   <meta property="og:type" content="website">
   <link rel="stylesheet" href="/static/css/tokens.css">
-  <link rel="stylesheet" href="/static/css/admin.css?v=13">
+  <link rel="stylesheet" href="/static/css/admin.css?v=19">
   <script>
     (function() {
       try {
@@ -105,8 +106,8 @@
 
       <form id="login-form" class="auth-form">
         <div class="form-group">
-          <label for="admin-username-input" class="form-label">Username</label>
-          <input type="text" id="admin-username-input" class="form-control" value="admin" placeholder="admin" autocomplete="username" inputmode="text" enterkeyhint="next">
+          <label for="admin-username-input" class="form-label">Email or username</label>
+          <input type="text" id="admin-username-input" class="form-control" value="" placeholder="name@college.edu" autocomplete="username" inputmode="email" enterkeyhint="next">
         </div>
         <div class="form-group">
           <label for="admin-password-input" class="form-label">Password</label>
@@ -132,7 +133,7 @@
     <!-- Left Navigation Rail for Desktop (>= 1024px) -->
     <aside class="desktop-sidebar" id="desktop-sidebar" aria-label="Desktop Navigation">
       <div class="sidebar-top">
-        <div class="sidebar-brand">
+        <a href="#notices" class="sidebar-brand brand-link" id="sidebar-brand-link" aria-label="V Notice home">
           <div class="logo-mark logo-mark-sm" aria-hidden="true">
             <svg viewBox="44 20 134 132" width="28.5" height="28" class="vnotice-mark-svg" aria-hidden="true">
               <path id="v" class="vnotice-v" d="M64 70 L96 132 L128 70" fill="none" stroke="var(--logo-v, #EEEBDA)"
@@ -144,7 +145,7 @@
             </svg>
           </div>
           <span class="sidebar-brand-name">V Notice</span>
-        </div>
+        </a>
 
         <nav class="sidebar-menu" role="tablist">
           <a href="#notices" class="sidebar-item active" data-tab="notices" id="sidebar-tab-notices" role="tab" aria-selected="true">
@@ -156,7 +157,7 @@
             </svg>
             <span class="sidebar-label">Notices</span>
           </a>
-          <a href="#screens" class="sidebar-item" data-tab="screens" id="btn-view-screens" role="tab" aria-selected="false">
+          <a href="#screens" class="sidebar-item" data-tab="screens" data-admin-only="true" id="btn-view-screens" role="tab" aria-selected="false">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
               <rect x="2" y="3" width="20" height="14" rx="2"></rect>
               <line x1="8" y1="21" x2="16" y2="21"></line>
@@ -164,28 +165,44 @@
             </svg>
             <span class="sidebar-label">Screens</span>
           </a>
-          <a href="#audit" class="sidebar-item" data-tab="audit" id="btn-view-audit" role="tab" aria-selected="false">
+          <a href="#people" class="sidebar-item" data-tab="people" data-admin-only="true" id="sidebar-tab-people" role="tab" aria-selected="false">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+              <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
+              <circle cx="9" cy="7" r="4"></circle>
+              <path d="M23 21v-2a4 4 0 0 0-3-3.87"></path>
+              <path d="M16 3.13a4 4 0 0 1 0 7.75"></path>
+            </svg>
+            <span class="sidebar-label">People</span>
+          </a>
+          <a href="#audit" class="sidebar-item" data-tab="audit" data-admin-only="true" id="btn-view-audit" role="tab" aria-selected="false">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
               <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
             </svg>
             <span class="sidebar-label">Audit Logs</span>
           </a>
-          <a href="#settings" class="sidebar-item" data-tab="settings" id="sidebar-tab-settings" role="tab" aria-selected="false">
+          <a href="#settings" class="sidebar-item" data-tab="settings" data-admin-only="true" id="sidebar-tab-settings" role="tab" aria-selected="false">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
               <circle cx="12" cy="12" r="3"></circle>
               <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
             </svg>
             <span class="sidebar-label">Settings</span>
           </a>
+          <a href="#account" class="sidebar-item" data-tab="account" id="sidebar-tab-account" role="tab" aria-selected="false">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+              <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
+              <circle cx="12" cy="7" r="4"></circle>
+            </svg>
+            <span class="sidebar-label">My account</span>
+          </a>
         </nav>
       </div>
 
       <div class="sidebar-bottom">
-        <div class="sidebar-user-card">
+        <div class="sidebar-user-card" id="sidebar-user-card" role="button" tabindex="0" title="Open My account">
           <div class="user-avatar" id="sidebar-user-avatar">A</div>
           <div class="user-meta">
-            <span class="user-name" id="sidebar-username">admin</span>
-            <span class="user-role badge-role-admin" id="sidebar-role">Super Admin</span>
+            <span class="user-name" id="sidebar-username">Admin</span>
+            <span class="user-role badge-role-admin" id="sidebar-role">Admin</span>
           </div>
           <button id="sidebar-btn-logout" class="btn-icon" aria-label="Log out" title="Log out">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -198,6 +215,37 @@
       </div>
     </aside>
 
+    <!-- Mobile & Tablet Slide-Over Navigation Drawer (< 1024px) -->
+    <div id="mobile-nav-backdrop" class="mobile-nav-backdrop hidden" aria-hidden="true"></div>
+    <aside id="mobile-nav-drawer" class="mobile-nav-drawer hidden" aria-label="Mobile navigation menu" aria-hidden="true">
+      <div class="mobile-drawer-header">
+        <a href="#notices" class="sidebar-brand brand-link" id="mobile-drawer-brand" aria-label="V Notice home">
+          <div class="logo-mark logo-mark-sm" aria-hidden="true">
+            <svg viewBox="44 20 134 132" width="26" height="26" class="vnotice-mark-svg" aria-hidden="true">
+              <path class="vnotice-v" d="M64 70 L96 132 L128 70" fill="none" stroke="var(--logo-v, #EEEBDA)" stroke-width="24" stroke-linecap="round" stroke-linejoin="round"/>
+              <g class="vnotice-arcs" fill="none" stroke="var(--logo-arcs, #B08D57)" stroke-width="9" stroke-linecap="round">
+                <path class="vnotice-arc-inner" d="M133.7 48.8 A22 22 0 0 1 149.2 64.3"/>
+                <path class="vnotice-arc-outer" d="M137.8 33.3 A38 38 0 0 1 164.7 60.2"/>
+              </g>
+            </svg>
+          </div>
+          <span class="sidebar-brand-name">V Notice</span>
+        </a>
+        <button type="button" id="btn-close-mobile-menu" class="btn-icon" aria-label="Close navigation menu">&times;</button>
+      </div>
+      <nav class="mobile-drawer-nav" role="navigation">
+        <a href="#notices" class="mobile-drawer-item" data-tab="notices">Notices</a>
+        <a href="#screens" class="mobile-drawer-item" data-tab="screens" data-admin-only="true">Screens</a>
+        <a href="#people" class="mobile-drawer-item" data-tab="people" data-admin-only="true">People</a>
+        <a href="#audit" class="mobile-drawer-item" data-tab="audit" data-admin-only="true">Audit Logs</a>
+        <a href="#settings" class="mobile-drawer-item" data-tab="settings" data-admin-only="true">Settings</a>
+        <a href="#account" class="mobile-drawer-item" data-tab="account">My account</a>
+      </nav>
+      <div class="mobile-drawer-footer">
+        <button type="button" id="btn-mobile-drawer-logout" class="btn btn-danger btn-block">Sign out</button>
+      </div>
+    </aside>
+
     <!-- Main Content Stage -->
     <div class="admin-main-stage">
       
@@ -205,16 +253,25 @@
       <header class="admin-navbar" id="admin-navbar">
         <div class="nav-content">
           <div class="nav-brand">
-            <div class="logo-mark logo-mark-sm" aria-hidden="true">
-              <svg viewBox="44 20 134 132" width="28.5" height="28" class="vnotice-mark-svg" aria-hidden="true">
-                <path id="v" class="vnotice-v" d="M64 70 L96 132 L128 70" fill="none" stroke="var(--logo-v, #EEEBDA)"
-                  stroke-width="24" stroke-linecap="round" stroke-linejoin="round"/>
-                <g id="arcs" class="vnotice-arcs" fill="none" stroke="var(--logo-arcs, #B08D57)" stroke-width="9" stroke-linecap="round">
-                  <path class="vnotice-arc-inner" d="M133.7 48.8 A22 22 0 0 1 149.2 64.3"/>
-                  <path class="vnotice-arc-outer" d="M137.8 33.3 A38 38 0 0 1 164.7 60.2"/>
-                </g>
+            <button type="button" id="btn-mobile-menu" class="btn-icon btn-mobile-menu" aria-label="Open navigation menu" aria-expanded="false" aria-controls="mobile-nav-drawer">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                <line x1="3" y1="6" x2="21" y2="6"></line>
+                <line x1="3" y1="12" x2="21" y2="12"></line>
+                <line x1="3" y1="18" x2="21" y2="18"></line>
               </svg>
-            </div>
+            </button>
+            <a href="#notices" class="nav-brand-link" id="navbar-brand-link" aria-label="V Notice home">
+              <div class="logo-mark logo-mark-sm" aria-hidden="true">
+                <svg viewBox="44 20 134 132" width="28.5" height="28" class="vnotice-mark-svg" aria-hidden="true">
+                  <path id="v" class="vnotice-v" d="M64 70 L96 132 L128 70" fill="none" stroke="var(--logo-v, #EEEBDA)"
+                    stroke-width="24" stroke-linecap="round" stroke-linejoin="round"/>
+                  <g id="arcs" class="vnotice-arcs" fill="none" stroke="var(--logo-arcs, #B08D57)" stroke-width="9" stroke-linecap="round">
+                    <path class="vnotice-arc-inner" d="M133.7 48.8 A22 22 0 0 1 149.2 64.3"/>
+                    <path class="vnotice-arc-outer" d="M137.8 33.3 A38 38 0 0 1 164.7 60.2"/>
+                  </g>
+                </svg>
+              </div>
+            </a>
             <h1 class="nav-screen-title" id="app-bar-title">Notices</h1>
           </div>
 
@@ -238,7 +295,7 @@
 
             <!-- Overflow / Account Trigger -->
             <div class="nav-account-wrap">
-              <span id="auth-user-badge" class="badge badge-dept-chip">admin</span>
+              <button type="button" id="auth-user-badge" class="badge badge-dept-chip btn-account-chip" title="My account">Admin</button>
               <button id="btn-logout" class="btn-icon btn-logout" aria-label="Log out" title="Log out">
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                   <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path>
@@ -303,6 +360,12 @@
                   <option value="BIOM" label="BIOM">BIOM - Biomedical Engineering</option>
                 </select>
               </div>
+              <div class="screen-select-wrap posted-by-filter-wrap" id="posted-by-filter-wrap" data-admin-only="true">
+                <label for="feed-posted-by-filter" class="screen-filter-label">POSTED BY:</label>
+                <select id="feed-posted-by-filter" class="form-control screen-select" aria-label="Filter notices by author">
+                  <option value="all">Anyone</option>
+                </select>
+              </div>
             </div>
           </div>
 
@@ -324,10 +387,10 @@
              ================================================================== -->
         <section class="tab-view-panel hidden" id="view-screens">
           <div class="view-inner-container">
-            <div class="view-header-row screens-action-bar">
-              <div class="view-desc-text">Live kiosk heartbeats and department board links.</div>
+            <div class="section-header-row">
+              <p class="section-subhead">Live kiosk heartbeats and department board links</p>
               <button type="button" id="btn-open-add-dept" class="btn btn-primary btn-sm">
-                <span>+ Add Screen</span>
+                <span>+ Add screen</span>
               </button>
             </div>
 
@@ -367,6 +430,9 @@
              ================================================================== -->
         <section class="tab-view-panel hidden" id="view-audit">
           <div class="view-inner-container">
+            <div class="section-header-row">
+              <p class="section-subhead">Sign-ins, notice changes, and account activity</p>
+            </div>
             <!-- Audit Filters Toolbar -->
             <div class="audit-filter-toolbar">
               <div class="audit-filter-group">
@@ -447,22 +513,8 @@
              ================================================================== -->
         <section class="tab-view-panel hidden" id="view-settings">
           <div class="view-inner-container">
-            <div class="settings-group-card">
-              <h3 class="settings-group-title">User Account</h3>
-              <div class="settings-row">
-                <div class="settings-label-wrap">
-                  <span class="settings-label">Signed in as</span>
-                  <span class="settings-sublabel" id="settings-user-dept">Department: ALL</span>
-                </div>
-                <span class="badge badge-dept-chip" id="settings-user-role">Super Admin</span>
-              </div>
-              <div class="settings-row">
-                <div class="settings-label-wrap">
-                  <span class="settings-label">Session Status</span>
-                  <span class="settings-sublabel" id="settings-session-expiry">Active browser session (HTTPOnly cookie)</span>
-                </div>
-                <span class="status-indicator online" id="settings-session-status">Signed in as admin</span>
-              </div>
+            <div class="section-header-row">
+              <p class="section-subhead">Appearance, display previews, daily events, and storage</p>
             </div>
 
             <div class="settings-group-card">
@@ -521,7 +573,7 @@
                   <p class="settings-sublabel">Automated fullscreen display events synced with campus schedule</p>
                 </div>
                 <div style="display:flex; align-items:center; gap:12px;">
-                  <div class="flag-next-run-badge" id="flag-next-run-badge">Next run: Loading...</div>
+                  <div class="flag-next-run-badge" id="flag-next-run-badge">Next run: —</div>
                   <button type="button" id="btn-add-flag-event" class="btn btn-secondary btn-sm">+ Add event</button>
                 </div>
               </div>
@@ -693,6 +745,150 @@
           </div>
         </section>
 
+        <!-- ==================================================================
+             VIEW 5: PEOPLE VIEW (Admin only)
+             ================================================================== -->
+        <section class="tab-view-panel hidden" id="view-people">
+          <div class="view-inner-container">
+            <div class="section-header-row">
+              <p class="section-subhead">Invite faculty and admins, manage permissions, and revoke sessions</p>
+              <div class="people-header-actions">
+                <button type="button" id="btn-open-csv-import" class="btn btn-secondary btn-sm">Import from CSV</button>
+                <button type="button" id="btn-open-invite" class="btn btn-primary btn-sm">
+                  <span>+ Invite person</span>
+                </button>
+              </div>
+            </div>
+
+            <div class="people-filter-bar">
+              <input type="search" id="people-search-input" class="form-control" placeholder="Search by name or email" aria-label="Search people by name or email">
+              <select id="people-status-filter" class="form-control" aria-label="Filter people by status">
+                <option value="all">All statuses</option>
+                <option value="active">Active</option>
+                <option value="invited">Invited</option>
+                <option value="disabled">Disabled</option>
+              </select>
+              <select id="people-dept-filter" class="form-control" aria-label="Filter people by department">
+                <option value="all">All departments</option>
+              </select>
+            </div>
+
+            <div id="people-loading" class="people-skeleton-list hidden" aria-hidden="true">
+              <div class="skeleton-card"></div>
+              <div class="skeleton-card"></div>
+              <div class="skeleton-card"></div>
+            </div>
+
+            <div id="people-error" class="people-state-card hidden" role="alert">
+              <p id="people-error-text">Could not load people.</p>
+              <button type="button" id="btn-people-retry" class="btn btn-secondary btn-sm">Retry</button>
+            </div>
+
+            <div id="people-empty" class="people-state-card hidden">
+              <p>No people match the current filter.</p>
+            </div>
+
+            <div id="people-table-wrap" class="audit-table-wrap hidden">
+              <table class="audit-table people-table">
+                <thead>
+                  <tr>
+                    <th>Person</th>
+                    <th>Access</th>
+                    <th>Status</th>
+                    <th>Permissions</th>
+                    <th>Actions</th>
+                  </tr>
+                </thead>
+                <tbody id="people-table-body"></tbody>
+              </table>
+            </div>
+
+            <div id="people-cards-grid" class="people-cards-grid hidden"></div>
+          </div>
+        </section>
+
+        <!-- ==================================================================
+             VIEW 6: MY ACCOUNT VIEW (Everyone)
+             ================================================================== -->
+        <section class="tab-view-panel hidden" id="view-account">
+          <div class="view-inner-container">
+            <div class="section-header-row">
+              <p class="section-subhead">Your profile, permissions, password, and active sessions</p>
+            </div>
+
+          <div class="settings-list">
+            <div class="settings-group-card">
+              <h3 class="settings-group-title">Profile &amp; permissions</h3>
+              <div class="settings-row">
+                <span class="settings-label">Name</span>
+                <span class="settings-val" id="account-name">—</span>
+              </div>
+              <div class="settings-row">
+                <span class="settings-label">Email</span>
+                <span class="settings-val" id="account-email">—</span>
+              </div>
+              <div class="settings-row">
+                <span class="settings-label">Role</span>
+                <span class="settings-val" id="account-role">—</span>
+              </div>
+              <div class="settings-row">
+                <span class="settings-label">Departments</span>
+                <div class="account-depts-chips" id="account-departments"></div>
+              </div>
+              <div class="settings-row">
+                <span class="settings-label">College-wide posting</span>
+                <span class="settings-val" id="account-switch-cw">Off</span>
+              </div>
+              <div class="settings-row">
+                <span class="settings-label">Urgent notices</span>
+                <span class="settings-val" id="account-switch-urgent">Off</span>
+              </div>
+            </div>
+
+            <div class="settings-group-card" id="account-password-card">
+              <h3 class="settings-group-title">Change password</h3>
+              <form id="change-password-form" class="account-password-form">
+                <div class="form-group">
+                  <label for="account-current-pw" class="form-label">Current password</label>
+                  <div class="input-password-wrap">
+                    <input type="password" id="account-current-pw" class="form-control" autocomplete="current-password" required>
+                    <button type="button" class="btn-toggle-pw btn-pw-vis" data-target="account-current-pw" aria-label="Toggle current password visibility">Show</button>
+                  </div>
+                </div>
+                <div class="form-group">
+                  <label for="account-new-pw" class="form-label">New password</label>
+                  <div class="input-password-wrap">
+                    <input type="password" id="account-new-pw" class="form-control" autocomplete="new-password" minlength="12" required>
+                    <button type="button" class="btn-toggle-pw btn-pw-vis" data-target="account-new-pw" aria-label="Toggle new password visibility">Show</button>
+                  </div>
+                  <span class="field-hint" id="account-pw-length-hint">12 or more characters (0 / 12)</span>
+                </div>
+                <div class="form-group">
+                  <label for="account-confirm-pw" class="form-label">Confirm new password</label>
+                  <div class="input-password-wrap">
+                    <input type="password" id="account-confirm-pw" class="form-control" autocomplete="new-password" minlength="12" required>
+                    <button type="button" class="btn-toggle-pw btn-pw-vis" data-target="account-confirm-pw" aria-label="Toggle confirm password visibility">Show</button>
+                  </div>
+                </div>
+                <div id="change-pw-error" class="inline-error hidden" role="alert"></div>
+                <button type="submit" id="btn-change-password" class="btn btn-primary btn-sm">Update password</button>
+              </form>
+            </div>
+
+            <div class="settings-group-card">
+              <h3 class="settings-group-title">Sessions</h3>
+              <div class="settings-row">
+                <div class="settings-label-wrap">
+                  <span class="settings-label">Other devices</span>
+                  <span class="settings-sublabel">Invalidate sessions on all other browsers and devices</span>
+                </div>
+                <button type="button" id="btn-revoke-other-sessions" class="btn btn-secondary btn-sm">Sign out of all other devices</button>
+              </div>
+            </div>
+          </div>
+          </div>
+        </section>
+
       </main>
 
       <!-- ==================================================================
@@ -714,7 +910,7 @@
           <span class="raised-icon" aria-hidden="true">+</span>
         </button>
 
-        <a href="#screens" class="tab-item" data-tab="screens" id="tab-screens" aria-label="Screens">
+        <a href="#screens" class="tab-item" data-tab="screens" data-admin-only="true" id="tab-screens" aria-label="Screens">
           <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
             <rect x="2" y="3" width="20" height="14" rx="2"></rect>
             <line x1="8" y1="21" x2="16" y2="21"></line>
@@ -723,12 +919,28 @@
           <span class="tab-label">Screens</span>
         </a>
 
-        <a href="#settings" class="tab-item" data-tab="settings" id="tab-settings" aria-label="Settings">
+        <a href="#people" class="tab-item" data-tab="people" data-admin-only="true" id="tab-people" aria-label="People">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+            <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
+            <circle cx="9" cy="7" r="4"></circle>
+          </svg>
+          <span class="tab-label">People</span>
+        </a>
+
+        <a href="#settings" class="tab-item" data-tab="settings" data-admin-only="true" id="tab-settings" aria-label="Settings">
           <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
             <circle cx="12" cy="12" r="3"></circle>
             <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
           </svg>
           <span class="tab-label">Settings</span>
+        </a>
+
+        <a href="#account" class="tab-item" data-tab="account" id="tab-account" aria-label="My account">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+            <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
+            <circle cx="12" cy="7" r="4"></circle>
+          </svg>
+          <span class="tab-label">Account</span>
         </a>
       </nav>
 
@@ -779,12 +991,13 @@
               <div class="chip-picker" id="screen-chip-picker" role="group" aria-labelledby="screen-picker-label" tabindex="0">
                 <!-- Rendered dynamically -->
               </div>
-              <div class="inline-error hidden" id="screen-picker-error">Please select at least one target screen.</div>
+              <div class="field-hint hidden" id="faculty-cw-hint">Ask an admin to turn this on</div>
+              <div class="inline-error hidden" id="screen-picker-error">Select at least one target screen.</div>
             </div>
 
-            <div class="form-group" style="margin-top: 12px;">
+            <div class="form-group" id="posted-by-field-group" style="margin-top: 12px;">
               <label for="notice-created-by" class="form-label">Posted by</label>
-              <input type="text" id="notice-created-by" name="created_by" class="form-control" placeholder="admin" value="admin" autocomplete="name" enterkeyhint="next">
+              <input type="text" id="notice-created-by" name="created_by" class="form-control" placeholder="Your display name" value="" autocomplete="name" enterkeyhint="next">
             </div>
           </div>
 
@@ -829,14 +1042,15 @@
                     <span>Info</span>
                   </span>
                 </label>
-                <label class="prio-opt prio-urgent-opt">
-                  <input type="radio" name="priority" value="urgent">
+                <label class="prio-opt prio-urgent-opt" id="prio-urgent-opt">
+                  <input type="radio" name="priority" value="urgent" id="prio-urgent-radio">
                   <span class="prio-btn">
                     <span class="prio-icon">🔴</span>
                     <span>Urgent</span>
                   </span>
                 </label>
               </div>
+              <div class="field-hint hidden" id="faculty-urgent-hint">Ask an admin to turn this on</div>
             </div>
 
             <!-- Content Type Segmented Control -->
@@ -1288,6 +1502,176 @@
     </div>
   </div>
 
+  <!-- Invite / Edit Person Modal (Bottom sheet on mobile, dialog on desktop) -->
+  <div id="invite-person-modal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="invite-modal-heading">
+    <div class="modal-dialog modal-bottom-sheet">
+      <div class="sheet-grab-area" aria-hidden="true">
+        <div class="sheet-grab-bar"></div>
+      </div>
+      <div class="modal-header">
+        <h2 class="modal-heading" id="invite-modal-heading">Invite person</h2>
+        <button type="button" id="btn-close-invite-modal" class="btn-icon" aria-label="Close dialog">&times;</button>
+      </div>
+      <div class="modal-body-scroll">
+        <form id="invite-person-form">
+          <div class="form-group">
+            <label for="invite-name-input" class="form-label">Name <span class="required">*</span></label>
+            <input type="text" id="invite-name-input" class="form-control" placeholder="Full name" required>
+          </div>
+          <div class="form-group" id="invite-email-group">
+            <label for="invite-email-input" class="form-label">Email <span class="required">*</span></label>
+            <input type="email" id="invite-email-input" class="form-control" placeholder="name@college.edu" required>
+          </div>
+          <div class="form-group">
+            <label for="invite-phone-input" class="form-label">Phone <span class="label-opt">(optional)</span></label>
+            <input type="tel" id="invite-phone-input" class="form-control" placeholder="+91 98765 43210">
+          </div>
+          <div class="form-group">
+            <label for="invite-role-select" class="form-label">Role</label>
+            <select id="invite-role-select" class="form-control">
+              <option value="faculty">Faculty</option>
+              <option value="admin">Admin</option>
+            </select>
+            <div class="field-hint hidden" id="invite-self-demote-hint">You cannot disable or demote your own account.</div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Departments</label>
+            <div class="chip-picker" id="invite-dept-chips"></div>
+          </div>
+          <div id="invite-faculty-switches" class="invite-switches-group">
+            <div class="settings-row">
+              <div class="settings-label-wrap">
+                <span class="settings-label">Can post college-wide</span>
+                <span class="settings-sublabel">Allow targeting ALL or other departments</span>
+              </div>
+              <label class="switch-toggle">
+                <input type="checkbox" id="invite-cw-switch">
+                <span class="switch-slider"></span>
+              </label>
+            </div>
+            <div class="settings-row">
+              <div class="settings-label-wrap">
+                <span class="settings-label">Can post urgent</span>
+                <span class="settings-sublabel">Allow urgent priority takeover</span>
+              </div>
+              <label class="switch-toggle">
+                <input type="checkbox" id="invite-urgent-switch">
+                <span class="switch-slider"></span>
+              </label>
+            </div>
+          </div>
+          <div id="invite-form-error" class="inline-error hidden" role="alert"></div>
+          <div class="modal-footer">
+            <button type="button" id="btn-cancel-invite" class="btn btn-secondary">Cancel</button>
+            <button type="submit" id="btn-submit-invite" class="btn btn-primary">Send invite</button>
+          </div>
+        </form>
+
+        <div id="invite-result-panel" class="invite-result-panel hidden">
+          <div class="invite-once-banner">This link is shown only once.</div>
+          <p class="invite-result-meta" id="invite-result-meta"></p>
+          <div class="form-group">
+            <label for="invite-result-url" class="form-label">Invite link</label>
+            <input type="text" id="invite-result-url" class="form-control" readonly>
+          </div>
+          <div class="invite-result-actions">
+            <button type="button" id="btn-copy-invite-link" class="btn btn-primary btn-sm">Copy</button>
+            <a id="btn-share-whatsapp" href="#" target="_blank" rel="noopener" class="btn btn-secondary btn-sm">Share on WhatsApp</a>
+          </div>
+          <p class="field-hint" id="invite-result-expiry"></p>
+          <div class="modal-footer">
+            <button type="button" id="btn-done-invite" class="btn btn-secondary">Done</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Reusable Confirm Modal (Replaces window.confirm) -->
+  <div id="confirm-modal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="confirm-modal-title">
+    <div class="modal-dialog modal-dialog-sm">
+      <div class="modal-header">
+        <h2 class="modal-heading" id="confirm-modal-title">Confirm action</h2>
+        <button type="button" id="btn-close-confirm-modal" class="btn-icon" aria-label="Close dialog">&times;</button>
+      </div>
+      <p class="delete-confirm-text" id="confirm-modal-message"></p>
+      <div class="modal-footer">
+        <button type="button" id="btn-confirm-cancel" class="btn btn-secondary">Cancel</button>
+        <button type="button" id="btn-confirm-proceed" class="btn btn-danger">Confirm</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Bulk CSV Import Modal -->
+  <div id="csv-import-modal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="csv-import-heading">
+    <div class="modal-dialog modal-dialog-lg">
+      <div class="modal-header">
+        <h2 class="modal-heading" id="csv-import-heading">Import faculty from CSV</h2>
+        <button type="button" id="btn-close-csv-modal" class="btn-icon" aria-label="Close dialog">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div id="csv-import-error" class="form-error hidden" role="alert"></div>
+
+        <!-- Step 1: Upload -->
+        <div id="csv-step-upload">
+          <p class="section-subhead" style="margin-bottom:12px;">Upload a UTF-8 .csv file (max 500 rows, 1 MB). Columns: <code>name, email, phone, departments, role</code>. Separate multiple departments with semicolons (e.g. <code>EXCS;CMPN</code>).</p>
+          <div style="margin-bottom:14px;">
+            <a id="link-download-csv-template" href="/api/users/import/template" class="btn btn-secondary btn-sm" download="vnotice_faculty_template.csv">Download template</a>
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="csv-file-input">CSV file</label>
+            <input type="file" id="csv-file-input" class="form-control" accept=".csv,text/csv">
+          </div>
+          <div class="modal-footer" style="padding:14px 0 0;border-top:none;">
+            <button type="button" id="btn-cancel-csv-upload" class="btn btn-secondary">Cancel</button>
+            <button type="button" id="btn-csv-preview" class="btn btn-primary">Upload and preview</button>
+          </div>
+        </div>
+
+        <!-- Step 2: Preview -->
+        <div id="csv-step-preview" class="hidden">
+          <div id="csv-preview-counts" class="csv-counts-bar"></div>
+          <div id="csv-preview-table-wrap" class="audit-table-wrap csv-preview-scroll">
+            <table class="audit-table">
+              <thead>
+                <tr>
+                  <th>#</th>
+                  <th>Name</th>
+                  <th>Email</th>
+                  <th>Departments</th>
+                  <th>Role</th>
+                  <th>Status</th>
+                  <th>Notes</th>
+                </tr>
+              </thead>
+              <tbody id="csv-preview-tbody"></tbody>
+            </table>
+          </div>
+          <div class="modal-footer" style="padding:14px 0 0;border-top:none;">
+            <button type="button" id="btn-csv-back" class="btn btn-secondary">Choose another file</button>
+            <button type="button" id="btn-csv-commit" class="btn btn-primary">Create accounts</button>
+          </div>
+        </div>
+
+        <!-- Step 3: Result -->
+        <div id="csv-step-result" class="hidden">
+          <div id="csv-result-summary" class="csv-result-summary"></div>
+          <div id="csv-result-skipped" class="csv-skipped-list hidden"></div>
+          <div class="csv-links-warning" role="note">
+            This file contains one-time invite links and must be shared carefully. It can only be downloaded once and expires in 10 minutes.
+          </div>
+          <div class="invite-result-actions" style="margin-top:14px;">
+            <button type="button" id="btn-download-import-links" class="btn btn-primary btn-sm">Download links (CSV)</button>
+            <button type="button" id="btn-copy-whatsapp-batch" class="btn btn-secondary btn-sm">Copy WhatsApp messages</button>
+          </div>
+          <div class="modal-footer" style="padding:16px 0 0;border-top:none;">
+            <button type="button" id="btn-done-csv-import" class="btn btn-secondary">Done</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- Toast Notification Container (Positioned safely above bottom tab bar on mobile) -->
   <div class="toast-container" id="toast-container" aria-live="polite"></div>
 
@@ -1312,6 +1696,6 @@
   </script>
 
   <!-- Main JavaScript Bundle -->
-  <script src="/static/js/admin.js?v=10"></script>
+  <script src="/static/js/admin.js?v=13"></script>
 </body>
 </html>

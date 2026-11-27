@@ -4,6 +4,8 @@ import tempfile
 import pytest
 
 TEST_ADMIN_PASSWORD = os.environ.get("TEST_ADMIN_PASSWORD") or os.environ.get("ADMIN_PASSWORD", "vnotice2026")
+os.environ.setdefault("TEST_ADMIN_PASSWORD", TEST_ADMIN_PASSWORD)
+os.environ.setdefault("ADMIN_PASSWORD", TEST_ADMIN_PASSWORD)
 
 @pytest.fixture(scope="session", autouse=True)
 def isolated_test_environment(tmp_path_factory):

@@ -6,7 +6,8 @@ import secrets
 import threading
 from typing import Optional, Tuple
 from werkzeug.security import check_password_hash
-from config import ADMIN_PASSWORD, BASE_DIR
+import config
+from config import BASE_DIR
 
 # ==============================================================================
 # 1. Admin Password Verification (Hash with constant-time or plaintext fallback)
@@ -16,52 +17,68 @@ ADMIN_PASSWORD_HASH = os.environ.get("ADMIN_PASSWORD_HASH")
 def verify_admin_password(candidate: str) -> bool:
     if not candidate:
         return False
-    if ADMIN_PASSWORD_HASH:
+    pw_hash = ADMIN_PASSWORD_HASH or getattr(config, "ADMIN_PASSWORD_HASH", None)
+    if pw_hash:
         try:
-            return check_password_hash(ADMIN_PASSWORD_HASH, candidate)
+            return check_password_hash(pw_hash, candidate)
         except Exception:
             return False
+    admin_pw = getattr(config, "ADMIN_PASSWORD", "")
+    if not admin_pw:
+        return False
     # Fallback to constant-time plaintext comparison
-    return hmac.compare_digest(candidate.encode("utf-8"), ADMIN_PASSWORD.encode("utf-8"))
+    return hmac.compare_digest(candidate.encode("utf-8"), admin_pw.encode("utf-8"))
 
 def check_password_config_warnings():
-    if not ADMIN_PASSWORD_HASH:
-        if ADMIN_PASSWORD == "vnotice2026":
+    pw_hash = ADMIN_PASSWORD_HASH or getattr(config, "ADMIN_PASSWORD_HASH", None)
+    admin_pw = getattr(config, "ADMIN_PASSWORD", "")
+    if not pw_hash:
+        if not admin_pw:
             print("!" * 72, file=sys.stderr)
-            print("SECURITY WARNING: Using default ADMIN_PASSWORD ('vnotice2026').", file=sys.stderr)
-            print("Set ADMIN_PASSWORD_HASH (or custom ADMIN_PASSWORD) in production.", file=sys.stderr)
+            print("SECURITY WARNING: ADMIN_PASSWORD is not set; super-admin password login is disabled.", file=sys.stderr)
+            print("Set ADMIN_PASSWORD_HASH (or ADMIN_PASSWORD) in your environment.", file=sys.stderr)
+            print("!" * 72, file=sys.stderr)
+        elif len(admin_pw) < 12:
+            print("!" * 72, file=sys.stderr)
+            print("SECURITY WARNING: ADMIN_PASSWORD is shorter than 12 characters.", file=sys.stderr)
+            print("Set ADMIN_PASSWORD_HASH or a stronger ADMIN_PASSWORD (>= 12 chars) in production.", file=sys.stderr)
             print("!" * 72, file=sys.stderr)
         else:
             print("[INFO] Admin authentication using plaintext ADMIN_PASSWORD env var.", file=sys.stderr)
             print("       Recommendation: Set ADMIN_PASSWORD_HASH for cryptographic hashing.", file=sys.stderr)
 
 # ==============================================================================
-# 2. In-Process Rate Limiter & Lockout (5 failed attempts per 10 mins per IP)
+# 2. In-Process Rate Limiter & Progressive Lockout (by IP and account)
 # ==============================================================================
 class RateLimiter:
-    def __init__(self, max_attempts: int = 5, window_seconds: int = 600):
+    def __init__(self, max_attempts: int = 5, window_seconds: int = 600, base_delay_seconds: int = 30, max_delay_seconds: int = 900):
         self.max_attempts = max_attempts
         self.window_seconds = window_seconds
+        self.base_delay_seconds = base_delay_seconds
+        self.max_delay_seconds = max_delay_seconds
         self._lock = threading.Lock()
-        self._failures = {}  # ip -> list of timestamps
+        self._failures = {}  # key -> list of timestamps
+        self._locked_until = {}  # key -> unix timestamp
 
     def is_locked(self, key: str) -> Tuple[bool, int]:
         """Returns (is_locked, retry_after_seconds)."""
         now = time.time()
         with self._lock:
             attempts = self._failures.get(key, [])
-            # Prune attempts older than window
             attempts = [t for t in attempts if now - t < self.window_seconds]
             self._failures[key] = attempts
-            
-            if len(attempts) >= self.max_attempts:
-                # Lockout: time until the oldest attempt leaves the window
-                oldest = attempts[0]
-                retry_after = max(1, int(self.window_seconds - (now - oldest)))
-                return True, retry_after
+
+            if not attempts:
+                self._locked_until.pop(key, None)
+                return False, 0
+
+            locked_until = self._locked_until.get(key, 0)
+            if locked_until > now:
+                return True, max(1, int(locked_until - now))
             return False, 0
 
-    def record_failure(self, key: str):
+    def record_failure(self, key: str) -> int:
+        """Record a failed attempt and return the progressive cooldown delay (0 if below threshold)."""
         now = time.time()
         with self._lock:
             attempts = self._failures.get(key, [])
@@ -69,12 +86,47 @@ class RateLimiter:
             attempts.append(now)
             self._failures[key] = attempts
 
+            count = len(attempts)
+            if count >= self.max_attempts:
+                exponent = count - self.max_attempts
+                delay = min(self.max_delay_seconds, self.base_delay_seconds * (2 ** exponent))
+                self._locked_until[key] = max(self._locked_until.get(key, 0), now + delay)
+                return delay
+            return 0
+
     def record_success(self, key: str):
         with self._lock:
             self._failures.pop(key, None)
+            self._locked_until.pop(key, None)
 
-login_rate_limiter = RateLimiter(max_attempts=5, window_seconds=600)
-api_key_rate_limiter = RateLimiter(max_attempts=15, window_seconds=600)
+login_rate_limiter = RateLimiter(max_attempts=5, window_seconds=900, base_delay_seconds=30, max_delay_seconds=900)
+account_rate_limiter = RateLimiter(max_attempts=5, window_seconds=900, base_delay_seconds=30, max_delay_seconds=900)
+api_key_rate_limiter = RateLimiter(max_attempts=15, window_seconds=600, base_delay_seconds=30, max_delay_seconds=900)
+invite_rate_limiter = RateLimiter(max_attempts=10, window_seconds=600, base_delay_seconds=30, max_delay_seconds=900)
+import_rate_limiter = RateLimiter(max_attempts=30, window_seconds=300, base_delay_seconds=15, max_delay_seconds=300)
+
+# ==============================================================================
+# 2B. Password Strength Validation (min 12 chars + bundled common list)
+# ==============================================================================
+def _load_common_passwords() -> set:
+    path = BASE_DIR / "common_passwords.txt"
+    if not path.is_file():
+        return set()
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            return {line.strip().lower() for line in f if line.strip()}
+    except Exception:
+        return set()
+
+_COMMON_PASSWORDS = _load_common_passwords()
+
+def validate_password_strength(password: str) -> Tuple[bool, str]:
+    """Enforce >= 12 chars and reject bundled common passwords. No composition rules."""
+    if not password or len(password) < 12:
+        return False, "Password must be at least 12 characters long."
+    if password.strip().lower() in _COMMON_PASSWORDS:
+        return False, "Password is too common. Please choose a stronger passphrase."
+    return True, ""
 
 # ==============================================================================
 # 3. Magic-Byte Content Sniffing & File Validation

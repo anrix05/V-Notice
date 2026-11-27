@@ -106,47 +106,138 @@
   const toastContainer = document.getElementById('toast-container');
 
   // ==========================================================================
-  // Auth Management
+  // Auth Management (HttpOnly Session Cookie + CSRF Token)
   // ==========================================================================
   let cachedCsrfToken = '';
+  let isAuthenticated = false;
+  let currentUser = null;
 
-  function getAdminPassword() {
-    return sessionStorage.getItem('vnotice_admin_pass') || '';
-  }
-
-  function setAdminPassword(pass) {
-    sessionStorage.setItem('vnotice_admin_pass', pass);
-  }
-
-  function clearAdminPassword() {
-    sessionStorage.removeItem('vnotice_admin_pass');
+  function clearAuthState() {
+    isAuthenticated = false;
+    currentUser = null;
     cachedCsrfToken = '';
   }
 
-  async function checkAuthAndLoad() {
-    const urlParams = new URLSearchParams(window.location.search);
-    if (urlParams.get('test_auth') === '1' && !getAdminPassword()) {
-      setAdminPassword('vnotice2026');
-    }
+  function showConfirmModal({ title = 'Confirm action', message = '', confirmText = 'Confirm', isDanger = true, onConfirm }) {
+    const modal = document.getElementById('confirm-modal');
+    const titleEl = document.getElementById('confirm-modal-title');
+    const msgEl = document.getElementById('confirm-modal-message');
+    const btnCancel = document.getElementById('btn-confirm-cancel');
+    const btnClose = document.getElementById('btn-close-confirm-modal');
+    const btnProceed = document.getElementById('btn-confirm-proceed');
+    if (!modal || !btnProceed) return;
 
-    const pass = getAdminPassword();
-    if (!pass) {
-      showLoginModal();
-      return;
-    }
+    if (titleEl) titleEl.textContent = title;
+    if (msgEl) msgEl.textContent = message;
+    btnProceed.textContent = confirmText;
+    btnProceed.className = isDanger ? 'btn btn-danger' : 'btn btn-primary';
+    modal.classList.remove('hidden');
 
+    const cleanup = () => {
+      modal.classList.add('hidden');
+      btnProceed.onclick = null;
+      if (btnCancel) btnCancel.onclick = null;
+      if (btnClose) btnClose.onclick = null;
+    };
+    if (btnCancel) btnCancel.onclick = cleanup;
+    if (btnClose) btnClose.onclick = cleanup;
+    btnProceed.onclick = async () => {
+      cleanup();
+      if (typeof onConfirm === 'function') await onConfirm();
+    };
+  }
+
+  function applyNoticeFormRoleConstraints() {
+    const isFaculty = currentUser && currentUser.role !== 'admin';
+    const urgentRadio = document.getElementById('prio-urgent-radio');
+    const urgentHint = document.getElementById('faculty-urgent-hint');
+    const cwHint = document.getElementById('faculty-cw-hint');
+    const postedByGroup = document.getElementById('posted-by-field-group');
+
+    const canUrgent = !isFaculty || Boolean(currentUser.can_post_urgent);
+    if (urgentRadio) {
+      urgentRadio.disabled = !canUrgent;
+      if (!canUrgent && urgentRadio.checked) {
+        const normalRadio = document.querySelector('input[name="priority"][value="normal"]');
+        if (normalRadio) normalRadio.checked = true;
+      }
+    }
+    if (urgentHint) urgentHint.classList.toggle('hidden', canUrgent);
+
+    const canCw = !isFaculty || Boolean(currentUser.can_post_college_wide);
+    if (cwHint) cwHint.classList.toggle('hidden', canCw);
+
+    if (postedByGroup) postedByGroup.classList.toggle('hidden', Boolean(isFaculty));
+  }
+
+  function applyUserRoleUI() {
+    const isAdmin = !currentUser || currentUser.role === 'admin';
+    const displayName = (currentUser && (currentUser.name || currentUser.email)) || 'Admin';
+    const roleLabel = isAdmin ? 'Admin' : 'Faculty';
+
+    const sidebarName = document.getElementById('sidebar-username');
+    const sidebarRole = document.getElementById('sidebar-role');
+    const sidebarAvatar = document.getElementById('sidebar-user-avatar');
+    const authBadge = document.getElementById('auth-user-badge');
+    if (sidebarName) sidebarName.textContent = displayName;
+    if (sidebarRole) sidebarRole.textContent = roleLabel;
+    if (sidebarAvatar) sidebarAvatar.textContent = displayName.trim().charAt(0).toUpperCase() || 'A';
+    if (authBadge) authBadge.textContent = displayName;
+
+    document.querySelectorAll('[data-admin-only="true"]').forEach(el => {
+      el.classList.toggle('hidden', !isAdmin);
+    });
+
+    applyNoticeFormRoleConstraints();
+    if (typeof renderMyAccount === 'function') renderMyAccount();
+
+    if (!isAdmin && ['screens', 'people', 'audit', 'settings'].includes(currentActiveTab)) {
+      switchTab('notices', { fromHistory: true });
+    }
+  }
+
+  async function performLogout() {
     try {
+      const csrf = await getCsrfToken();
+      await fetch('/api/logout', {
+        method: 'POST',
+        headers: csrf ? { 'X-CSRF-Token': csrf } : {}
+      });
+    } catch (e) {}
+    clearAuthState();
+    showLoginModal();
+  }
+
+  async function checkAuthAndLoad() {
+    try {
+      const meRes = await fetch('/api/me', { cache: 'no-cache' });
+      if (!meRes.ok) {
+        clearAuthState();
+        showLoginModal();
+        return;
+      }
+      const meData = await meRes.json().catch(() => ({}));
+      if (!meData || !meData.authenticated) {
+        clearAuthState();
+        showLoginModal();
+        return;
+      }
+      isAuthenticated = true;
+      currentUser = meData;
+      applyUserRoleUI();
+      await getCsrfToken();
       loadScreens();
-      await fetchNotices();
+      await fetchNotices(true);
       hideLoginModal();
+      const urlParams = new URLSearchParams(window.location.search);
       if (urlParams.get('test_modal') === 'create') {
         setTimeout(() => openCreateModal(), 150);
       }
     } catch (err) {
-      if (err.status === 401) {
-        clearAdminPassword();
-        showLoginModal();
+      if (err && err.status === 401) {
+        clearAuthState();
       }
+      showLoginModal();
     }
   }
 
@@ -211,7 +302,8 @@
       }
 
       if (!res.ok) {
-        loginError.textContent = 'Incorrect password. Please try again.';
+        const errData = await res.json().catch(() => ({}));
+        loginError.textContent = errData.error || 'Invalid username or password';
         loginError.classList.remove('hidden');
         passwordInput.select();
         return;
@@ -223,7 +315,9 @@
       }
 
       clearInterval(window._loginCountdown);
-      setAdminPassword(pass);
+      isAuthenticated = true;
+      currentUser = loginResData.user || null;
+      applyUserRoleUI();
       hideLoginModal();
       if (feedScreenFilter) {
         feedScreenFilter.addEventListener('change', () => fetchNotices(true));
@@ -237,13 +331,7 @@
     }
   });
 
-  btnLogout.addEventListener('click', async () => {
-    try {
-      await fetch('/api/logout', { method: 'POST' });
-    } catch (e) {}
-    clearAdminPassword();
-    showLoginModal();
-  });
+  btnLogout.addEventListener('click', performLogout);
 
   // ==========================================================================
   // Toast Notifications
@@ -360,19 +448,37 @@
       screens = DEFAULT_DEPARTMENTS;
     }
 
+    const isFaculty = currentUser && currentUser.role !== 'admin';
+    const canCw = !isFaculty || Boolean(currentUser.can_post_college_wide);
+    const allowedDepts = isFaculty
+      ? new Set((currentUser.departments || []).map(d => String(d).toUpperCase()))
+      : null;
+
+    if (isFaculty && !canCw && selectedScreenCodes.has('ALL')) {
+      selectedScreenCodes.delete('ALL');
+      if (allowedDepts && allowedDepts.size > 0 && selectedScreenCodes.size === 0) {
+        selectedScreenCodes.add(Array.from(allowedDepts)[0]);
+      }
+    }
+
     // 1. ALL chip
     const allChip = document.createElement('button');
     allChip.type = 'button';
-    const isAllSel = selectedScreenCodes.has('ALL');
-    allChip.className = `chip ${isAllSel ? 'selected' : ''}`;
+    const isAllSel = selectedScreenCodes.has('ALL') && canCw;
+    allChip.className = `chip ${isAllSel ? 'selected' : ''} ${!canCw ? 'chip-disabled' : ''}`;
     allChip.setAttribute('role', 'checkbox');
     allChip.setAttribute('aria-checked', isAllSel ? 'true' : 'false');
+    if (!canCw) {
+      allChip.disabled = true;
+      allChip.title = 'Ask an admin to turn this on';
+    }
     allChip.innerHTML = `
       <span class="chip-check" aria-hidden="true">✓</span>
       <span class="chip-code">ALL</span>
       <span class="chip-name">All Departments (college-wide)</span>
     `;
     allChip.addEventListener('click', () => {
+      if (!canCw) return;
       selectedScreenCodes.clear();
       selectedScreenCodes.add('ALL');
       validateScreenPicker();
@@ -380,8 +486,17 @@
     });
     container.appendChild(allChip);
 
-    // 2. Department chips
-    screens.filter(s => (s.code || s.id) !== 'ALL').forEach(dept => {
+    // 2. Department chips (faculty sees only their own departments unless college-wide is on)
+    const deptScreens = screens.filter(s => {
+      const code = (s.code || s.id || '').toUpperCase();
+      if (code === 'ALL') return false;
+      if (isFaculty && !canCw && allowedDepts) {
+        return allowedDepts.has(code);
+      }
+      return true;
+    });
+
+    deptScreens.forEach(dept => {
       const code = dept.code || dept.id;
       const isSel = selectedScreenCodes.has(code);
       const chip = document.createElement('button');
@@ -392,11 +507,19 @@
       if (dept.accent_color) {
         chip.style.setProperty('--dept-accent', dept.accent_color);
       }
-      chip.innerHTML = `
-        <span class="chip-check" aria-hidden="true">✓</span>
-        <span class="chip-code">${escapeHtml(code)}</span>
-        <span class="chip-name">${escapeHtml(dept.name || code)}</span>
-      `;
+      const checkSpan = document.createElement('span');
+      checkSpan.className = 'chip-check';
+      checkSpan.setAttribute('aria-hidden', 'true');
+      checkSpan.textContent = '✓';
+      const codeSpan = document.createElement('span');
+      codeSpan.className = 'chip-code';
+      codeSpan.textContent = code;
+      const nameSpan = document.createElement('span');
+      nameSpan.className = 'chip-name';
+      nameSpan.textContent = dept.name || code;
+      chip.appendChild(checkSpan);
+      chip.appendChild(codeSpan);
+      chip.appendChild(nameSpan);
       chip.addEventListener('click', () => {
         selectedScreenCodes.delete('ALL');
         if (selectedScreenCodes.has(code)) {
@@ -466,12 +589,12 @@
   let adminNoticesEtag = null;
 
   async function fetchNotices(forceRefresh = false) {
-    const pass = getAdminPassword();
     const selectedScreen = feedScreenFilter ? feedScreenFilter.value : 'all';
-    const screenQuery = selectedScreen && selectedScreen !== 'all' ? `?screen=${encodeURIComponent(selectedScreen)}` : '';
+    const screenQuery = selectedScreen && selectedScreen !== 'all'
+      ? `?view=admin&screen=${encodeURIComponent(selectedScreen)}`
+      : '?view=admin';
     
     const headers = {
-      'X-Password': pass,
       'Cache-Control': 'no-cache'
     };
     if (adminNoticesEtag && !forceRefresh) {
@@ -848,6 +971,7 @@
           </span>
         </div>
         <div class="notice-schedule-line">${scheduleLine}</div>
+        <div class="notice-posted-by"></div>
         <div class="notice-public-link-row">
           <span class="public-link-tag">Public link:</span>
           <button type="button" class="btn-link-action btn-copy-public-card" data-id="${notice.id}">Copy link</button>
@@ -868,6 +992,23 @@
       </div>
     `;
 
+    const postedByEl = card.querySelector('.notice-posted-by');
+    if (postedByEl) {
+      postedByEl.textContent = `Posted by ${notice.posted_by || notice.created_by_name || 'Admin'}`;
+    }
+
+    const canModifyNotice = !currentUser || currentUser.role === 'admin' || notice.created_by === currentUser.id;
+    if (!canModifyNotice) {
+      const actionsEl = card.querySelector('.notice-actions');
+      if (actionsEl) {
+        actionsEl.innerHTML = '';
+        const roBadge = document.createElement('span');
+        roBadge.className = 'badge-readonly';
+        roBadge.textContent = 'Read-only';
+        actionsEl.appendChild(roBadge);
+      }
+    }
+
     // Lazy video poster registration via IntersectionObserver
     if (ntype === 'video' && notice.media) {
       const vTile = card.querySelector('.video-tile');
@@ -887,8 +1028,9 @@
       }
     }
 
-    // Tapping card opens edit sheet
+    // Tapping card opens edit sheet only if permitted
     card.addEventListener('click', () => {
+      if (!canModifyNotice) return;
       saveScrollAndOpenEdit(notice);
     });
 
@@ -932,14 +1074,39 @@
   }
 
   function renderNoticesList() {
-    // 1. Screen Filter: filter notices by target screen
+    // 0. Populate Posted-by filter for admins
+    const postedBySelect = document.getElementById('feed-posted-by-filter');
+    if (postedBySelect && (!currentUser || currentUser.role === 'admin')) {
+      const curAuthor = postedBySelect.value || 'all';
+      const authors = Array.from(new Set(notices.map(n => n.posted_by || n.created_by_name || 'Admin'))).sort();
+      postedBySelect.innerHTML = '';
+      const allOpt = document.createElement('option');
+      allOpt.value = 'all';
+      allOpt.textContent = 'Anyone';
+      postedBySelect.appendChild(allOpt);
+      authors.forEach(a => {
+        const opt = document.createElement('option');
+        opt.value = a;
+        opt.textContent = a;
+        postedBySelect.appendChild(opt);
+      });
+      if (authors.includes(curAuthor)) postedBySelect.value = curAuthor;
+    }
+
+    // 1. Screen Filter + Posted-by Filter
     const screenFilterVal = feedScreenFilter ? feedScreenFilter.value : 'all_screens';
-    const screenFiltered = (screenFilterVal === 'all_screens')
-      ? [...notices]
-      : notices.filter(n => {
-          const s = sanitizeScreenCodes(n.screens || n.screen_id);
-          return s.includes(screenFilterVal) || s.includes('ALL');
-        });
+    const authorFilterVal = postedBySelect ? postedBySelect.value : 'all';
+    const screenFiltered = notices.filter(n => {
+      if (screenFilterVal !== 'all_screens') {
+        const s = sanitizeScreenCodes(n.screens || n.screen_id);
+        if (!s.includes(screenFilterVal) && !s.includes('ALL')) return false;
+      }
+      if (authorFilterVal && authorFilterVal !== 'all') {
+        const pb = n.posted_by || n.created_by_name || 'Admin';
+        if (pb !== authorFilterVal) return false;
+      }
+      return true;
+    });
 
     // 2. Tab counts following selected screen filter
     const countAll = screenFiltered.length;
@@ -2959,7 +3126,6 @@
     const endpoint = editingNoticeId ? `/api/notices/${editingNoticeId}` : '/api/notices';
 
     xhr.open(method, endpoint, true);
-    xhr.setRequestHeader('X-Password', getAdminPassword());
     const csrf = await getCsrfToken();
     if (csrf) xhr.setRequestHeader('X-CSRF-Token', csrf);
 
@@ -3042,7 +3208,6 @@
       const res = await fetch(`/api/notices/${deletedId}`, {
         method: 'DELETE',
         headers: {
-          'X-Password': getAdminPassword(),
           'X-CSRF-Token': (await getCsrfToken()) || '',
           'Cache-Control': 'no-cache, no-store, must-revalidate'
         }
@@ -3062,7 +3227,6 @@
           const restoreRes = await fetch(`/api/notices/${deletedId}/restore`, {
             method: 'POST',
             headers: {
-              'X-Password': getAdminPassword(),
               'X-CSRF-Token': (await getCsrfToken()) || '',
               'Cache-Control': 'no-cache, no-store, must-revalidate'
             }
@@ -3117,7 +3281,6 @@
     });
   }
   // Initialize screens and auth
-  loadScreens();
   checkAuthAndLoad();
   initMobileFilterBar();
 
@@ -3127,7 +3290,7 @@
     if (noticesPollInterval) clearInterval(noticesPollInterval);
     noticesPollInterval = setInterval(() => {
       if (document.hidden) return;
-      if (localStorage.getItem('vnotice_admin_pass') && currentActiveTab === 'notices') {
+      if (isAuthenticated && currentActiveTab === 'notices') {
         fetchNotices(false).catch(() => {});
       }
     }, 10000);
@@ -3150,7 +3313,7 @@
         screenPollInterval = null;
       }
     } else {
-      if (localStorage.getItem('vnotice_admin_pass')) {
+      if (isAuthenticated) {
         if (currentActiveTab === 'notices') {
           fetchNotices(false).catch(() => {});
           startNoticesPolling();
@@ -3191,7 +3354,6 @@
     try {
       const res = await fetch('/api/audit-logs?limit=50', {
         headers: {
-          'X-Password': getAdminPassword(),
           'Cache-Control': 'no-cache'
         }
       });
@@ -3577,29 +3739,40 @@
 
       // Wire Delete Screen buttons across both table and cards
       document.querySelectorAll('.btn-delete-screen').forEach(btn => {
-        btn.addEventListener('click', async () => {
+        btn.addEventListener('click', () => {
           const code = btn.getAttribute('data-code');
-          const isAutomated = window.navigator.webdriver || typeof window.__TESTING__ !== 'undefined';
-          if (!isAutomated && !confirm(`Delete screen ${code}?`)) return;
-          const csrf = await getCsrfToken();
-          try {
-            const delRes = await fetch(`/api/screens/${encodeURIComponent(code)}`, {
-              method: 'DELETE',
-              headers: { 'X-CSRF-Token': csrf }
-            });
-            const data = await delRes.json();
-            if (delRes.ok) {
-              if (data.deactivated) {
-                showToast(`Screen ${code} has notices and was deactivated.`);
+          const runDelete = async () => {
+            const csrf = await getCsrfToken();
+            try {
+              const delRes = await fetch(`/api/screens/${encodeURIComponent(code)}`, {
+                method: 'DELETE',
+                headers: { 'X-CSRF-Token': csrf }
+              });
+              const data = await delRes.json();
+              if (delRes.ok) {
+                if (data.deactivated) {
+                  showToast(`Screen ${code} has notices and was deactivated.`);
+                } else {
+                  showToast(`Screen ${code} deleted.`);
+                }
+                await loadAndRenderScreensTable();
               } else {
-                showToast(`Screen ${code} deleted.`);
+                showToast(data.error || 'Failed to delete screen', true);
               }
-              await loadAndRenderScreensTable();
-            } else {
-              showToast(data.error || 'Failed to delete screen', true);
+            } catch (e) {
+              showToast('Network error deleting screen', true);
             }
-          } catch (e) {
-            showToast('Network error deleting screen', true);
+          };
+          const isAutomated = window.navigator.webdriver || typeof window.__TESTING__ !== 'undefined';
+          if (isAutomated) {
+            runDelete();
+          } else {
+            showConfirmModal({
+              title: 'Delete screen?',
+              message: `Delete screen ${code}?`,
+              confirmText: 'Delete',
+              onConfirm: runDelete,
+            });
           }
         });
       });
@@ -3800,7 +3973,6 @@
     try {
       const res = await fetch(`/api/audit-logs?${params.toString()}`, {
         headers: {
-          'X-Password': getAdminPassword(),
           'Cache-Control': 'no-cache'
         }
       });
@@ -4272,7 +4444,10 @@
       return;
     }
 
-    if (!['notices', 'screens', 'audit', 'settings'].includes(tabName)) {
+    if (!['notices', 'screens', 'people', 'audit', 'settings', 'account'].includes(tabName)) {
+      tabName = 'notices';
+    }
+    if (currentUser && currentUser.role !== 'admin' && ['screens', 'people', 'audit', 'settings'].includes(tabName)) {
       tabName = 'notices';
     }
 
@@ -4280,15 +4455,19 @@
     const views = {
       notices: document.getElementById('view-notices'),
       screens: document.getElementById('view-screens'),
+      people: document.getElementById('view-people'),
       audit: document.getElementById('view-audit'),
-      settings: document.getElementById('view-settings')
+      settings: document.getElementById('view-settings'),
+      account: document.getElementById('view-account')
     };
 
     const titles = {
       notices: 'Notices',
       screens: 'Screens',
+      people: 'People',
       audit: 'Audit Logs',
-      settings: 'Settings'
+      settings: 'Settings',
+      account: 'My account'
     };
 
     Object.entries(views).forEach(([name, el]) => {
@@ -4323,7 +4502,17 @@
       btnRefresh.style.display = (tabName === 'settings') ? 'none' : '';
     }
 
-    // Update active state in Sidebar & Bottom Tab Bar
+    // Update active state in Sidebar, Bottom Tab Bar, and Mobile Drawer
+    const PAGE_TITLES = {
+      notices: 'V Notice — Notices',
+      screens: 'V Notice — Screens',
+      people: 'V Notice — People',
+      audit: 'V Notice — Audit Logs',
+      settings: 'V Notice — Settings',
+      account: 'V Notice — My account'
+    };
+    document.title = PAGE_TITLES[tabName] || 'V Notice — Portal Admin';
+
     document.querySelectorAll('.sidebar-item').forEach(item => {
       const isCurrent = item.getAttribute('data-tab') === tabName;
       item.classList.toggle('active', isCurrent);
@@ -4331,6 +4520,10 @@
     });
 
     document.querySelectorAll('.bottom-tab-bar .tab-item').forEach(item => {
+      item.classList.toggle('active', item.getAttribute('data-tab') === tabName);
+    });
+
+    document.querySelectorAll('.mobile-drawer-item').forEach(item => {
       item.classList.toggle('active', item.getAttribute('data-tab') === tabName);
     });
 
@@ -4343,10 +4536,14 @@
         clearInterval(screenPollInterval);
         screenPollInterval = null;
       }
-      if (tabName === 'audit') {
+      if (tabName === 'people') {
+        if (typeof loadPeople === 'function') loadPeople();
+      } else if (tabName === 'audit') {
         loadAuditLogsPage();
       } else if (tabName === 'settings') {
         loadFlagSettings();
+      } else if (tabName === 'account') {
+        if (typeof renderMyAccount === 'function') renderMyAccount();
       }
     }
 
@@ -4382,10 +4579,15 @@
         } else if (activeTab === 'screens') {
           await loadScreens();
           showToast('Screens refreshed');
+        } else if (activeTab === 'people') {
+          if (typeof loadPeople === 'function') await loadPeople();
+          showToast('People refreshed');
         } else if (activeTab === 'audit') {
           await loadAuditLogsPage();
           showToast('Audit logs refreshed');
         }
+      } catch (err) {
+        showToast(err && err.message ? err.message : 'Refresh failed.', true);
       } finally {
         setTimeout(() => btnRefresh.classList.remove('refreshing'), 350);
       }
@@ -4414,14 +4616,14 @@
 
   window.addEventListener('hashchange', () => {
     const hash = window.location.hash.replace('#', '') || 'notices';
-    if (hash !== currentActiveTab && ['notices', 'screens', 'audit', 'settings'].includes(hash)) {
+    if (hash !== currentActiveTab && ['notices', 'screens', 'people', 'audit', 'settings', 'account'].includes(hash)) {
       switchTab(hash, { fromHistory: true });
     }
   });
 
   // Check initial hash
   const initialHash = window.location.hash ? window.location.hash.replace('#', '') : '';
-  const initialTab = ['notices', 'screens', 'audit', 'settings'].includes(initialHash) ? initialHash : 'notices';
+  const initialTab = ['notices', 'screens', 'people', 'audit', 'settings', 'account'].includes(initialHash) ? initialHash : 'notices';
   currentActiveTab = initialTab;
   tabHistory[0] = initialTab;
   history.replaceState({ type: 'tab', tab: initialTab }, '', '#' + initialTab);
@@ -4520,44 +4722,43 @@
   const btnSettingsLogout = document.getElementById('btn-settings-logout');
   [sidebarBtnLogout, btnSettingsLogout].forEach(btn => {
     if (btn) {
-      btn.addEventListener('click', async () => {
-        try {
-          await fetch('/api/logout', { method: 'POST' });
-        } catch (e) {}
-        clearAdminPassword();
-        showLoginModal();
-      });
+      btn.addEventListener('click', performLogout);
     }
   });
 
   // Clean Unused Media trigger
   const btnCleanMedia = document.getElementById('btn-clean-media');
   if (btnCleanMedia) {
-    btnCleanMedia.addEventListener('click', async () => {
-      if (!confirm('Scan and delete unused media files from storage?')) return;
-      btnCleanMedia.disabled = true;
-      const originalText = btnCleanMedia.textContent;
-      btnCleanMedia.textContent = 'Cleaning...';
-      try {
-        const res = await fetch('/api/media/clean-orphans', {
-          method: 'POST',
-          headers: {
-            'X-Password': getAdminPassword(),
-            'X-CSRF-Token': (await getCsrfToken()) || ''
+    btnCleanMedia.addEventListener('click', () => {
+      showConfirmModal({
+        title: 'Clean unused media?',
+        message: 'Scan and delete unused media files from storage.',
+        confirmText: 'Clean now',
+        onConfirm: async () => {
+          btnCleanMedia.disabled = true;
+          const originalText = btnCleanMedia.textContent;
+          btnCleanMedia.textContent = 'Cleaning...';
+          try {
+            const res = await fetch('/api/media/clean-orphans', {
+              method: 'POST',
+              headers: {
+                'X-CSRF-Token': (await getCsrfToken()) || ''
+              }
+            });
+            const data = await res.json();
+            if (data.success) {
+              showToast(`Cleaned ${data.cleaned_count} unused media file(s).`);
+            } else {
+              showToast(data.error || 'Failed to clean media.', true);
+            }
+          } catch (err) {
+            showToast('Error cleaning media.', true);
+          } finally {
+            btnCleanMedia.disabled = false;
+            btnCleanMedia.textContent = originalText;
           }
-        });
-        const data = await res.json();
-        if (data.success) {
-          showToast(`Cleaned ${data.cleaned_count} unused media file(s).`);
-        } else {
-          showToast(data.error || 'Failed to clean media.');
-        }
-      } catch (err) {
-        showToast('Error cleaning media.');
-      } finally {
-        btnCleanMedia.disabled = false;
-        btnCleanMedia.textContent = originalText;
-      }
+        },
+      });
     });
   }
 
@@ -4590,14 +4791,16 @@
       document.body.classList.add(prefersDark ? 'theme-dark' : 'theme-light');
     }
 
-    if (saveToServer) {
-      fetch('/api/settings', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-Password': getAdminPassword()
-        },
-        body: JSON.stringify({ theme })
+    if (saveToServer && isAuthenticated) {
+      getCsrfToken().then(csrf => {
+        return fetch('/api/settings', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-CSRF-Token': csrf || ''
+          },
+          body: JSON.stringify({ theme })
+        });
       }).catch(() => {});
     }
   }
@@ -4767,7 +4970,6 @@
     try {
       const res = await fetch('/api/admin/events/flag', {
         headers: {
-          'X-Password': getAdminPassword(),
           'Cache-Control': 'no-cache'
         }
       });
@@ -5045,7 +5247,7 @@
         try {
           const res = await fetch(`/api/admin/events/flag/${encodeURIComponent(evId)}/skip-today`, {
             method: 'POST',
-            headers: { 'X-CSRF-Token': csrf, 'X-Password': getAdminPassword() }
+            headers: { 'X-CSRF-Token': csrf }
           });
           if (res.ok) {
             showToast('Flag screen skipped for today.');
@@ -5108,25 +5310,30 @@
           showToast('Cannot delete the only remaining daily event.', true);
           return;
         }
-        if (!confirm(`Are you sure you want to delete ${evLabel}?`)) return;
-
-        const csrf = await getCsrfToken();
-        try {
-          const res = await fetch(`/api/admin/events/flag/${encodeURIComponent(evId)}`, {
-            method: 'DELETE',
-            headers: { 'X-CSRF-Token': csrf, 'X-Password': getAdminPassword() }
-          });
-          if (res.ok) {
-            showToast('Event deleted.');
-            expandedEventIds.delete(evId);
-            await loadFlagSettings();
-          } else {
-            const err = await res.json();
-            showToast(err.error || 'Failed to delete event', true);
-          }
-        } catch (e) {
-          showToast('Network error deleting event', true);
-        }
+        showConfirmModal({
+          title: 'Delete event?',
+          message: `Delete ${evLabel}?`,
+          confirmText: 'Delete',
+          onConfirm: async () => {
+            const csrf = await getCsrfToken();
+            try {
+              const res = await fetch(`/api/admin/events/flag/${encodeURIComponent(evId)}`, {
+                method: 'DELETE',
+                headers: { 'X-CSRF-Token': csrf }
+              });
+              if (res.ok) {
+                showToast('Event deleted.');
+                expandedEventIds.delete(evId);
+                await loadFlagSettings();
+              } else {
+                const err = await res.json();
+                showToast(err.error || 'Failed to delete event', true);
+              }
+            } catch (e) {
+              showToast('Network error deleting event', true);
+            }
+          },
+        });
       });
     });
 
@@ -5199,8 +5406,7 @@
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
-          'X-CSRF-Token': csrf,
-          'X-Password': getAdminPassword()
+          'X-CSRF-Token': csrf
         },
         body: JSON.stringify(partialData)
       });
@@ -5237,8 +5443,7 @@
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            'X-CSRF-Token': csrf,
-            'X-Password': getAdminPassword()
+            'X-CSRF-Token': csrf
           },
           body: JSON.stringify({
             label: `Daily Event ${newEventNum}`,
@@ -5358,8 +5563,7 @@
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            'X-CSRF-Token': csrf,
-            'X-Password': getAdminPassword()
+            'X-CSRF-Token': csrf
           },
           body: JSON.stringify({ duration_seconds: dur, screens, show_standup_text: targetEv.show_standup_text })
         });
@@ -5388,8 +5592,7 @@
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            'X-CSRF-Token': csrf,
-            'X-Password': getAdminPassword()
+            'X-CSRF-Token': csrf
           },
           body: JSON.stringify({ duration_seconds: 86400, screens: 'ALL', show_now: true })
         });
@@ -5413,8 +5616,7 @@
         const res = await fetch('/api/admin/events/flag/stop', {
           method: 'POST',
           headers: {
-            'X-CSRF-Token': csrf,
-            'X-Password': getAdminPassword()
+            'X-CSRF-Token': csrf
           }
         });
         if (res.ok) {
@@ -5430,8 +5632,1088 @@
     });
   }
 
+  // ==========================================================================
+  // Phase 2B-1: People Tab, Invite/Edit Modal, My Account, Posted-By Filter
+  // ==========================================================================
+  const feedPostedByFilter = document.getElementById('feed-posted-by-filter');
+  if (feedPostedByFilter) {
+    feedPostedByFilter.addEventListener('change', () => renderNoticesList());
+  }
+
+  const sidebarUserCard = document.getElementById('sidebar-user-card');
+  if (sidebarUserCard) {
+    sidebarUserCard.addEventListener('click', (e) => {
+      if (e.target && e.target.closest('#sidebar-btn-logout')) return;
+      switchTab('account');
+    });
+    sidebarUserCard.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        switchTab('account');
+      }
+    });
+  }
+
+  const authUserBadgeBtn = document.getElementById('auth-user-badge');
+  if (authUserBadgeBtn) {
+    authUserBadgeBtn.addEventListener('click', () => switchTab('account'));
+  }
+
+  // --- My Account Controller ---
+  function renderMyAccount() {
+    if (!currentUser) return;
+    const nameEl = document.getElementById('account-name');
+    const emailEl = document.getElementById('account-email');
+    const roleEl = document.getElementById('account-role');
+    const deptsEl = document.getElementById('account-departments');
+    const cwEl = document.getElementById('account-switch-cw');
+    const urgentEl = document.getElementById('account-switch-urgent');
+    const pwCard = document.getElementById('account-password-card');
+
+    if (nameEl) nameEl.textContent = currentUser.name || currentUser.username || 'Admin';
+    if (emailEl) emailEl.textContent = currentUser.email || '—';
+    if (roleEl) roleEl.textContent = currentUser.role === 'admin' ? 'Admin' : 'Faculty';
+    if (cwEl) cwEl.textContent = currentUser.can_post_college_wide ? 'On' : 'Off';
+    if (urgentEl) urgentEl.textContent = currentUser.can_post_urgent ? 'On' : 'Off';
+
+    if (deptsEl) {
+      deptsEl.innerHTML = '';
+      const depts = currentUser.departments && currentUser.departments.length ? currentUser.departments : ['ALL'];
+      depts.forEach(d => {
+        const chip = document.createElement('span');
+        chip.className = 'badge-dept-chip';
+        chip.textContent = d;
+        deptsEl.appendChild(chip);
+      });
+    }
+    if (pwCard) {
+      pwCard.classList.toggle('hidden', !currentUser.id);
+    }
+  }
+
+  document.querySelectorAll('.btn-pw-vis').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const targetId = btn.getAttribute('data-target');
+      const input = document.getElementById(targetId);
+      if (!input) return;
+      const isPw = input.type === 'password';
+      input.type = isPw ? 'text' : 'password';
+      btn.textContent = isPw ? 'Hide' : 'Show';
+    });
+  });
+
+  const accNewPw = document.getElementById('account-new-pw');
+  const accPwHint = document.getElementById('account-pw-length-hint');
+  if (accNewPw && accPwHint) {
+    accNewPw.addEventListener('input', () => {
+      const len = accNewPw.value.length;
+      accPwHint.textContent = `12 or more characters (${len} / 12)`;
+    });
+  }
+
+  const changePwForm = document.getElementById('change-password-form');
+  if (changePwForm) {
+    changePwForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const errEl = document.getElementById('change-pw-error');
+      const curPw = document.getElementById('account-current-pw').value;
+      const newPw = document.getElementById('account-new-pw').value;
+      const confPw = document.getElementById('account-confirm-pw').value;
+      if (errEl) {
+        errEl.textContent = '';
+        errEl.classList.add('hidden');
+      }
+      if (newPw !== confPw) {
+        if (errEl) {
+          errEl.textContent = 'New passwords do not match.';
+          errEl.classList.remove('hidden');
+        }
+        return;
+      }
+      try {
+        const csrf = await getCsrfToken();
+        const res = await fetch('/api/me/password', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-CSRF-Token': csrf || ''
+          },
+          body: JSON.stringify({ current_password: curPw, new_password: newPw })
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          if (errEl) {
+            errEl.textContent = data.error || 'Could not update password.';
+            errEl.classList.remove('hidden');
+          }
+          return;
+        }
+        changePwForm.reset();
+        if (accPwHint) accPwHint.textContent = '12 or more characters (0 / 12)';
+        showToast('Password updated');
+      } catch (err) {
+        if (errEl) {
+          errEl.textContent = 'Network error updating password.';
+          errEl.classList.remove('hidden');
+        }
+      }
+    });
+  }
+
+  const btnRevokeOtherSessions = document.getElementById('btn-revoke-other-sessions');
+  if (btnRevokeOtherSessions) {
+    btnRevokeOtherSessions.addEventListener('click', () => {
+      showConfirmModal({
+        title: 'Sign out of all other devices?',
+        message: 'Every other browser and device will be signed out. This session stays signed in.',
+        confirmText: 'Sign out others',
+        onConfirm: async () => {
+          const csrf = await getCsrfToken();
+          const res = await fetch('/api/me/sessions/revoke-all', {
+            method: 'POST',
+            headers: { 'X-CSRF-Token': csrf || '' }
+          });
+          const data = await res.json().catch(() => ({}));
+          if (res.ok) {
+            showToast('Signed out of all other devices');
+          } else {
+            showToast(data.error || 'Could not revoke other sessions', true);
+          }
+        },
+      });
+    });
+  }
+
+  // --- People Tab & Invite/Edit Controller ---
+  let peopleList = [];
+  let editingPersonId = null;
+  let inviteSelectedDepts = new Set();
+
+  function formatLastLogin(ts) {
+    if (!ts) return 'Never';
+    try {
+      return new Date(ts).toLocaleString();
+    } catch (e) {
+      return 'Never';
+    }
+  }
+
+  function populatePeopleDeptFilter() {
+    const deptFilter = document.getElementById('people-dept-filter');
+    if (!deptFilter) return;
+    const cur = deptFilter.value || 'all';
+    deptFilter.innerHTML = '';
+    const allOpt = document.createElement('option');
+    allOpt.value = 'all';
+    allOpt.textContent = 'All departments';
+    deptFilter.appendChild(allOpt);
+    (availableScreens || DEFAULT_DEPARTMENTS).forEach(s => {
+      const code = s.code || s.id;
+      if (!code || code === 'ALL') return;
+      const opt = document.createElement('option');
+      opt.value = code;
+      opt.textContent = `${code} - ${s.name || code}`;
+      deptFilter.appendChild(opt);
+    });
+    deptFilter.value = cur;
+  }
+
+  async function loadPeople() {
+    if (currentUser && currentUser.role !== 'admin') return;
+    const loadingEl = document.getElementById('people-loading');
+    const errorEl = document.getElementById('people-error');
+    const emptyEl = document.getElementById('people-empty');
+    const tableWrap = document.getElementById('people-table-wrap');
+    const cardsGrid = document.getElementById('people-cards-grid');
+
+    if (loadingEl) loadingEl.classList.remove('hidden');
+    if (errorEl) errorEl.classList.add('hidden');
+    if (emptyEl) emptyEl.classList.add('hidden');
+    if (tableWrap) tableWrap.classList.add('hidden');
+    if (cardsGrid) cardsGrid.classList.add('hidden');
+
+    populatePeopleDeptFilter();
+
+    try {
+      const res = await fetch('/api/users', { cache: 'no-cache' });
+      const data = await res.json().catch(() => ({}));
+      if (loadingEl) loadingEl.classList.add('hidden');
+      if (res.status === 403) {
+        if (errorEl) {
+          document.getElementById('people-error-text').textContent = data.error || 'Permission denied.';
+          errorEl.classList.remove('hidden');
+        }
+        return;
+      }
+      if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+      peopleList = data.users || [];
+      renderPeople();
+    } catch (err) {
+      if (loadingEl) loadingEl.classList.add('hidden');
+      if (errorEl) {
+        document.getElementById('people-error-text').textContent = err.message || 'Could not load people.';
+        errorEl.classList.remove('hidden');
+      }
+    }
+  }
+
+  function buildPersonActions(u) {
+    const wrap = document.createElement('div');
+    wrap.className = 'person-actions-row';
+    const isSelf = currentUser && currentUser.id === u.id;
+
+    const editBtn = document.createElement('button');
+    editBtn.type = 'button';
+    editBtn.className = 'btn btn-sm btn-secondary person-action-btn';
+    editBtn.textContent = 'Edit';
+    editBtn.addEventListener('click', () => openEditPersonModal(u));
+    wrap.appendChild(editBtn);
+
+    const details = document.createElement('details');
+    details.className = 'person-more-menu';
+    const summary = document.createElement('summary');
+    summary.className = 'btn btn-sm btn-secondary person-more-trigger';
+    summary.textContent = 'More ▾';
+    details.appendChild(summary);
+
+    const menu = document.createElement('div');
+    menu.className = 'person-more-dropdown';
+
+    const mkItem = (label, cls, onClick, disabled = false, title = '') => {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = `person-menu-item ${cls}`;
+      b.textContent = label;
+      if (disabled) b.disabled = true;
+      if (title) b.title = title;
+      b.addEventListener('click', () => {
+        details.open = false;
+        onClick();
+      });
+      return b;
+    };
+
+    if (u.status === 'invited') {
+      menu.appendChild(mkItem('New invite link', '', () => handleReissueLink(u, 'invite')));
+    } else if (u.status === 'active') {
+      menu.appendChild(mkItem('Reset link', '', () => handleReissueLink(u, 'reset')));
+    }
+
+    if (u.pending_invite_id) {
+      menu.appendChild(mkItem('Revoke invite', '', () => handleRevokeInvite(u.pending_invite_id)));
+    }
+
+    if (u.status === 'disabled') {
+      menu.appendChild(mkItem('Enable', '', () => handleToggleUserStatus(u, 'active')));
+    } else {
+      menu.appendChild(mkItem(
+        'Disable',
+        'danger',
+        () => {
+          if (isSelf) {
+            showToast('You cannot disable your own account.', true);
+            return;
+          }
+          showConfirmModal({
+            title: 'Disable account?',
+            message: `Disable ${u.name || u.email}? Their active sessions will end immediately.`,
+            confirmText: 'Disable',
+            onConfirm: () => handleToggleUserStatus(u, 'disabled'),
+          });
+        },
+        isSelf,
+        isSelf ? 'You cannot disable or demote your own account.' : ''
+      ));
+    }
+
+    menu.appendChild(mkItem('Sign out everywhere', '', () => {
+      showConfirmModal({
+        title: 'Sign out everywhere?',
+        message: `End all active sessions for ${u.name || u.email}?`,
+        confirmText: 'Sign out everywhere',
+        onConfirm: () => handleRevokeUserSessions(u),
+      });
+    }));
+
+    details.appendChild(menu);
+    wrap.appendChild(details);
+    return wrap;
+  }
+
+  function renderPeople() {
+    const searchVal = (document.getElementById('people-search-input')?.value || '').trim().toLowerCase();
+    const statusVal = document.getElementById('people-status-filter')?.value || 'all';
+    const deptVal = document.getElementById('people-dept-filter')?.value || 'all';
+
+    const filtered = peopleList.filter(u => {
+      if (statusVal !== 'all' && u.status !== statusVal) return false;
+      if (deptVal !== 'all' && !(u.departments || []).includes(deptVal)) return false;
+      if (searchVal) {
+        const hay = `${u.name || ''} ${u.email || ''}`.toLowerCase();
+        if (!hay.includes(searchVal)) return false;
+      }
+      return true;
+    });
+
+    const emptyEl = document.getElementById('people-empty');
+    const tableWrap = document.getElementById('people-table-wrap');
+    const tbody = document.getElementById('people-table-body');
+    const cardsGrid = document.getElementById('people-cards-grid');
+
+    if (!filtered.length) {
+      if (emptyEl) emptyEl.classList.remove('hidden');
+      if (tableWrap) tableWrap.classList.add('hidden');
+      if (cardsGrid) cardsGrid.classList.add('hidden');
+      return;
+    }
+
+    if (emptyEl) emptyEl.classList.add('hidden');
+    if (tableWrap) tableWrap.classList.remove('hidden');
+    if (cardsGrid) cardsGrid.classList.remove('hidden');
+
+    if (tbody) {
+      tbody.innerHTML = '';
+      filtered.forEach(u => {
+        const tr = document.createElement('tr');
+
+        const tdPerson = document.createElement('td');
+        const personStack = document.createElement('div');
+        personStack.className = 'person-cell-stack';
+        const nameEl = document.createElement('div');
+        nameEl.className = 'person-name';
+        nameEl.textContent = u.name || '—';
+        const emailEl = document.createElement('div');
+        emailEl.className = 'person-email';
+        emailEl.textContent = u.email || '—';
+        personStack.append(nameEl, emailEl);
+        tdPerson.appendChild(personStack);
+
+        const tdAccess = document.createElement('td');
+        const accessStack = document.createElement('div');
+        accessStack.className = 'person-cell-stack';
+        const roleEl = document.createElement('div');
+        roleEl.className = 'person-role-text';
+        roleEl.textContent = u.role === 'admin' ? 'Admin' : 'Faculty';
+        const deptsWrap = document.createElement('div');
+        deptsWrap.className = 'person-chips-row';
+        (u.departments && u.departments.length ? u.departments : ['—']).forEach(d => {
+          const chip = document.createElement('span');
+          chip.className = 'badge-dept-chip';
+          chip.textContent = d;
+          deptsWrap.appendChild(chip);
+        });
+        accessStack.append(roleEl, deptsWrap);
+        tdAccess.appendChild(accessStack);
+
+        const tdStatus = document.createElement('td');
+        const statusStack = document.createElement('div');
+        statusStack.className = 'person-cell-stack';
+        const stBadge = document.createElement('span');
+        stBadge.className = `person-status-badge person-status-${u.status}`;
+        stBadge.style.alignSelf = 'flex-start';
+        stBadge.textContent = u.status ? u.status.charAt(0).toUpperCase() + u.status.slice(1) : 'Active';
+        const lastEl = document.createElement('div');
+        lastEl.className = 'person-sub-meta';
+        lastEl.textContent = `Last login: ${formatLastLogin(u.last_login_at)}`;
+        statusStack.append(stBadge, lastEl);
+        tdStatus.appendChild(statusStack);
+
+        const tdSwitches = document.createElement('td');
+        const swWrap = document.createElement('div');
+        swWrap.className = 'person-chips-row';
+        const swCw = document.createElement('span');
+        swCw.className = `person-switch-pill ${u.can_post_college_wide ? 'on' : ''}`;
+        swCw.textContent = `College-wide: ${u.can_post_college_wide ? 'On' : 'Off'}`;
+        const swUrg = document.createElement('span');
+        swUrg.className = `person-switch-pill ${u.can_post_urgent ? 'on' : ''}`;
+        swUrg.textContent = `Urgent: ${u.can_post_urgent ? 'On' : 'Off'}`;
+        swWrap.append(swCw, swUrg);
+        tdSwitches.appendChild(swWrap);
+
+        const tdActions = document.createElement('td');
+        tdActions.appendChild(buildPersonActions(u));
+
+        tr.append(tdPerson, tdAccess, tdStatus, tdSwitches, tdActions);
+        tbody.appendChild(tr);
+      });
+    }
+
+    if (cardsGrid) {
+      cardsGrid.innerHTML = '';
+      filtered.forEach(u => {
+        const card = document.createElement('div');
+        card.className = 'person-card';
+
+        const top = document.createElement('div');
+        top.className = 'person-card-top';
+        const idBox = document.createElement('div');
+        const nameDiv = document.createElement('div');
+        nameDiv.className = 'person-name';
+        nameDiv.textContent = u.name || '—';
+        const emailDiv = document.createElement('div');
+        emailDiv.className = 'person-email';
+        emailDiv.textContent = u.email || '—';
+        idBox.append(nameDiv, emailDiv);
+
+        const stBadge = document.createElement('span');
+        stBadge.className = `person-status-badge person-status-${u.status}`;
+        stBadge.textContent = u.status ? u.status.charAt(0).toUpperCase() + u.status.slice(1) : 'Active';
+        top.append(idBox, stBadge);
+
+        const metaRow = document.createElement('div');
+        metaRow.className = 'person-chips-row';
+        const rolePill = document.createElement('span');
+        rolePill.className = 'person-switch-pill on';
+        rolePill.textContent = u.role === 'admin' ? 'Admin' : 'Faculty';
+        metaRow.appendChild(rolePill);
+        (u.departments || []).forEach(d => {
+          const chip = document.createElement('span');
+          chip.className = 'badge-dept-chip';
+          chip.textContent = d;
+          metaRow.appendChild(chip);
+        });
+
+        const switchRow = document.createElement('div');
+        switchRow.className = 'person-chips-row';
+        const swCw = document.createElement('span');
+        swCw.className = `person-switch-pill ${u.can_post_college_wide ? 'on' : ''}`;
+        swCw.textContent = `College-wide: ${u.can_post_college_wide ? 'On' : 'Off'}`;
+        const swUrg = document.createElement('span');
+        swUrg.className = `person-switch-pill ${u.can_post_urgent ? 'on' : ''}`;
+        swUrg.textContent = `Urgent: ${u.can_post_urgent ? 'On' : 'Off'}`;
+        const lastSpan = document.createElement('span');
+        lastSpan.className = 'person-email';
+        lastSpan.textContent = `Last login: ${formatLastLogin(u.last_login_at)}`;
+        switchRow.append(swCw, swUrg, lastSpan);
+
+        card.append(top, metaRow, switchRow, buildPersonActions(u));
+        cardsGrid.appendChild(card);
+      });
+    }
+  }
+
+  ['people-search-input', 'people-status-filter', 'people-dept-filter'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) {
+      el.addEventListener(id === 'people-search-input' ? 'input' : 'change', renderPeople);
+    }
+  });
+
+  const btnPeopleRetry = document.getElementById('btn-people-retry');
+  if (btnPeopleRetry) btnPeopleRetry.addEventListener('click', loadPeople);
+
+  function renderInviteDeptChips() {
+    const container = document.getElementById('invite-dept-chips');
+    if (!container) return;
+    container.innerHTML = '';
+    const list = (availableScreens && availableScreens.length ? availableScreens : DEFAULT_DEPARTMENTS)
+      .filter(s => (s.code || s.id) !== 'ALL');
+    list.forEach(s => {
+      const code = s.code || s.id;
+      const isSel = inviteSelectedDepts.has(code);
+      const chip = document.createElement('button');
+      chip.type = 'button';
+      chip.className = `chip ${isSel ? 'selected' : ''}`;
+      chip.setAttribute('aria-pressed', isSel ? 'true' : 'false');
+      chip.textContent = code;
+      chip.addEventListener('click', () => {
+        if (inviteSelectedDepts.has(code)) inviteSelectedDepts.delete(code);
+        else inviteSelectedDepts.add(code);
+        renderInviteDeptChips();
+      });
+      container.appendChild(chip);
+    });
+  }
+
+  function syncInviteRoleVisibility() {
+    const roleSel = document.getElementById('invite-role-select');
+    const switchesEl = document.getElementById('invite-faculty-switches');
+    if (roleSel && switchesEl) {
+      switchesEl.classList.toggle('hidden', roleSel.value !== 'faculty');
+    }
+  }
+
+  function openInviteModal() {
+    editingPersonId = null;
+    const modal = document.getElementById('invite-person-modal');
+    const form = document.getElementById('invite-person-form');
+    const resultPanel = document.getElementById('invite-result-panel');
+    const heading = document.getElementById('invite-modal-heading');
+    const emailGroup = document.getElementById('invite-email-group');
+    const roleSel = document.getElementById('invite-role-select');
+    const selfHint = document.getElementById('invite-self-demote-hint');
+    const errEl = document.getElementById('invite-form-error');
+
+    if (heading) heading.textContent = 'Invite person';
+    if (form) {
+      form.reset();
+      form.classList.remove('hidden');
+    }
+    if (resultPanel) resultPanel.classList.add('hidden');
+    if (emailGroup) emailGroup.classList.remove('hidden');
+    if (roleSel) {
+      roleSel.disabled = false;
+      roleSel.value = 'faculty';
+    }
+    if (selfHint) selfHint.classList.add('hidden');
+    if (errEl) {
+      errEl.textContent = '';
+      errEl.classList.add('hidden');
+    }
+    document.getElementById('btn-submit-invite').textContent = 'Send invite';
+    inviteSelectedDepts = new Set();
+    renderInviteDeptChips();
+    syncInviteRoleVisibility();
+    if (modal) modal.classList.remove('hidden');
+  }
+
+  function openEditPersonModal(u) {
+    editingPersonId = u.id;
+    const modal = document.getElementById('invite-person-modal');
+    const form = document.getElementById('invite-person-form');
+    const resultPanel = document.getElementById('invite-result-panel');
+    const heading = document.getElementById('invite-modal-heading');
+    const emailGroup = document.getElementById('invite-email-group');
+    const roleSel = document.getElementById('invite-role-select');
+    const selfHint = document.getElementById('invite-self-demote-hint');
+    const errEl = document.getElementById('invite-form-error');
+
+    if (heading) heading.textContent = 'Edit person';
+    if (form) form.classList.remove('hidden');
+    if (resultPanel) resultPanel.classList.add('hidden');
+    if (emailGroup) emailGroup.classList.add('hidden');
+    if (errEl) {
+      errEl.textContent = '';
+      errEl.classList.add('hidden');
+    }
+
+    document.getElementById('invite-name-input').value = u.name || '';
+    document.getElementById('invite-phone-input').value = u.phone || '';
+    const isSelf = currentUser && currentUser.id === u.id;
+    if (roleSel) {
+      roleSel.value = u.role || 'faculty';
+      roleSel.disabled = Boolean(isSelf);
+    }
+    if (selfHint) selfHint.classList.toggle('hidden', !isSelf);
+    document.getElementById('invite-cw-switch').checked = Boolean(u.can_post_college_wide);
+    document.getElementById('invite-urgent-switch').checked = Boolean(u.can_post_urgent);
+    document.getElementById('btn-submit-invite').textContent = 'Save changes';
+
+    inviteSelectedDepts = new Set(u.departments || []);
+    renderInviteDeptChips();
+    syncInviteRoleVisibility();
+    if (modal) modal.classList.remove('hidden');
+  }
+
+  function showInviteResultPanel(personName, inviteUrl, expiresAt, kindLabel = 'invite') {
+    const modal = document.getElementById('invite-person-modal');
+    const form = document.getElementById('invite-person-form');
+    const resultPanel = document.getElementById('invite-result-panel');
+    const heading = document.getElementById('invite-modal-heading');
+    const metaEl = document.getElementById('invite-result-meta');
+    const urlInput = document.getElementById('invite-result-url');
+    const expiryEl = document.getElementById('invite-result-expiry');
+    const waLink = document.getElementById('btn-share-whatsapp');
+
+    if (heading) heading.textContent = kindLabel === 'reset' ? 'Password reset link' : 'Invite link ready';
+    if (form) form.classList.add('hidden');
+    if (resultPanel) resultPanel.classList.remove('hidden');
+    if (metaEl) metaEl.textContent = `Share this ${kindLabel} link with ${personName}.`;
+    if (urlInput) urlInput.value = inviteUrl;
+    const expStr = expiresAt ? new Date(expiresAt).toLocaleString() : 'in 72 hours';
+    if (expiryEl) expiryEl.textContent = `Expires: ${expStr}`;
+    if (waLink) {
+      const msg = `Hi ${personName}, here is your V Notice ${kindLabel} link: ${inviteUrl} (expires in 72 hours).`;
+      waLink.href = `https://wa.me/?text=${encodeURIComponent(msg)}`;
+    }
+    if (modal) modal.classList.remove('hidden');
+  }
+
+  function closeInviteModal() {
+    const modal = document.getElementById('invite-person-modal');
+    const urlInput = document.getElementById('invite-result-url');
+    const waLink = document.getElementById('btn-share-whatsapp');
+    if (urlInput) urlInput.value = '';
+    if (waLink) waLink.href = '#';
+    if (modal) modal.classList.add('hidden');
+  }
+
+  const btnOpenInvite = document.getElementById('btn-open-invite');
+  if (btnOpenInvite) btnOpenInvite.addEventListener('click', openInviteModal);
+  ['btn-close-invite-modal', 'btn-cancel-invite', 'btn-done-invite'].forEach(id => {
+    const b = document.getElementById(id);
+    if (b) b.addEventListener('click', closeInviteModal);
+  });
+  const inviteRoleSel = document.getElementById('invite-role-select');
+  if (inviteRoleSel) inviteRoleSel.addEventListener('change', syncInviteRoleVisibility);
+
+  const btnCopyInvite = document.getElementById('btn-copy-invite-link');
+  if (btnCopyInvite) {
+    btnCopyInvite.addEventListener('click', () => {
+      const val = document.getElementById('invite-result-url')?.value || '';
+      if (!val) return;
+      navigator.clipboard.writeText(val).then(() => showToast('Link copied')).catch(() => showToast('Link copied'));
+    });
+  }
+
+  const invitePersonForm = document.getElementById('invite-person-form');
+  if (invitePersonForm) {
+    invitePersonForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const errEl = document.getElementById('invite-form-error');
+      if (errEl) {
+        errEl.textContent = '';
+        errEl.classList.add('hidden');
+      }
+      const name = document.getElementById('invite-name-input').value.trim();
+      const email = document.getElementById('invite-email-input').value.trim();
+      const phone = document.getElementById('invite-phone-input').value.trim();
+      const role = document.getElementById('invite-role-select').value;
+      const canCw = document.getElementById('invite-cw-switch').checked;
+      const canUrgent = document.getElementById('invite-urgent-switch').checked;
+      const depts = Array.from(inviteSelectedDepts);
+
+      if (!name) {
+        if (errEl) { errEl.textContent = 'Name is required.'; errEl.classList.remove('hidden'); }
+        return;
+      }
+      if (!editingPersonId && (!email || !email.includes('@'))) {
+        if (errEl) { errEl.textContent = 'A valid email is required.'; errEl.classList.remove('hidden'); }
+        return;
+      }
+
+      const csrf = await getCsrfToken();
+      try {
+        if (editingPersonId) {
+          const res = await fetch(`/api/users/${editingPersonId}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf || '' },
+            body: JSON.stringify({
+              name,
+              phone: phone || null,
+              role,
+              departments: depts,
+              can_post_college_wide: role === 'faculty' ? canCw : true,
+              can_post_urgent: role === 'faculty' ? canUrgent : true,
+            })
+          });
+          const data = await res.json().catch(() => ({}));
+          if (!res.ok) {
+            if (errEl) { errEl.textContent = data.error || 'Could not update user.'; errEl.classList.remove('hidden'); }
+            return;
+          }
+          closeInviteModal();
+          showToast('Person updated');
+          await loadPeople();
+        } else {
+          const res = await fetch('/api/users/invite', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf || '' },
+            body: JSON.stringify({
+              name,
+              email,
+              phone: phone || null,
+              role,
+              departments: depts,
+              can_post_college_wide: role === 'faculty' ? canCw : true,
+              can_post_urgent: role === 'faculty' ? canUrgent : true,
+            })
+          });
+          const data = await res.json().catch(() => ({}));
+          if (!res.ok) {
+            if (errEl) { errEl.textContent = data.error || 'Could not create invite.'; errEl.classList.remove('hidden'); }
+            return;
+          }
+          showInviteResultPanel(name, data.invite_url, data.expires_at, 'invite');
+          await loadPeople();
+        }
+      } catch (err) {
+        if (errEl) { errEl.textContent = 'Network error saving person.'; errEl.classList.remove('hidden'); }
+      }
+    });
+  }
+
+  async function handleReissueLink(u, kind) {
+    const csrf = await getCsrfToken();
+    const url = kind === 'reset' ? `/api/users/${u.id}/reset-link` : `/api/users/${u.id}/invite`;
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'X-CSRF-Token': csrf || '' }
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      showToast(data.error || 'Could not create link.', true);
+      return;
+    }
+    showInviteResultPanel(u.name || u.email, data.invite_url, data.expires_at, kind);
+    await loadPeople();
+  }
+
+  async function handleRevokeInvite(inviteId) {
+    const csrf = await getCsrfToken();
+    const res = await fetch(`/api/invites/${inviteId}/revoke`, {
+      method: 'POST',
+      headers: { 'X-CSRF-Token': csrf || '' }
+    });
+    const data = await res.json().catch(() => ({}));
+    if (res.ok) {
+      showToast('Invite revoked');
+      await loadPeople();
+    } else {
+      showToast(data.error || 'Could not revoke invite.', true);
+    }
+  }
+
+  async function handleToggleUserStatus(u, nextStatus) {
+    const csrf = await getCsrfToken();
+    const res = await fetch(`/api/users/${u.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf || '' },
+      body: JSON.stringify({ status: nextStatus })
+    });
+    const data = await res.json().catch(() => ({}));
+    if (res.ok) {
+      showToast(nextStatus === 'disabled' ? 'Account disabled' : 'Account enabled');
+      await loadPeople();
+    } else {
+      showToast(data.error || 'Could not update status.', true);
+    }
+  }
+
+  async function handleRevokeUserSessions(u) {
+    const csrf = await getCsrfToken();
+    const res = await fetch(`/api/users/${u.id}/sessions/revoke`, {
+      method: 'POST',
+      headers: { 'X-CSRF-Token': csrf || '' }
+    });
+    const data = await res.json().catch(() => ({}));
+    if (res.ok) {
+      showToast('All sessions ended');
+    } else {
+      showToast(data.error || 'Could not sign out user.', true);
+    }
+  }
+
+  // =========================================================================
+  // Phase 2B-2: Bulk Faculty CSV Import Modal
+  // =========================================================================
+  (function initCsvImportModal() {
+    const modal = document.getElementById('csv-import-modal');
+    const btnOpen = document.getElementById('btn-open-csv-import');
+    const btnClose = document.getElementById('btn-close-csv-modal');
+    const btnCancelUpload = document.getElementById('btn-cancel-csv-upload');
+    const btnPreview = document.getElementById('btn-csv-preview');
+    const btnBack = document.getElementById('btn-csv-back');
+    const btnCommit = document.getElementById('btn-csv-commit');
+    const btnDownloadLinks = document.getElementById('btn-download-import-links');
+    const btnCopyWa = document.getElementById('btn-copy-whatsapp-batch');
+    const btnDone = document.getElementById('btn-done-csv-import');
+    const fileInput = document.getElementById('csv-file-input');
+    const errEl = document.getElementById('csv-import-error');
+    const stepUpload = document.getElementById('csv-step-upload');
+    const stepPreview = document.getElementById('csv-step-preview');
+    const stepResult = document.getElementById('csv-step-result');
+    const countsBar = document.getElementById('csv-preview-counts');
+    const tbody = document.getElementById('csv-preview-tbody');
+    const resultSummary = document.getElementById('csv-result-summary');
+    const resultSkipped = document.getElementById('csv-result-skipped');
+
+    if (!modal || !btnOpen) return;
+
+    let activeBatchId = null;
+    let whatsappMessages = [];
+
+    function showErr(msg) {
+      if (!errEl) return;
+      if (!msg) {
+        errEl.textContent = '';
+        errEl.classList.add('hidden');
+      } else {
+        errEl.textContent = msg;
+        errEl.classList.remove('hidden');
+      }
+    }
+
+    function showStep(stepName) {
+      stepUpload.classList.toggle('hidden', stepName !== 'upload');
+      stepPreview.classList.toggle('hidden', stepName !== 'preview');
+      stepResult.classList.toggle('hidden', stepName !== 'result');
+    }
+
+    function openModal() {
+      activeBatchId = null;
+      whatsappMessages = [];
+      if (fileInput) fileInput.value = '';
+      if (btnDownloadLinks) {
+        btnDownloadLinks.disabled = false;
+        btnDownloadLinks.textContent = 'Download links (CSV)';
+      }
+      showErr('');
+      showStep('upload');
+      modal.classList.remove('hidden');
+    }
+
+    function closeModal() {
+      modal.classList.add('hidden');
+    }
+
+    btnOpen.addEventListener('click', openModal);
+    if (btnClose) btnClose.addEventListener('click', closeModal);
+    if (btnCancelUpload) btnCancelUpload.addEventListener('click', closeModal);
+    if (btnDone) btnDone.addEventListener('click', () => {
+      closeModal();
+      if (typeof loadPeople === 'function') loadPeople();
+    });
+    if (btnBack) btnBack.addEventListener('click', () => {
+      showErr('');
+      showStep('upload');
+    });
+
+    if (btnPreview) {
+      btnPreview.addEventListener('click', async () => {
+        showErr('');
+        const file = fileInput && fileInput.files && fileInput.files[0];
+        if (!file) {
+          showErr('Select a .csv file.');
+          return;
+        }
+        if (!file.name.toLowerCase().endsWith('.csv')) {
+          showErr('Only .csv files are allowed.');
+          return;
+        }
+        if (file.size > 1024 * 1024) {
+          showErr('CSV file must be 1 MB or smaller.');
+          return;
+        }
+
+        btnPreview.disabled = true;
+        btnPreview.textContent = 'Checking file...';
+        try {
+          const csrf = await getCsrfToken();
+          const fd = new FormData();
+          fd.append('file', file);
+          const res = await fetch('/api/users/import/preview', {
+            method: 'POST',
+            headers: { 'X-CSRF-Token': csrf || '' },
+            body: fd
+          });
+          const data = await res.json().catch(() => ({}));
+          if (!res.ok) {
+            showErr(data.error || 'Could not preview CSV file.');
+            return;
+          }
+
+          activeBatchId = data.batch_id;
+          const c = data.counts || {};
+          countsBar.innerHTML = '';
+          const pills = [
+            [`Total: ${c.total || 0}`, ''],
+            [`Ready: ${c.ready || 0}`, 'ready'],
+            [`Skipped: ${c.skipped || 0}`, c.skipped ? 'warn' : '']
+          ];
+          pills.forEach(([txt, cls]) => {
+            const sp = document.createElement('span');
+            sp.className = 'csv-count-pill' + (cls ? ` ${cls}` : '');
+            sp.textContent = txt;
+            countsBar.appendChild(sp);
+          });
+
+          tbody.innerHTML = '';
+          (data.rows || []).forEach(r => {
+            const tr = document.createElement('tr');
+            const tdRow = document.createElement('td');
+            tdRow.textContent = String(r.row || '');
+            const tdName = document.createElement('td');
+            tdName.textContent = r.name || '—';
+            const tdEmail = document.createElement('td');
+            tdEmail.textContent = r.email || '—';
+            const tdDepts = document.createElement('td');
+            tdDepts.textContent = (r.departments && r.departments.length) ? r.departments.join(', ') : '—';
+            const tdRole = document.createElement('td');
+            tdRole.textContent = r.role || 'faculty';
+            const tdStatus = document.createElement('td');
+            const badge = document.createElement('span');
+            badge.className = 'person-status-badge ' + (r.status === 'Ready' ? 'person-status-active' : 'person-status-disabled');
+            badge.textContent = r.status || '';
+            tdStatus.appendChild(badge);
+            const tdReason = document.createElement('td');
+            tdReason.textContent = r.reason || '';
+            tr.append(tdRow, tdName, tdEmail, tdDepts, tdRole, tdStatus, tdReason);
+            tbody.appendChild(tr);
+          });
+
+          if (btnCommit) {
+            btnCommit.disabled = !(c.ready > 0);
+            btnCommit.textContent = `Create ${c.ready || 0} account${c.ready === 1 ? '' : 's'}`;
+          }
+          showStep('preview');
+        } catch (err) {
+          showErr(err.message || 'Network error while previewing CSV.');
+        } finally {
+          btnPreview.disabled = false;
+          btnPreview.textContent = 'Upload and preview';
+        }
+      });
+    }
+
+    if (btnCommit) {
+      btnCommit.addEventListener('click', async () => {
+        if (!activeBatchId) return;
+        showErr('');
+        btnCommit.disabled = true;
+        btnCommit.textContent = 'Creating accounts...';
+        try {
+          const csrf = await getCsrfToken();
+          const res = await fetch('/api/users/import/commit', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'X-CSRF-Token': csrf || ''
+            },
+            body: JSON.stringify({ batch_id: activeBatchId })
+          });
+          const data = await res.json().catch(() => ({}));
+          if (!res.ok) {
+            showErr(data.error || 'Import failed.');
+            btnCommit.disabled = false;
+            return;
+          }
+
+          whatsappMessages = data.whatsapp_messages || [];
+          resultSummary.textContent = `Created ${data.created_count || 0} invited account(s). Skipped ${data.skipped_count || 0}.`;
+          resultSkipped.innerHTML = '';
+          const skipped = data.skipped || [];
+          if (skipped.length) {
+            skipped.forEach(s => {
+              const p = document.createElement('div');
+              p.textContent = `Row ${s.row} (${s.email || 'no email'}): ${s.status} — ${s.reason}`;
+              resultSkipped.appendChild(p);
+            });
+            resultSkipped.classList.remove('hidden');
+          } else {
+            resultSkipped.classList.add('hidden');
+          }
+
+          if (btnDownloadLinks) {
+            btnDownloadLinks.disabled = !data.links_available;
+          }
+          showStep('result');
+          if (typeof loadPeople === 'function') loadPeople();
+        } catch (err) {
+          showErr(err.message || 'Network error while committing import.');
+          btnCommit.disabled = false;
+        }
+      });
+    }
+
+    if (btnDownloadLinks) {
+      btnDownloadLinks.addEventListener('click', async () => {
+        if (!activeBatchId) return;
+        try {
+          const res = await fetch(`/api/users/import/${encodeURIComponent(activeBatchId)}/links.csv`, {
+            cache: 'no-store'
+          });
+          if (!res.ok) {
+            const errData = await res.json().catch(() => ({}));
+            showToast(errData.error || 'Links file has expired or was already downloaded.', true);
+            btnDownloadLinks.disabled = true;
+            return;
+          }
+          const csvText = await res.text();
+          const blob = new Blob([csvText], { type: 'text/csv;charset=utf-8' });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = 'vnotice_invite_links.csv';
+          document.body.appendChild(a);
+          a.click();
+          a.remove();
+          URL.revokeObjectURL(url);
+          btnDownloadLinks.disabled = true;
+          btnDownloadLinks.textContent = 'Links downloaded (one-time)';
+          showToast('Invite links CSV downloaded');
+        } catch (err) {
+          showToast('Could not download links file.', true);
+        }
+      });
+    }
+
+    if (btnCopyWa) {
+      btnCopyWa.addEventListener('click', async () => {
+        if (!whatsappMessages.length) {
+          showToast('No messages to copy.', true);
+          return;
+        }
+        try {
+          await navigator.clipboard.writeText(whatsappMessages.join('\n\n'));
+          showToast('WhatsApp messages copied');
+        } catch {
+          showToast('Could not copy to clipboard.', true);
+        }
+      });
+    }
+  })();
+
+  // Mobile & Tablet Drawer + Clickable Brand Links
+  (function initMobileMenuAndBrandLinks() {
+    const btnOpen = document.getElementById('btn-mobile-menu');
+    const btnClose = document.getElementById('btn-close-mobile-menu');
+    const backdrop = document.getElementById('mobile-nav-backdrop');
+    const drawer = document.getElementById('mobile-nav-drawer');
+    const btnDrawerLogout = document.getElementById('btn-mobile-drawer-logout');
+
+    function closeDrawer() {
+      if (drawer) {
+        drawer.classList.add('hidden');
+        drawer.setAttribute('aria-hidden', 'true');
+      }
+      if (backdrop) backdrop.classList.add('hidden');
+      if (btnOpen) btnOpen.setAttribute('aria-expanded', 'false');
+    }
+
+    function openDrawer() {
+      if (drawer) {
+        drawer.classList.remove('hidden');
+        drawer.setAttribute('aria-hidden', 'false');
+      }
+      if (backdrop) backdrop.classList.remove('hidden');
+      if (btnOpen) btnOpen.setAttribute('aria-expanded', 'true');
+    }
+
+    if (btnOpen) btnOpen.addEventListener('click', openDrawer);
+    if (btnClose) btnClose.addEventListener('click', closeDrawer);
+    if (backdrop) backdrop.addEventListener('click', closeDrawer);
+
+    document.querySelectorAll('.mobile-drawer-item').forEach(item => {
+      item.addEventListener('click', (e) => {
+        e.preventDefault();
+        const tab = item.getAttribute('data-tab');
+        closeDrawer();
+        if (tab) switchTab(tab);
+      });
+    });
+
+    if (btnDrawerLogout) {
+      btnDrawerLogout.addEventListener('click', () => {
+        closeDrawer();
+        const btnLogoutMain = document.getElementById('btn-logout');
+        if (btnLogoutMain) btnLogoutMain.click();
+      });
+    }
+
+    ['sidebar-brand-link', 'navbar-brand-link', 'mobile-drawer-brand'].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) {
+        el.addEventListener('click', (e) => {
+          e.preventDefault();
+          closeDrawer();
+          switchTab('notices');
+        });
+      }
+    });
+  })();
+
   // Initial boot
   checkAuthAndLoad();
-  loadFlagSettings();
 
 })();

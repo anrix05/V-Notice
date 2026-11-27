@@ -196,7 +196,7 @@ pip install -r requirements.txt
 .\start.bat
 ```
 - **Display Kiosk:** `http://localhost:5000` (or `http://localhost:5000/display/ALL`)
-- **Admin Portal:** `http://localhost:5001/admin` *(Default password: `vnotice2026`)*
+- **Admin Portal:** `http://localhost:5001/admin` *(Set a strong `ADMIN_PASSWORD` and `SECRET_KEY` in `.env` before starting)*
 - **Chromium Kiosk Shortcut:** `.\scripts\windows\start_display.bat`
 
 ---
@@ -249,7 +249,7 @@ Configure settings via `.env` file or hosting provider environment variables:
 
 | Variable | Description | Default | Environment |
 | :--- | :--- | :---: | :---: |
-| `ADMIN_PASSWORD` | Fallback plaintext admin password | `vnotice2026` | Dev / Local |
+| `ADMIN_PASSWORD` | Fallback plaintext admin password (set a strong >= 12-char value) | `<set-in-env>` | Dev / Local |
 | `ADMIN_PASSWORD_HASH` | Cryptographic Werkzeug password hash | None | **Production** |
 | `SECRET_KEY` | Flask session cookie encryption secret | Ephemeral | **Production** |
 | `PRODUCTION` | Enforces production security checks | `false` | Recommended |

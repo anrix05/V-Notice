@@ -25,15 +25,15 @@ def test_user_creation_and_credential_verification():
         departments=["EXCS"],
         can_target_all=False
     )
-    assert user["username"] == "excs_tester"
-    assert user["role"] == "dept_admin"
+    assert user["email"] == "excs_tester@vnotice.local"
+    assert user["role"] == "faculty"
     assert "EXCS" in user["departments"]
-    assert user["can_target_all"] is False
+    assert user["can_post_college_wide"] is False
 
     # Check credential verification with hashed password
     verified = storage.verify_user_credentials("excs_tester", "securepassword123")
     assert verified is not None
-    assert verified["username"] == "excs_tester"
+    assert verified["email"] == "excs_tester@vnotice.local"
     assert "password_hash" not in verified
 
     # Invalid password returns None
@@ -45,12 +45,12 @@ def test_login_shared_password_as_super_admin(client):
     assert res.status_code == 200
     data = res.get_json()
     assert data["success"] is True
-    assert data["user"]["role"] == "super_admin"
+    assert data["user"]["role"] == "admin"
 
     # Verify /api/me
     me = client.get("/api/me")
     assert me.status_code == 200
-    assert me.get_json()["role"] == "super_admin"
+    assert me.get_json()["role"] == "admin"
 
 def test_login_per_user_dept_admin(client):
     storage.delete_user("excs_login_user")
@@ -65,16 +65,16 @@ def test_login_per_user_dept_admin(client):
     assert good_res.status_code == 200
     data = good_res.get_json()
     assert data["success"] is True
-    assert data["user"]["username"] == "excs_login_user"
-    assert data["user"]["role"] == "dept_admin"
+    assert data["user"]["email"] == "excs_login_user@vnotice.local"
+    assert data["user"]["role"] == "faculty"
     assert data["user"]["departments"] == ["EXCS"]
 
     # Verify /api/me
     me = client.get("/api/me")
     assert me.status_code == 200
     me_data = me.get_json()
-    assert me_data["username"] == "excs_login_user"
-    assert me_data["role"] == "dept_admin"
+    assert me_data["email"] == "excs_login_user@vnotice.local"
+    assert me_data["role"] == "faculty"
 
 def test_dept_admin_cannot_target_all_without_permission(client):
     storage.delete_user("excs_author")
@@ -124,7 +124,8 @@ def test_dept_admin_can_target_own_department_and_records_created_by(client):
     assert res.status_code == 201
     notice = res.get_json()
     assert notice["title"] == "EXCS Lab Exam Notice"
-    assert notice["created_by"] == "excs_author3"
+    assert notice["created_by"] == storage.get_user("excs_author3")["id"]
+    assert notice["posted_by"] == "excs_author3"
     assert "EXCS" in notice["screens"]
 
 def test_dept_admin_granted_all_can_broadcast_college_wide(client):
@@ -141,7 +142,8 @@ def test_dept_admin_granted_all_can_broadcast_college_wide(client):
     )
     assert res.status_code == 201
     notice = res.get_json()
-    assert notice["created_by"] == "trusted_dept_admin"
+    assert notice["created_by"] == storage.get_user("trusted_dept_admin")["id"]
+    assert notice["posted_by"] == "trusted_dept_admin"
     assert "ALL" in notice["screens"]
 
 def test_dept_admin_cannot_edit_or_delete_outside_department(client):
@@ -193,3 +195,58 @@ def test_dept_admin_cannot_manage_screens(client):
     )
     assert res.status_code == 403
     assert "Permission denied" in res.get_json()["error"]
+
+
+def test_dept_admin_session_can_use_all_permitted_admin_apis(client):
+    storage.delete_user("excs_full_api_user")
+    storage.create_user(
+        "excs_full_api_user",
+        "DeptStrongPass#123",
+        role="dept_admin",
+        departments=["EXCS"],
+        can_target_all=False,
+    )
+
+    r_login = client.post(
+        "/api/login",
+        json={"username": "excs_full_api_user", "password": "DeptStrongPass#123"},
+        environ_base={"REMOTE_ADDR": "10.80.0.1"},
+    )
+    assert r_login.status_code == 200
+    csrf = r_login.get_json()["csrf_token"]
+
+    assert client.get("/api/me").get_json()["role"] == "faculty"
+    assert client.get("/api/notices?view=admin").status_code == 200
+    assert client.get("/api/screens").status_code == 200
+    assert client.get("/api/audit-logs").status_code == 403
+    assert client.get("/api/admin/events/flag").status_code == 403
+
+    r_create = client.post(
+        "/api/notices",
+        json={"title": "Dept Admin Session Notice", "body": "Body", "screens": ["EXCS"]},
+        headers={"X-CSRF-Token": csrf},
+    )
+    assert r_create.status_code == 201
+    nid = r_create.get_json()["id"]
+
+    assert client.put(
+        f"/api/notices/{nid}",
+        json={"title": "Dept Admin Updated", "body": "Body2", "screens": ["EXCS"]},
+        headers={"X-CSRF-Token": csrf},
+    ).status_code == 200
+
+    assert client.delete(
+        f"/api/notices/{nid}",
+        headers={"X-CSRF-Token": csrf},
+    ).status_code == 200
+
+    assert client.post(
+        f"/api/notices/{nid}/restore",
+        headers={"X-CSRF-Token": csrf},
+    ).status_code == 200
+
+    assert client.post(
+        "/api/settings",
+        json={"theme": "dark"},
+        headers={"X-CSRF-Token": csrf},
+    ).status_code == 403

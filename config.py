@@ -1,5 +1,6 @@
 import os
 import sys
+import hashlib
 import secrets
 from pathlib import Path
 
@@ -24,23 +25,74 @@ STRICT_PRODUCTION = (
 )
 IS_PRODUCTION = STRICT_PRODUCTION or IS_RENDER or IS_RAILWAY
 
+# Production & Proxy Configuration
+ALLOW_WEAK_SECRETS = os.environ.get('ALLOW_WEAK_SECRETS', 'false').lower() in ('true', '1', 'yes')
+ALLOW_API_KEY_AUTH = os.environ.get(
+    'ALLOW_API_KEY_AUTH',
+    'false' if IS_PRODUCTION else 'true'
+).lower() in ('true', '1', 'yes')
+TRUSTED_PROXY_HOPS = int(os.environ.get('TRUSTED_PROXY_HOPS', '1' if IS_RENDER else '0'))
+
+# Phase 2A: Accounts, Invites & Session Lifetimes
+ALLOW_BOOTSTRAP_ADMIN_ENV = os.environ.get('ALLOW_BOOTSTRAP_ADMIN')  # None = auto until first DB admin exists
+INVITE_EXPIRY_HOURS = int(os.environ.get('INVITE_EXPIRY_HOURS', 72))
+ADMIN_SESSION_HOURS = int(os.environ.get('ADMIN_SESSION_HOURS', 8))
+FACULTY_SESSION_DAYS = int(os.environ.get('FACULTY_SESSION_DAYS', 30))
+
+# Known weak default password hashes (SHA-256) so no literal default secret is shipped
+_KNOWN_WEAK_PASSWORD_HASHES = {
+    '19f27a1c037c6db3e5aa85f4b7e6eb3d36373bf763b69908f62506f101a0a871',  # legacy default
+    '8c6976e5b5410415bde908bd4dee15dfb167a9c873fc4bb8a81f6f2ab448a918',  # admin
+    '5e884898da28047151d0e56f8dc6292773603d0d6aabbdd62a11ef721d1542d8',  # password
+    '753bb5652c0b9565e103d1413283c63718d3e3f9888751d93026a99787b7cb7b',  # changeme
+    '37a8eec1ce19687d132fe29051dca629d164e2c4958ba141d5f4133a33f0688f',  # default
+}
+_KNOWN_WEAK_SECRETS = {'default', 'vnotice-default-secret', 'changeme', 'secret', 'dev-secret'}
+
+def validate_production_secrets(is_prod=None, allow_weak=None):
+    """Validate SECRET_KEY and ADMIN_PASSWORD in production. Never logs secret values."""
+    prod = IS_PRODUCTION if is_prod is None else is_prod
+    weak_ok = ALLOW_WEAK_SECRETS if allow_weak is None else allow_weak
+    if not prod:
+        return True, []
+
+    issues = []
+    raw_secret = os.environ.get('SECRET_KEY', '')
+    if not raw_secret or len(raw_secret) < 32 or raw_secret in _KNOWN_WEAK_SECRETS:
+        issues.append('SECRET_KEY must be set and at least 32 characters long')
+
+    raw_hash = os.environ.get('ADMIN_PASSWORD_HASH', '')
+    if not raw_hash:
+        raw_pw = os.environ.get('ADMIN_PASSWORD', '')
+        pw_digest = hashlib.sha256(raw_pw.encode('utf-8')).hexdigest() if raw_pw else ''
+        if not raw_pw or len(raw_pw) < 12 or pw_digest in _KNOWN_WEAK_PASSWORD_HASHES:
+            issues.append('ADMIN_PASSWORD must be at least 12 characters and not a known default (or set ADMIN_PASSWORD_HASH)')
+
+    if issues:
+        header = 'SECURITY WARNING (ALLOW_WEAK_SECRETS=true):' if weak_ok else 'FATAL SECURITY ERROR:'
+        print('!' * 72, file=sys.stderr)
+        print(header, file=sys.stderr)
+        for msg in issues:
+            print(f' - {msg}', file=sys.stderr)
+        print('!' * 72, file=sys.stderr)
+        if not weak_ok:
+            sys.exit(1)
+        return False, issues
+    return True, []
+
 # SECRET_KEY Configuration
-# 1. If explicitly set, use it.
-# 2. In strict production (FLASK_ENV=production or PRODUCTION=true), refuse to start if missing or insecure default.
-# 3. Otherwise (e.g. initial Render/Railway deployment, development), generate a secure random key and log a clear warning.
 SECRET_KEY = os.environ.get('SECRET_KEY')
-if STRICT_PRODUCTION:
-    if not SECRET_KEY or SECRET_KEY in ('default', 'vnotice-default-secret', 'changeme'):
-        print('FATAL SECURITY ERROR: SECRET_KEY environment variable is required when FLASK_ENV=production or PRODUCTION=true.', file=sys.stderr)
-        print('Set a secure random string (e.g. openssl rand -hex 32) in your environment variables.', file=sys.stderr)
-        sys.exit(1)
-elif not SECRET_KEY or SECRET_KEY in ('default', 'vnotice-default-secret', 'changeme'):
+if IS_PRODUCTION and os.environ.get('VNOTICE_TEST_MODE') != '1':
+    validate_production_secrets()
+
+if not SECRET_KEY or SECRET_KEY in _KNOWN_WEAK_SECRETS:
     SECRET_KEY = os.environ.get('DEV_SECRET_KEY') or secrets.token_hex(32)
-    print('!' * 72, file=sys.stderr)
-    print('WARNING: SECRET_KEY environment variable is not set or using insecure default.', file=sys.stderr)
-    print('Generated an ephemeral secure random key for this session. Admin sessions will invalidate on process restart.', file=sys.stderr)
-    print('For production persistence, set SECRET_KEY in your environment variables.', file=sys.stderr)
-    print('!' * 72, file=sys.stderr)
+    if not IS_PRODUCTION:
+        print('!' * 72, file=sys.stderr)
+        print('WARNING: SECRET_KEY environment variable is not set or using insecure default.', file=sys.stderr)
+        print('Generated an ephemeral secure random key for this session. Admin sessions will invalidate on process restart.', file=sys.stderr)
+        print('For production persistence, set SECRET_KEY in your environment variables.', file=sys.stderr)
+        print('!' * 72, file=sys.stderr)
 
 # Storage directory (supports optional STORAGE_DIR volume on Railway / Docker / Render)
 STORAGE_DIR = Path(os.environ.get('STORAGE_DIR', BASE_DIR))
@@ -71,7 +123,7 @@ if IS_RENDER:
         print('!' * 72, file=sys.stderr)
 
 # Admin authentication credentials
-ADMIN_PASSWORD = os.environ.get('ADMIN_PASSWORD', 'vnotice2026')
+ADMIN_PASSWORD = os.environ.get('ADMIN_PASSWORD', '')
 ADMIN_PASSWORD_HASH = os.environ.get('ADMIN_PASSWORD_HASH')
 
 # Server ports
@@ -140,3 +192,4 @@ LOG_LEVEL = os.environ.get('LOG_LEVEL', 'INFO').upper()
 VIDEO_SOUND_ENABLED = os.environ.get('VIDEO_SOUND_ENABLED', 'true').lower() in ('true', '1', 'yes')
 FLAG_EVENT_ENABLED = os.environ.get('FLAG_EVENT_ENABLED', 'true').lower() in ('true', '1', 'yes')
 FLAG_TRIGGER_TOKEN = os.environ.get('FLAG_TRIGGER_TOKEN', '')
+SHOW_POSTED_BY_ON_DISPLAY = os.environ.get('SHOW_POSTED_BY_ON_DISPLAY', 'false').lower() in ('true', '1', 'yes')

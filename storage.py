@@ -2,6 +2,7 @@ import os
 import sys
 import time
 import datetime
+import hashlib
 import secrets
 import mimetypes
 import logging
@@ -653,7 +654,8 @@ class NoticeStorage:
                         start INTEGER NOT NULL DEFAULT 0,
                         end INTEGER,
                         screen_id TEXT NOT NULL DEFAULT 'ALL',
-                        created_by TEXT NOT NULL DEFAULT 'admin',
+                        created_by INTEGER DEFAULT NULL,
+                        created_by_name TEXT DEFAULT NULL,
                         created_at INTEGER NOT NULL,
                         updated_at INTEGER NOT NULL,
                         is_active INTEGER NOT NULL DEFAULT 1
@@ -688,21 +690,98 @@ class NoticeStorage:
                 """)
                 conn.execute("CREATE INDEX IF NOT EXISTS idx_audit_time ON audit_logs(timestamp);")
 
-                # Schema migration: ensure 'ip' column exists in audit_logs
+                # Schema migration: ensure 'ip' and 'user_agent' columns exist in audit_logs
                 cursor = conn.execute("PRAGMA table_info(audit_logs);")
                 cols = [r[1] for r in cursor.fetchall()]
-                if "ip" not in cols:
-                    conn.execute("ALTER TABLE audit_logs ADD COLUMN ip TEXT DEFAULT '127.0.0.1';")
 
-                # Schema migration: ensure 'deleted' column in notices
+                # Schema migration: check notices and users for Phase 2A
                 cursor_n = conn.execute("PRAGMA table_info(notices);")
                 ncols = [r[1] for r in cursor_n.fetchall()]
+                cursor_u = conn.execute("PRAGMA table_info(users);")
+                ucols = [r[1] for r in cursor_u.fetchall()]
+                existing_tables = {
+                    r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table';").fetchall()
+                }
+
+                needs_phase2a_backup = (
+                    "user_agent" not in cols or
+                    "created_by_name" not in ncols or
+                    (len(ucols) > 0 and "email" not in ucols) or
+                    "user_departments" not in existing_tables or
+                    "invites" not in existing_tables
+                )
+                if needs_phase2a_backup and self.db_file.exists():
+                    backup_path = self.db_file.with_name(self.db_file.name + ".pre2a.bak")
+                    if not backup_path.exists():
+                        try:
+                            shutil.copy2(self.db_file, backup_path)
+                            logger.info("Automatic Phase 2A database backup created at %s", backup_path)
+                        except Exception as e:
+                            logger.warning("Automatic Phase 2A database backup warning: %s", e)
+
+                if "ip" not in cols:
+                    conn.execute("ALTER TABLE audit_logs ADD COLUMN ip TEXT DEFAULT '127.0.0.1';")
+                if "user_agent" not in cols:
+                    conn.execute("ALTER TABLE audit_logs ADD COLUMN user_agent TEXT DEFAULT '';")
+
+                # Schema migration: ensure 'deleted', 'scan_count', 'created_by_name' & nullable created_by in notices
                 if "deleted" not in ncols:
                     conn.execute("ALTER TABLE notices ADD COLUMN deleted INTEGER DEFAULT 0;")
                 if "deleted_at" not in ncols:
                     conn.execute("ALTER TABLE notices ADD COLUMN deleted_at INTEGER DEFAULT NULL;")
                 if "scan_count" not in ncols:
                     conn.execute("ALTER TABLE notices ADD COLUMN scan_count INTEGER DEFAULT 0;")
+
+                cursor_n_info = conn.execute("PRAGMA table_info(notices);").fetchall()
+                cb_notnull = any(r[1] == "created_by" and r[3] == 1 for r in cursor_n_info)
+                if "created_by_name" not in ncols or cb_notnull:
+                    if "created_by_name" not in ncols:
+                        conn.execute("ALTER TABLE notices ADD COLUMN created_by_name TEXT DEFAULT NULL;")
+                    if cb_notnull:
+                        # Rebuild notices so created_by is nullable INTEGER
+                        conn.execute("PRAGMA foreign_keys = OFF;")
+                        conn.execute("""
+                            CREATE TABLE notices_v2 (
+                                id TEXT PRIMARY KEY,
+                                title TEXT NOT NULL,
+                                body TEXT DEFAULT '',
+                                priority TEXT NOT NULL DEFAULT 'normal',
+                                type TEXT NOT NULL DEFAULT 'text',
+                                media TEXT DEFAULT '',
+                                duration INTEGER NOT NULL DEFAULT 10,
+                                start INTEGER NOT NULL DEFAULT 0,
+                                end INTEGER,
+                                screen_id TEXT NOT NULL DEFAULT 'ALL',
+                                created_by INTEGER DEFAULT NULL,
+                                created_by_name TEXT DEFAULT NULL,
+                                created_at INTEGER NOT NULL,
+                                updated_at INTEGER NOT NULL,
+                                is_active INTEGER NOT NULL DEFAULT 1,
+                                deleted INTEGER DEFAULT 0,
+                                deleted_at INTEGER DEFAULT NULL,
+                                scan_count INTEGER DEFAULT 0,
+                                has_audio TEXT DEFAULT 'unknown',
+                                play_sound INTEGER DEFAULT 0,
+                                audio_duration REAL DEFAULT NULL,
+                                waveform TEXT DEFAULT '',
+                                caption TEXT DEFAULT '',
+                                repeat_gap_minutes INTEGER DEFAULT 5
+                            );
+                        """)
+                        v2_cols = [r[1] for r in conn.execute("PRAGMA table_info(notices_v2);").fetchall()]
+                        src_cols = {r[1] for r in conn.execute("PRAGMA table_info(notices);").fetchall()}
+                        common = [c for c in v2_cols if c in src_cols]
+                        cols_csv = ", ".join(common)
+                        conn.execute(f"INSERT INTO notices_v2 ({cols_csv}) SELECT {cols_csv} FROM notices;")
+                        conn.execute("DROP TABLE notices;")
+                        conn.execute("ALTER TABLE notices_v2 RENAME TO notices;")
+                        conn.execute("CREATE INDEX IF NOT EXISTS idx_notices_screen ON notices(screen_id);")
+                        conn.execute("CREATE INDEX IF NOT EXISTS idx_notices_status ON notices(is_active, start, end);")
+                        conn.execute("PRAGMA foreign_keys = ON;")
+                        ncols = [r[1] for r in conn.execute("PRAGMA table_info(notices);").fetchall()]
+
+                    conn.execute("UPDATE notices SET created_by_name = NULL, created_by = NULL WHERE LOWER(TRIM(COALESCE(created_by, ''))) IN ('', 'admin');")
+                    conn.execute("UPDATE notices SET created_by_name = created_by, created_by = NULL WHERE created_by IS NOT NULL AND created_by_name IS NULL AND typeof(created_by) = 'text' AND created_by GLOB '*[^0-9]*';")
 
                 # Automatic backup before schema migration if database exists
                 cursor_d = conn.execute("PRAGMA table_info(departments);")
@@ -766,19 +845,108 @@ class NoticeStorage:
                 if "repeat_gap_minutes" not in ncols:
                     conn.execute("ALTER TABLE notices ADD COLUMN repeat_gap_minutes INTEGER DEFAULT 5;")
 
-                # 6. Users table for Phase 6 role-based permissions
+                # 6. Users, user_departments, and invites tables (Phase 2A)
+                self.last_user_migration_count = 0
+                if len(ucols) == 0:
+                    conn.execute("""
+                        CREATE TABLE IF NOT EXISTS users (
+                            id INTEGER PRIMARY KEY AUTOINCREMENT,
+                            name TEXT NOT NULL DEFAULT '',
+                            email TEXT UNIQUE NOT NULL,
+                            phone TEXT DEFAULT NULL,
+                            password_hash TEXT DEFAULT NULL,
+                            role TEXT NOT NULL DEFAULT 'faculty',
+                            status TEXT NOT NULL DEFAULT 'active',
+                            can_post_college_wide INTEGER NOT NULL DEFAULT 0,
+                            can_post_urgent INTEGER NOT NULL DEFAULT 0,
+                            session_version INTEGER NOT NULL DEFAULT 0,
+                            last_login_at INTEGER DEFAULT NULL,
+                            password_changed_at INTEGER DEFAULT NULL,
+                            created_by INTEGER DEFAULT NULL,
+                            created_at INTEGER NOT NULL
+                        );
+                    """)
+                elif "email" not in ucols:
+                    # Migrate legacy Phase 6 users table -> Phase 2A schema
+                    conn.execute("""
+                        CREATE TABLE users_v2 (
+                            id INTEGER PRIMARY KEY AUTOINCREMENT,
+                            name TEXT NOT NULL DEFAULT '',
+                            email TEXT UNIQUE NOT NULL,
+                            phone TEXT DEFAULT NULL,
+                            password_hash TEXT DEFAULT NULL,
+                            role TEXT NOT NULL DEFAULT 'faculty',
+                            status TEXT NOT NULL DEFAULT 'active',
+                            can_post_college_wide INTEGER NOT NULL DEFAULT 0,
+                            can_post_urgent INTEGER NOT NULL DEFAULT 0,
+                            session_version INTEGER NOT NULL DEFAULT 0,
+                            last_login_at INTEGER DEFAULT NULL,
+                            password_changed_at INTEGER DEFAULT NULL,
+                            created_by INTEGER DEFAULT NULL,
+                            created_at INTEGER NOT NULL
+                        );
+                    """)
+                    conn.execute("""
+                        CREATE TABLE IF NOT EXISTS user_departments (
+                            user_id INTEGER NOT NULL,
+                            department_code TEXT NOT NULL,
+                            PRIMARY KEY (user_id, department_code)
+                        );
+                    """)
+                    old_users = conn.execute("SELECT id, username, password_hash, role, departments, can_target_all, created_at FROM users;").fetchall()
+                    for ou in old_users:
+                        uname = str(ou["username"] or "").strip()
+                        uemail = uname.lower() if "@" in uname else f"{uname.lower()}@vnotice.local"
+                        new_role = "admin" if str(ou["role"] or "").lower() in ("super_admin", "admin") else "faculty"
+                        can_cw = 1 if (ou["can_target_all"] or new_role == "admin") else 0
+                        conn.execute("""
+                            INSERT INTO users_v2 (
+                                id, name, email, phone, password_hash, role, status,
+                                can_post_college_wide, can_post_urgent, session_version,
+                                created_at
+                            ) VALUES (?, ?, ?, NULL, ?, ?, 'active', ?, 0, 0, ?);
+                        """, (ou["id"], uname, uemail, ou["password_hash"], new_role, can_cw, ou["created_at"]))
+                        for dc in [d.strip().upper() for d in str(ou["departments"] or "").split(",") if d.strip()]:
+                            conn.execute(
+                                "INSERT OR IGNORE INTO user_departments (user_id, department_code) VALUES (?, ?);",
+                                (ou["id"], dc)
+                            )
+                        # Link legacy notices authored by this username to the numeric user_id
+                        conn.execute(
+                            "UPDATE notices SET created_by = ?, created_by_name = ? WHERE LOWER(TRIM(COALESCE(created_by, ''))) = ?;",
+                            (ou["id"], uname, uname.lower())
+                        )
+                        self.last_user_migration_count += 1
+                    conn.execute("DROP TABLE users;")
+                    conn.execute("ALTER TABLE users_v2 RENAME TO users;")
+                    logger.info("Phase 2A user migration mapped %d existing account(s).", self.last_user_migration_count)
+
+                conn.execute("CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);")
                 conn.execute("""
-                    CREATE TABLE IF NOT EXISTS users (
-                        id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        username TEXT UNIQUE NOT NULL,
-                        password_hash TEXT NOT NULL,
-                        role TEXT NOT NULL DEFAULT 'dept_admin',
-                        departments TEXT NOT NULL DEFAULT '',
-                        can_target_all INTEGER NOT NULL DEFAULT 0,
-                        created_at INTEGER NOT NULL
+                    CREATE TABLE IF NOT EXISTS user_departments (
+                        user_id INTEGER NOT NULL,
+                        department_code TEXT NOT NULL,
+                        PRIMARY KEY (user_id, department_code),
+                        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
                     );
                 """)
-                conn.execute("CREATE INDEX IF NOT EXISTS idx_users_username ON users(username);")
+                conn.execute("CREATE INDEX IF NOT EXISTS idx_ud_user ON user_departments(user_id);")
+                conn.execute("""
+                    CREATE TABLE IF NOT EXISTS invites (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        user_id INTEGER NOT NULL,
+                        token_hash TEXT UNIQUE NOT NULL,
+                        purpose TEXT NOT NULL DEFAULT 'invite',
+                        expires_at INTEGER NOT NULL,
+                        used_at INTEGER DEFAULT NULL,
+                        revoked_at INTEGER DEFAULT NULL,
+                        created_by INTEGER DEFAULT NULL,
+                        created_at INTEGER NOT NULL,
+                        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+                    );
+                """)
+                conn.execute("CREATE INDEX IF NOT EXISTS idx_invites_token_hash ON invites(token_hash);")
+                conn.execute("CREATE INDEX IF NOT EXISTS idx_invites_user ON invites(user_id);")
 
                 # 7. Daily events table (Multi-event support with auto-migration and backup)
                 cursor_e = conn.execute("PRAGMA table_info(daily_events);")
@@ -908,14 +1076,24 @@ class NoticeStorage:
         finally:
             conn.close()
 
-    def record_audit(self, actor: str, action: str, target_id: str, details: str = "", ip: str = "127.0.0.1"):
+    def record_audit(self, actor: str, action: str, target_id: str, details: str = "", ip: str = "127.0.0.1", user_agent: str = None):
+        if user_agent is None:
+            try:
+                from flask import request, has_request_context
+                if has_request_context():
+                    user_agent = request.headers.get("User-Agent", "")
+                else:
+                    user_agent = ""
+            except Exception:
+                user_agent = ""
+        trimmed_ua = str(user_agent or "")[:200]
         conn = self.get_connection()
         try:
             with conn:
                 conn.execute("""
-                    INSERT INTO audit_logs (timestamp, actor, action, target_id, details, ip)
-                    VALUES (?, ?, ?, ?, ?, ?);
-                """, (get_current_time_ms(), actor or "admin", action, str(target_id or ""), details, ip or "127.0.0.1"))
+                    INSERT INTO audit_logs (timestamp, actor, action, target_id, details, ip, user_agent)
+                    VALUES (?, ?, ?, ?, ?, ?, ?);
+                """, (get_current_time_ms(), actor or "admin", action, str(target_id or ""), details, ip or "127.0.0.1", trimmed_ua))
         except Exception as e:
             logger.warning("Failed to record audit log: %s", e)
         finally:
@@ -1105,6 +1283,13 @@ class NoticeStorage:
 
         d["caption"] = str(d.get("caption") or "")
         d["waveform"] = str(d.get("waveform") or "")
+        raw_cb = d.get("created_by")
+        if raw_cb is not None and str(raw_cb).strip().isdigit():
+            d["created_by"] = int(str(raw_cb).strip())
+        elif raw_cb in ("", "admin", None):
+            d["created_by"] = None
+        d["created_by_name"] = d.get("created_by_name")
+        d["posted_by"] = d.get("created_by_name") or "Admin"
         return d
 
     def _enrich_notices(self, notices, conn=None):
@@ -1496,7 +1681,7 @@ class NoticeStorage:
     # ==========================================================================
     # Notice Mutations
     # ==========================================================================
-    def add(self, data, file_obj=None, created_by="admin"):
+    def add(self, data, file_obj=None, created_by=None, created_by_name=None):
         notice_id = generate_notice_id()
         media_filename = str(data.get("media", "")).strip() if data.get("media") else ""
         req_type = str(data.get("type", "text")).strip().lower()
@@ -1633,7 +1818,14 @@ class NoticeStorage:
 
         primary_screen = target_screens[0]
 
-        creator = str(data.get("created_by") or created_by or "admin").strip()
+        raw_cb = created_by if created_by is not None else data.get("created_by")
+        creator_id = None
+        if raw_cb is not None and str(raw_cb).strip().isdigit():
+            creator_id = int(str(raw_cb).strip())
+        creator_name = created_by_name or data.get("created_by_name")
+        if not creator_name and raw_cb and not str(raw_cb).strip().isdigit() and str(raw_cb).strip().lower() != "admin":
+            creator_name = str(raw_cb).strip()
+        audit_actor = creator_name or "admin"
         now = get_current_time_ms()
 
         conn = self.get_connection()
@@ -1672,9 +1864,9 @@ class NoticeStorage:
                 conn.execute("""
                     INSERT INTO notices (
                         id, title, body, priority, type, media, duration, start, end,
-                        screen_id, created_by, created_at, updated_at, is_active,
+                        screen_id, created_by, created_by_name, created_at, updated_at, is_active,
                         has_audio, play_sound, audio_duration, waveform, caption, repeat_gap_minutes
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?);
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?);
                 """, (
                     notice_id,
                     str(data.get("title", "")).strip(),
@@ -1686,7 +1878,8 @@ class NoticeStorage:
                     start_ms,
                     end_ms,
                     primary_screen,
-                    creator,
+                    creator_id,
+                    creator_name,
                     now,
                     now,
                     has_audio,
@@ -1704,7 +1897,7 @@ class NoticeStorage:
                         VALUES (?, ?);
                     """, (notice_id, code_val))
             
-            self.record_audit(creator, "CREATE", notice_id, f"Created {media_type} notice '{data.get('title', '')}'")
+            self.record_audit(audit_actor, "CREATE", notice_id, f"Created {media_type} notice '{data.get('title', '')}'")
             self.safe_garbage_collect_media()
             return self.get_by_id(notice_id)
         finally:
@@ -1864,7 +2057,7 @@ class NoticeStorage:
         else:
             primary_screen = target.get("screen_id", "ALL")
 
-        creator = str(data.get("created_by") or target.get("created_by", "admin")).strip()
+        creator = target.get("created_by")
         now = get_current_time_ms()
 
         conn = self.get_connection()
@@ -2047,115 +2240,532 @@ class NoticeStorage:
             return False
 
     # ==========================================================================
-    # User & Department Permissions Operations (Phase 6)
+    # User, Department & Invite Operations (Phase 2A)
     # ==========================================================================
-    def create_user(self, username: str, password: str, role: str = "dept_admin", departments=None, can_target_all: bool = False):
-        username = str(username).strip().lower()
-        if not username:
-            raise ValueError("Username cannot be empty.")
-        if not password:
-            raise ValueError("Password cannot be empty.")
-        if role not in ("super_admin", "dept_admin"):
-            raise ValueError("Role must be 'super_admin' or 'dept_admin'.")
+    def _normalize_email(self, email_or_username: str) -> str:
+        val = str(email_or_username or "").strip().lower()
+        if not val:
+            return ""
+        return val if "@" in val else f"{val}@vnotice.local"
+
+    def _normalize_role(self, role: str) -> str:
+        r = str(role or "faculty").strip().lower()
+        if r in ("super_admin", "admin"):
+            return "admin"
+        if r in ("dept_admin", "faculty"):
+            return "faculty"
+        raise ValueError("Role must be 'admin' or 'faculty'.")
+
+    def _user_row_to_dict(self, row, conn) -> dict:
+        if not row:
+            return None
+        depts_rows = conn.execute(
+            "SELECT department_code FROM user_departments WHERE user_id = ? ORDER BY department_code ASC;",
+            (row["id"],)
+        ).fetchall()
+        depts = [r["department_code"] for r in depts_rows]
+        return {
+            "id": row["id"],
+            "name": row["name"],
+            "email": row["email"],
+            "username": row["email"],
+            "phone": row["phone"],
+            "password_hash": row["password_hash"],
+            "role": row["role"],
+            "status": row["status"],
+            "departments": depts,
+            "can_post_college_wide": bool(row["can_post_college_wide"]),
+            "can_target_all": bool(row["can_post_college_wide"]),
+            "can_post_urgent": bool(row["can_post_urgent"]),
+            "session_version": int(row["session_version"] or 0),
+            "last_login_at": row["last_login_at"],
+            "password_changed_at": row["password_changed_at"],
+            "created_by": row["created_by"],
+            "created_at": row["created_at"],
+        }
+
+    def has_admin_user(self) -> bool:
+        conn = self.get_connection()
+        try:
+            row = conn.execute(
+                "SELECT 1 FROM users WHERE role = 'admin' AND status = 'active' LIMIT 1;"
+            ).fetchone()
+            return bool(row)
+        finally:
+            if not self._is_in_flask():
+                conn.close()
+
+    def create_user(
+        self,
+        username: str = None,
+        password: str = None,
+        role: str = "faculty",
+        departments=None,
+        can_target_all: bool = False,
+        *,
+        email: str = None,
+        name: str = None,
+        phone: str = None,
+        status: str = "active",
+        can_post_college_wide: bool = None,
+        can_post_urgent: bool = False,
+        created_by: int = None,
+    ):
+        raw_ident = email or username
+        norm_email = self._normalize_email(raw_ident)
+        if not norm_email:
+            raise ValueError("Email cannot be empty.")
+        display_name = str(name or username or norm_email.split("@")[0]).strip()
+        norm_role = self._normalize_role(role)
+        if status not in ("invited", "active", "disabled"):
+            raise ValueError("Status must be 'invited', 'active', or 'disabled'.")
+        if status == "active" and not password:
+            raise ValueError("Password cannot be empty for active user.")
+
+        cw = bool(can_post_college_wide if can_post_college_wide is not None else can_target_all)
+        if norm_role == "admin":
+            cw = True
+            can_post_urgent = True
 
         depts_list = []
         if departments:
             if isinstance(departments, list):
-                depts_list = [str(d).strip().upper() for d in departments if str(d).strip()]
+                depts_list = sorted({str(d).strip().upper() for d in departments if str(d).strip()})
             elif isinstance(departments, str):
-                depts_list = [str(d).strip().upper() for d in departments.split(",") if str(d).strip()]
-        depts_str = ",".join(sorted(set(depts_list)))
+                depts_list = sorted({str(d).strip().upper() for d in departments.split(",") if str(d).strip()})
 
-        pw_hash = generate_password_hash(password)
+        pw_hash = generate_password_hash(password) if password else None
         now_ms = get_current_time_ms()
 
         conn = self.get_connection()
         try:
             with conn:
-                conn.execute("""
-                    INSERT INTO users (username, password_hash, role, departments, can_target_all, created_at)
-                    VALUES (?, ?, ?, ?, ?, ?);
-                """, (username, pw_hash, role, depts_str, 1 if can_target_all else 0, now_ms))
-            self.record_audit("admin", "CREATE_USER", username, f"Created {role} user '{username}' (depts: [{depts_str}])")
-            return self.get_user(username)
+                cur = conn.execute("""
+                    INSERT INTO users (
+                        name, email, phone, password_hash, role, status,
+                        can_post_college_wide, can_post_urgent, session_version,
+                        password_changed_at, created_by, created_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?);
+                """, (
+                    display_name,
+                    norm_email,
+                    str(phone).strip() if phone else None,
+                    pw_hash,
+                    norm_role,
+                    status,
+                    1 if cw else 0,
+                    1 if can_post_urgent else 0,
+                    now_ms if pw_hash else None,
+                    created_by,
+                    now_ms,
+                ))
+                user_id = cur.lastrowid
+                for dc in depts_list:
+                    conn.execute(
+                        "INSERT OR IGNORE INTO user_departments (user_id, department_code) VALUES (?, ?);",
+                        (user_id, dc)
+                    )
+            return self.get_user_by_id(user_id)
         finally:
             if not self._is_in_flask():
                 conn.close()
 
-    def get_user(self, username: str):
-        if not username:
+    def get_user_by_id(self, user_id: int):
+        if not user_id:
             return None
-        username = str(username).strip().lower()
         conn = self.get_connection()
         try:
-            row = conn.execute("""
-                SELECT id, username, password_hash, role, departments, can_target_all, created_at
-                FROM users WHERE username = ?;
-            """, (username,)).fetchone()
-            if not row:
-                return None
-            depts_str = row["departments"] or ""
-            depts_list = [d.strip().upper() for d in depts_str.split(",") if d.strip()]
-            return {
-                "id": row["id"],
-                "username": row["username"],
-                "password_hash": row["password_hash"],
-                "role": row["role"],
-                "departments": depts_list,
-                "can_target_all": bool(row["can_target_all"]),
-                "created_at": row["created_at"],
-            }
+            row = conn.execute("SELECT * FROM users WHERE id = ?;", (int(user_id),)).fetchone()
+            return self._user_row_to_dict(row, conn)
+        finally:
+            if not self._is_in_flask():
+                conn.close()
+
+    def get_user(self, identifier: str):
+        if not identifier:
+            return None
+        norm_email = self._normalize_email(identifier)
+        conn = self.get_connection()
+        try:
+            row = conn.execute("SELECT * FROM users WHERE email = ?;", (norm_email,)).fetchone()
+            return self._user_row_to_dict(row, conn)
         finally:
             if not self._is_in_flask():
                 conn.close()
 
     def list_users(self):
+        now_ms = get_current_time_ms()
         conn = self.get_connection()
         try:
-            rows = conn.execute("""
-                SELECT id, username, role, departments, can_target_all, created_at
-                FROM users ORDER BY created_at DESC;
-            """,).fetchall()
+            rows = conn.execute("SELECT * FROM users ORDER BY created_at DESC;").fetchall()
+            inv_rows = conn.execute(
+                "SELECT id, user_id, expires_at FROM invites WHERE used_at IS NULL AND revoked_at IS NULL AND expires_at > ? ORDER BY created_at DESC;",
+                (now_ms,)
+            ).fetchall()
+            pending_by_user = {}
+            for ir in inv_rows:
+                if ir["user_id"] not in pending_by_user:
+                    pending_by_user[ir["user_id"]] = {"id": ir["id"], "expires_at": ir["expires_at"]}
             result = []
             for r in rows:
-                depts_str = r["departments"] or ""
-                depts_list = [d.strip().upper() for d in depts_str.split(",") if d.strip()]
-                result.append({
-                    "id": r["id"],
-                    "username": r["username"],
-                    "role": r["role"],
-                    "departments": depts_list,
-                    "can_target_all": bool(r["can_target_all"]),
-                    "created_at": r["created_at"],
-                })
+                u = self._user_row_to_dict(r, conn)
+                u.pop("password_hash", None)
+                pinv = pending_by_user.get(u["id"])
+                u["pending_invite_id"] = pinv["id"] if pinv else None
+                u["pending_invite_expires_at"] = pinv["expires_at"] if pinv else None
+                result.append(u)
             return result
         finally:
             if not self._is_in_flask():
                 conn.close()
 
-    def delete_user(self, username: str):
-        username = str(username).strip().lower()
+    def update_user(self, user_id: int, updates: dict, actor: str = "admin", ip: str = "127.0.0.1"):
+        existing = self.get_user_by_id(user_id)
+        if not existing:
+            return None
+
+        old_snapshot = {
+            "role": existing["role"],
+            "status": existing["status"],
+            "departments": existing["departments"],
+            "can_post_college_wide": existing["can_post_college_wide"],
+            "can_post_urgent": existing["can_post_urgent"],
+        }
+
+        new_role = self._normalize_role(updates["role"]) if "role" in updates else existing["role"]
+        new_status = updates.get("status", existing["status"])
+        if new_status not in ("invited", "active", "disabled"):
+            raise ValueError("Invalid user status.")
+        new_name = str(updates["name"]).strip() if "name" in updates and str(updates["name"]).strip() else existing["name"]
+        new_phone = updates["phone"] if "phone" in updates else existing["phone"]
+        new_cw = bool(updates["can_post_college_wide"]) if "can_post_college_wide" in updates else existing["can_post_college_wide"]
+        new_urgent = bool(updates["can_post_urgent"]) if "can_post_urgent" in updates else existing["can_post_urgent"]
+        if new_role == "admin":
+            new_cw = True
+            new_urgent = True
+
+        if "departments" in updates:
+            raw_d = updates["departments"]
+            if isinstance(raw_d, list):
+                new_depts = sorted({str(d).strip().upper() for d in raw_d if str(d).strip()})
+            elif isinstance(raw_d, str):
+                new_depts = sorted({str(d).strip().upper() for d in raw_d.split(",") if str(d).strip()})
+            else:
+                new_depts = []
+        else:
+            new_depts = existing["departments"]
+
+        bump_session = (new_status == "disabled" and existing["status"] != "disabled") or (new_role != existing["role"])
+        new_sv = existing["session_version"] + (1 if bump_session else 0)
+
         conn = self.get_connection()
         try:
             with conn:
-                cur = conn.execute("DELETE FROM users WHERE username = ?;", (username,))
+                conn.execute("""
+                    UPDATE users SET
+                        name = ?, phone = ?, role = ?, status = ?,
+                        can_post_college_wide = ?, can_post_urgent = ?, session_version = ?
+                    WHERE id = ?;
+                """, (
+                    new_name, new_phone, new_role, new_status,
+                    1 if new_cw else 0, 1 if new_urgent else 0, new_sv, int(user_id)
+                ))
+                if "departments" in updates:
+                    conn.execute("DELETE FROM user_departments WHERE user_id = ?;", (int(user_id),))
+                    for dc in new_depts:
+                        conn.execute(
+                            "INSERT OR IGNORE INTO user_departments (user_id, department_code) VALUES (?, ?);",
+                            (int(user_id), dc)
+                        )
+            updated = self.get_user_by_id(user_id)
+            updated.pop("password_hash", None)
+
+            new_snapshot = {
+                "role": updated["role"],
+                "status": updated["status"],
+                "departments": updated["departments"],
+                "can_post_college_wide": updated["can_post_college_wide"],
+                "can_post_urgent": updated["can_post_urgent"],
+            }
+            if existing["status"] != "disabled" and new_status == "disabled":
+                self.record_audit(actor, "USER_DISABLED", str(user_id), f"Disabled user {updated['email']}", ip=ip)
+            elif existing["status"] == "disabled" and new_status == "active":
+                self.record_audit(actor, "USER_ENABLED", str(user_id), f"Enabled user {updated['email']}", ip=ip)
+            else:
+                self.record_audit(
+                    actor,
+                    "USER_UPDATED",
+                    str(user_id),
+                    f"Updated user {updated['email']}: old={json.dumps(old_snapshot)} new={json.dumps(new_snapshot)}",
+                    ip=ip,
+                )
+            return updated
+        finally:
+            if not self._is_in_flask():
+                conn.close()
+
+    def delete_user(self, identifier):
+        conn = self.get_connection()
+        try:
+            with conn:
+                if isinstance(identifier, int) or str(identifier).strip().isdigit():
+                    cur = conn.execute("DELETE FROM users WHERE id = ?;", (int(identifier),))
+                else:
+                    norm_email = self._normalize_email(str(identifier))
+                    cur = conn.execute("DELETE FROM users WHERE email = ?;", (norm_email,))
                 deleted = cur.rowcount > 0
             if deleted:
-                self.record_audit("admin", "DELETE_USER", username, f"Deleted user '{username}'")
+                self.record_audit("admin", "DELETE_USER", str(identifier), f"Deleted user '{identifier}'")
             return deleted
         finally:
             if not self._is_in_flask():
                 conn.close()
 
-    def verify_user_credentials(self, username: str, password: str):
-        user = self.get_user(username)
+    def verify_user_credentials(self, identifier: str, password: str):
+        user = self.get_user(identifier)
         if not user:
             return None
+        if user.get("status") != "active" or not user.get("password_hash"):
+            return None
         if check_password_hash(user["password_hash"], password):
+            now_ms = get_current_time_ms()
+            conn = self.get_connection()
+            try:
+                with conn:
+                    conn.execute("UPDATE users SET last_login_at = ? WHERE id = ?;", (now_ms, user["id"]))
+            finally:
+                if not self._is_in_flask():
+                    conn.close()
             safe = dict(user)
             safe.pop("password_hash", None)
+            safe["last_login_at"] = now_ms
             return safe
         return None
+
+    def change_user_password(self, user_id: int, new_password: str) -> int:
+        now_ms = get_current_time_ms()
+        pw_hash = generate_password_hash(new_password)
+        conn = self.get_connection()
+        try:
+            with conn:
+                conn.execute("""
+                    UPDATE users
+                    SET password_hash = ?, password_changed_at = ?, session_version = session_version + 1
+                    WHERE id = ?;
+                """, (pw_hash, now_ms, int(user_id)))
+                row = conn.execute("SELECT session_version FROM users WHERE id = ?;", (int(user_id),)).fetchone()
+                return int(row["session_version"]) if row else 0
+        finally:
+            if not self._is_in_flask():
+                conn.close()
+
+    def revoke_user_sessions(self, user_id: int) -> int:
+        conn = self.get_connection()
+        try:
+            with conn:
+                conn.execute("UPDATE users SET session_version = session_version + 1 WHERE id = ?;", (int(user_id),))
+                row = conn.execute("SELECT session_version FROM users WHERE id = ?;", (int(user_id),)).fetchone()
+                return int(row["session_version"]) if row else 0
+        finally:
+            if not self._is_in_flask():
+                conn.close()
+
+    def _hash_invite_token(self, plain_token: str) -> str:
+        return hashlib.sha256(str(plain_token).encode("utf-8")).hexdigest()
+
+    def create_invite(
+        self,
+        user_id: int,
+        purpose: str = "invite",
+        expires_hours: int = 72,
+        created_by: int = None,
+        revoke_existing: bool = True,
+    ):
+        if purpose not in ("invite", "reset"):
+            raise ValueError("Invite purpose must be 'invite' or 'reset'.")
+        plain_token = secrets.token_urlsafe(32)
+        token_hash = self._hash_invite_token(plain_token)
+        now_ms = get_current_time_ms()
+        expires_at = now_ms + int(expires_hours) * 3600 * 1000
+
+        conn = self.get_connection()
+        try:
+            with conn:
+                if revoke_existing:
+                    conn.execute(
+                        "UPDATE invites SET revoked_at = ? WHERE user_id = ? AND used_at IS NULL AND revoked_at IS NULL;",
+                        (now_ms, int(user_id))
+                    )
+                cur = conn.execute("""
+                    INSERT INTO invites (user_id, token_hash, purpose, expires_at, created_by, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?);
+                """, (int(user_id), token_hash, purpose, expires_at, created_by, now_ms))
+                inv_id = cur.lastrowid
+            return plain_token, {
+                "id": inv_id,
+                "user_id": int(user_id),
+                "purpose": purpose,
+                "expires_at": expires_at,
+                "created_at": now_ms,
+            }
+        finally:
+            if not self._is_in_flask():
+                conn.close()
+
+    def bulk_create_invited_users_with_invites(
+        self,
+        rows: list,
+        created_by: int = None,
+        expires_hours: int = 72,
+    ):
+        """Atomically create invited users, departments, and one invite each in a single transaction."""
+        now_ms = get_current_time_ms()
+        expires_at = now_ms + int(expires_hours) * 3600 * 1000
+        results = []
+        conn = self.get_connection()
+        try:
+            with conn:
+                for row in rows:
+                    norm_email = self._normalize_email(row["email"])
+                    norm_role = self._normalize_role(row.get("role", "faculty"))
+                    display_name = str(row["name"]).strip()
+                    phone = str(row["phone"]).strip() if row.get("phone") else None
+                    cw = 1 if norm_role == "admin" else 0
+                    urg = 1 if norm_role == "admin" else 0
+
+                    cur = conn.execute("""
+                        INSERT INTO users (
+                            name, email, phone, password_hash, role, status,
+                            can_post_college_wide, can_post_urgent, session_version,
+                            password_changed_at, created_by, created_at
+                        ) VALUES (?, ?, ?, NULL, ?, 'invited', ?, ?, 0, NULL, ?, ?);
+                    """, (
+                        display_name,
+                        norm_email,
+                        phone,
+                        norm_role,
+                        cw,
+                        urg,
+                        created_by,
+                        now_ms,
+                    ))
+                    user_id = cur.lastrowid
+
+                    depts = sorted({str(d).strip().upper() for d in (row.get("departments") or []) if str(d).strip()})
+                    for dc in depts:
+                        conn.execute(
+                            "INSERT OR IGNORE INTO user_departments (user_id, department_code) VALUES (?, ?);",
+                            (user_id, dc)
+                        )
+
+                    plain_token = secrets.token_urlsafe(32)
+                    token_hash = self._hash_invite_token(plain_token)
+                    conn.execute("""
+                        INSERT INTO invites (user_id, token_hash, purpose, expires_at, created_by, created_at)
+                        VALUES (?, ?, 'invite', ?, ?, ?);
+                    """, (user_id, token_hash, expires_at, created_by, now_ms))
+
+                    results.append({
+                        "user_id": user_id,
+                        "name": display_name,
+                        "email": norm_email,
+                        "role": norm_role,
+                        "departments": depts,
+                        "token": plain_token,
+                        "expires_at": expires_at,
+                    })
+            return results
+        finally:
+            if not self._is_in_flask():
+                conn.close()
+
+    def get_invite_by_token(self, plain_token: str):
+        if not plain_token:
+            return None
+        token_hash = self._hash_invite_token(plain_token)
+        conn = self.get_connection()
+        try:
+            row = conn.execute("SELECT * FROM invites WHERE token_hash = ?;", (token_hash,)).fetchone()
+            if not row:
+                return None
+            inv = dict(row)
+            user = self._user_row_to_dict(
+                conn.execute("SELECT * FROM users WHERE id = ?;", (inv["user_id"],)).fetchone(),
+                conn
+            )
+            if user:
+                user.pop("password_hash", None)
+            inv["user"] = user
+            return inv
+        finally:
+            if not self._is_in_flask():
+                conn.close()
+
+    def accept_invite_atomic(self, plain_token: str, new_password: str):
+        """Atomically mark an invite used and activate the user + set password in one transaction."""
+        if not plain_token or not new_password:
+            return None
+        token_hash = self._hash_invite_token(plain_token)
+        pw_hash = generate_password_hash(new_password)
+        now_ms = get_current_time_ms()
+
+        conn = self.get_connection()
+        try:
+            conn.execute("BEGIN IMMEDIATE;")
+            inv = conn.execute(
+                "SELECT id, user_id, purpose, expires_at, used_at, revoked_at FROM invites WHERE token_hash = ?;",
+                (token_hash,)
+            ).fetchone()
+            if not inv:
+                conn.rollback()
+                return None
+            user_row = conn.execute("SELECT id, status FROM users WHERE id = ?;", (inv["user_id"],)).fetchone()
+            if not user_row or user_row["status"] == "disabled":
+                conn.rollback()
+                return None
+            cur = conn.execute("""
+                UPDATE invites
+                SET used_at = ?
+                WHERE id = ? AND used_at IS NULL AND revoked_at IS NULL AND expires_at > ?;
+            """, (now_ms, inv["id"], now_ms))
+            if cur.rowcount != 1:
+                conn.rollback()
+                return None
+            conn.execute("""
+                UPDATE users
+                SET password_hash = ?, status = 'active',
+                    session_version = session_version + 1,
+                    password_changed_at = ?, last_login_at = ?
+                WHERE id = ?;
+            """, (pw_hash, now_ms, now_ms, inv["user_id"]))
+            conn.commit()
+            user = self.get_user_by_id(inv["user_id"])
+            if user:
+                user.pop("password_hash", None)
+            return {"user": user, "purpose": inv["purpose"], "invite_id": inv["id"]}
+        except Exception:
+            try:
+                conn.rollback()
+            except Exception:
+                pass
+            raise
+        finally:
+            if not self._is_in_flask():
+                conn.close()
+
+    def revoke_invite(self, invite_id: int) -> bool:
+        now_ms = get_current_time_ms()
+        conn = self.get_connection()
+        try:
+            with conn:
+                cur = conn.execute(
+                    "UPDATE invites SET revoked_at = ? WHERE id = ? AND used_at IS NULL AND revoked_at IS NULL;",
+                    (now_ms, int(invite_id))
+                )
+                return cur.rowcount > 0
+        finally:
+            if not self._is_in_flask():
+                conn.close()
 
     # ==========================================================================
     # Daily Flag Event Operations (Multi-event support)

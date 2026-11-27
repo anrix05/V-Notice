@@ -1,11 +1,13 @@
 import re
+import csv
+import io
+import secrets
 import config
 import hashlib
 import queue
 import threading
 import sys
 import os
-import threading
 import math
 from functools import wraps
 from flask import (
@@ -18,11 +20,13 @@ from flask import (
     send_file,
     redirect,
     Response,
+    make_response,
     stream_with_context,
 )
 from pathlib import Path
 import mimetypes
 from werkzeug.serving import run_simple
+from werkzeug.middleware.proxy_fix import ProxyFix
 from config import (
     DISPLAY_PORT,
     ADMIN_PORT,
@@ -33,8 +37,12 @@ from config import (
 SCREEN_CODE_REGEX = re.compile(r"^[A-Z0-9_-]{2,10}$")
 from security import (
     verify_admin_password,
+    validate_password_strength,
     login_rate_limiter,
+    account_rate_limiter,
     api_key_rate_limiter,
+    invite_rate_limiter,
+    import_rate_limiter,
     generate_csrf_token,
     validate_csrf_token,
     check_password_config_warnings,
@@ -65,9 +73,6 @@ def get_lan_ip():
     return ip
 
 def get_client_ip():
-    forwarded = request.headers.get("X-Forwarded-For")
-    if forwarded:
-        return forwarded.split(",")[0].strip()
     return request.remote_addr or "127.0.0.1"
 
 
@@ -322,126 +327,187 @@ def sanitize_public_notice(notice_dict):
     safe = dict(notice_dict)
     safe.pop("created_by", None)
     safe.pop("updated_at", None)
+    if not getattr(config, "SHOW_POSTED_BY_ON_DISPLAY", False):
+        safe.pop("created_by_name", None)
+        safe.pop("posted_by", None)
     return safe
 
-def check_admin_auth():
-    # Header-based authentication (X-Password)
-    auth_header = request.headers.get("X-Password")
-    if auth_header:
-        ip = get_client_ip()
-        locked, _ = api_key_rate_limiter.is_locked(ip)
-        if not locked and verify_admin_password(auth_header):
-            api_key_rate_limiter.record_success(ip)
-            return True
-        else:
-            api_key_rate_limiter.record_failure(ip)
-            return False
+def _is_bootstrap_allowed() -> bool:
+    env_val = getattr(config, "ALLOW_BOOTSTRAP_ADMIN_ENV", None)
+    if env_val is not None:
+        return str(env_val).lower() in ("true", "1", "yes")
+    return not storage.has_admin_user()
 
-    # Session-based authentication
-    if session.get("is_admin") is True:
+def _validate_and_load_session_user():
+    """Load and validate the current session user on every request."""
+    if session.get("is_admin") is not True:
+        return None
+    now_ms = int(time.time() * 1000)
+    expires_at = session.get("expires_at")
+    if expires_at is not None and now_ms > int(expires_at):
+        session.clear()
+        return None
+
+    if session.get("is_bootstrap"):
+        if not _is_bootstrap_allowed():
+            session.clear()
+            return None
+        return {
+            "id": None,
+            "username": "admin",
+            "name": "Admin",
+            "email": "admin",
+            "role": "admin",
+            "departments": ["ALL"],
+            "can_post_college_wide": True,
+            "can_target_all": True,
+            "can_post_urgent": True,
+            "is_bootstrap": True,
+        }
+
+    user_id = session.get("user_id")
+    if not user_id:
+        session.clear()
+        return None
+
+    u = storage.get_user_by_id(user_id)
+    if not u or u.get("status") != "active" or int(u.get("session_version", 0)) != int(session.get("session_version", -1)):
+        session.clear()
+        return None
+
+    u.pop("password_hash", None)
+    return u
+
+def _check_api_key_header():
+    """Validate optional X-Password script header when ALLOW_API_KEY_AUTH is enabled.
+    Returns (status, retry_after) where status is 'valid', 'invalid', 'locked', or 'none'."""
+    auth_header = request.headers.get("X-Password")
+    if not auth_header:
+        return "none", 0
+    if not getattr(config, "ALLOW_API_KEY_AUTH", False):
+        return "none", 0
+    ip = get_client_ip()
+    locked, retry_after = api_key_rate_limiter.is_locked(ip)
+    if locked:
+        return "locked", retry_after
+    if verify_admin_password(auth_header):
+        api_key_rate_limiter.record_success(ip)
+        return "valid", 0
+    api_key_rate_limiter.record_failure(ip)
+    return "invalid", 0
+
+def check_admin_auth():
+    api_status, _ = _check_api_key_header()
+    if api_status == "valid":
         return True
-    return False
+    return _validate_and_load_session_user() is not None
 
 def read_admin_required(f):
     @wraps(f)
     def decorated_function(*args, **kwargs):
-        auth_header = request.headers.get("X-Password")
-        if auth_header:
-            ip = get_client_ip()
-            locked, retry_after = api_key_rate_limiter.is_locked(ip)
-            if locked:
-                res = jsonify({"error": "Rate limit exceeded. Too many invalid credentials.", "retry_after": retry_after})
-                res.status_code = 429
-                res.headers["Retry-After"] = str(retry_after)
-                return res
-            if not verify_admin_password(auth_header):
-                api_key_rate_limiter.record_failure(ip)
-                return jsonify({"error": "Unauthorized. Invalid admin password."}), 401
-            api_key_rate_limiter.record_success(ip)
+        api_status, retry_after = _check_api_key_header()
+        if api_status == "valid":
             return f(*args, **kwargs)
 
-        if session.get("is_admin") is True:
+        if _validate_and_load_session_user() is not None:
             return f(*args, **kwargs)
+
+        if api_status == "locked":
+            res = jsonify({"error": "Rate limit exceeded. Too many invalid credentials.", "retry_after": retry_after})
+            res.status_code = 429
+            res.headers["Retry-After"] = str(retry_after)
+            return res
+        if api_status == "invalid":
+            return jsonify({"error": "Unauthorized. Invalid admin password."}), 401
 
         return jsonify({"error": "Unauthorized. Authentication required."}), 401
     return decorated_function
 
 
 def get_current_user():
-    # 1. Check API Key header
-    auth_header = request.headers.get("X-Password")
-    if auth_header and verify_admin_password(auth_header):
+    api_status, _ = _check_api_key_header()
+    if api_status == "valid":
         return {
+            "id": None,
             "username": "admin",
-            "role": "super_admin",
+            "name": "Admin",
+            "email": "admin",
+            "role": "admin",
             "departments": ["ALL"],
-            "can_target_all": True
+            "can_post_college_wide": True,
+            "can_target_all": True,
+            "can_post_urgent": True,
         }
 
-    # 2. Check session
-    if session.get("is_admin") is True:
-        role = session.get("role", "super_admin")
-        username = session.get("username", "admin")
-        departments = session.get("departments", ["ALL"] if role == "super_admin" else [])
-        can_target_all = bool(session.get("can_target_all", role == "super_admin"))
-        return {
-            "username": username,
-            "role": role,
-            "departments": departments,
-            "can_target_all": can_target_all
-        }
-    return None
+    return _validate_and_load_session_user()
 
-def check_notice_permissions(user, target_screens):
-    """Phase 6: Enforces permission boundaries between super_admin and dept_admin."""
+def check_notice_permissions(user, target_screens, priority="normal", existing_notice=None, is_mutation=True):
+    """Phase 2A: Enforce admin vs faculty permissions on notice create/edit/delete."""
     if not user:
         return False, "Authentication required."
-    if user.get("role") == "super_admin":
+    if user.get("role") == "admin":
         return True, None
 
-    # dept_admin role
-    screens = [str(s).strip().upper() for s in target_screens if str(s).strip()]
+    if existing_notice is not None and is_mutation:
+        if existing_notice.get("created_by") != user.get("id"):
+            return False, "Permission denied: faculty can only modify notices they created."
+
+    if str(priority or "normal").strip().lower() == "urgent" and not user.get("can_post_urgent", False):
+        return False, "Permission denied: faculty cannot post urgent notices without can_post_urgent permission."
+
+    screens = [str(s).strip().upper() for s in (target_screens or []) if str(s).strip()]
     if not screens:
         screens = ["ALL"]
 
-    if "ALL" in screens and not user.get("can_target_all", False):
-        return False, "Permission denied: dept_admin cannot target All Departments (college-wide)"
+    can_cw = bool(user.get("can_post_college_wide", False))
+    if "ALL" in screens and not can_cw:
+        return False, "Permission denied: faculty cannot target All Departments (college-wide)."
 
-    user_depts = [str(d).strip().upper() for d in user.get("departments", [])]
+    user_depts = {str(d).strip().upper() for d in user.get("departments", [])}
     for sc in screens:
         if sc == "ALL":
             continue
-        if sc not in user_depts:
-            return False, f"Permission denied: dept_admin cannot target department '{sc}'"
+        if sc not in user_depts and not can_cw:
+            return False, f"Permission denied: faculty cannot target department '{sc}'."
 
     return True, None
+
+def _filter_notices_for_user(user, notices_list):
+    if not user or user.get("role") == "admin":
+        return notices_list
+    user_depts = {str(d).strip().upper() for d in user.get("departments", [])}
+    uid = user.get("id")
+    filtered = []
+    for n in notices_list:
+        if n.get("created_by") == uid:
+            filtered.append(n)
+            continue
+        n_screens = {str(s).strip().upper() for s in (n.get("screens") or [n.get("screen_id") or "ALL"])}
+        if "ALL" in n_screens or (n_screens & user_depts):
+            filtered.append(n)
+    return filtered
 
 def mutation_admin_required(f):
     @wraps(f)
     def decorated_function(*args, **kwargs):
-        auth_header = request.headers.get("X-Password")
-        if auth_header:
-            # X-Password exempt from CSRF per Phase 2 Rule 3, but rate-limited
-            ip = get_client_ip()
-            locked, retry_after = api_key_rate_limiter.is_locked(ip)
-            if locked:
-                res = jsonify({"error": "Rate limit exceeded. Too many invalid credentials.", "retry_after": retry_after})
-                res.status_code = 429
-                res.headers["Retry-After"] = str(retry_after)
-                return res
-            if not verify_admin_password(auth_header):
-                api_key_rate_limiter.record_failure(ip)
-                return jsonify({"error": "Unauthorized. Invalid admin password."}), 401
-            api_key_rate_limiter.record_success(ip)
+        api_status, retry_after = _check_api_key_header()
+        if api_status == "valid":
             return f(*args, **kwargs)
 
-        if session.get("is_admin") is True:
-            # CSRF validation required for session-authenticated mutations
+        if _validate_and_load_session_user() is not None:
             csrf_token = request.headers.get("X-CSRF-Token") or request.form.get("csrf_token")
             session_token = session.get("csrf_token")
             if not validate_csrf_token(session_token, csrf_token):
                 return jsonify({"error": "Forbidden: CSRF token validation failed."}), 403
             return f(*args, **kwargs)
+
+        if api_status == "locked":
+            res = jsonify({"error": "Rate limit exceeded. Too many invalid credentials.", "retry_after": retry_after})
+            res.status_code = 429
+            res.headers["Retry-After"] = str(retry_after)
+            return res
+        if api_status == "invalid":
+            return jsonify({"error": "Unauthorized. Invalid admin password."}), 401
 
         return jsonify({"error": "Unauthorized. Authentication required."}), 401
     return decorated_function
@@ -450,7 +516,7 @@ def apply_security_headers(app):
     @app.after_request
     def set_headers(response):
         response.headers["X-Content-Type-Options"] = "nosniff"
-        response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+        response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
 
         is_display = request.path.startswith("/display")
         frame_ancestors = "'self' http://localhost:5000 http://localhost:5001 http://127.0.0.1:5000 http://127.0.0.1:5001" if is_display else "'none'"
@@ -584,7 +650,128 @@ def configure_app_security(app):
     app.config["TEMPLATES_AUTO_RELOAD"] = True
     app.config["SESSION_COOKIE_HTTPONLY"] = True
     app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
+    app.config["SESSION_COOKIE_SECURE"] = bool(getattr(config, "IS_PRODUCTION", False))
+    app.config["PERMANENT_SESSION_LIFETIME"] = datetime.timedelta(days=getattr(config, "FACULTY_SESSION_DAYS", 30))
+    proxy_hops = int(getattr(config, "TRUSTED_PROXY_HOPS", 0) or 0)
+    if proxy_hops > 0:
+        app.wsgi_app = ProxyFix(app.wsgi_app, x_for=proxy_hops, x_proto=proxy_hops, x_host=proxy_hops, x_port=proxy_hops)
     apply_security_headers(app)
+
+def _issue_user_session(user_dict, is_bootstrap=False):
+    now_ms = int(time.time() * 1000)
+    role = user_dict.get("role", "faculty")
+    if role == "admin":
+        ttl_ms = int(getattr(config, "ADMIN_SESSION_HOURS", 8)) * 3600 * 1000
+    else:
+        ttl_ms = int(getattr(config, "FACULTY_SESSION_DAYS", 30)) * 86400 * 1000
+
+    session.clear()
+    session.permanent = True
+    session["is_admin"] = True
+    session["role"] = role
+    session["expires_at"] = now_ms + ttl_ms
+    if is_bootstrap:
+        session["is_bootstrap"] = True
+    else:
+        session["user_id"] = user_dict["id"]
+        session["session_version"] = int(user_dict.get("session_version", 0))
+    token = generate_csrf_token()
+    session["csrf_token"] = token
+    return token
+
+def _handle_login():
+    ip = get_client_ip()
+    data = request.get_json(silent=True) or request.form
+    ident = str(data.get("email") or data.get("username") or "").strip()
+    password = str(data.get("password", "")).strip()
+    account_key = (ident or "admin").lower()
+
+    ip_locked, ip_retry = login_rate_limiter.is_locked(ip)
+    acct_locked, acct_retry = account_rate_limiter.is_locked(account_key)
+    if ip_locked or acct_locked:
+        retry_after = max(ip_retry, acct_retry)
+        res = jsonify({
+            "success": False,
+            "error": "Too many failed login attempts. Please try again later.",
+            "retry_after": retry_after
+        })
+        res.status_code = 429
+        res.headers["Retry-After"] = str(retry_after)
+        return res
+
+    # 1. Break-glass env ADMIN_PASSWORD login (only while ALLOW_BOOTSTRAP_ADMIN=true)
+    if (not ident or ident.lower() == "admin") and _is_bootstrap_allowed():
+        if verify_admin_password(password):
+            login_rate_limiter.record_success(ip)
+            account_rate_limiter.record_success(account_key)
+            bootstrap_user = {
+                "id": None,
+                "username": "admin",
+                "name": "Admin",
+                "email": "admin",
+                "role": "admin",
+                "departments": ["ALL"],
+                "can_post_college_wide": True,
+                "can_target_all": True,
+                "can_post_urgent": True,
+            }
+            token = _issue_user_session(bootstrap_user, is_bootstrap=True)
+            storage.record_audit(
+                actor="admin",
+                action="BOOTSTRAP_LOGIN",
+                target_id="admin",
+                details="Break-glass bootstrap admin login",
+                ip=ip,
+            )
+            return jsonify({
+                "success": True,
+                "message": "Authentication successful",
+                "csrf_token": token,
+                "user": bootstrap_user,
+            })
+
+    # 2. Database user login by email (or legacy username)
+    if ident and ident.lower() != "admin":
+        user = storage.verify_user_credentials(ident, password)
+        if user:
+            login_rate_limiter.record_success(ip)
+            account_rate_limiter.record_success(account_key)
+            token = _issue_user_session(user, is_bootstrap=False)
+            storage.record_audit(
+                actor=user["email"],
+                action="LOGIN_SUCCESS",
+                target_id=str(user["id"]),
+                details=f"User {user['email']} logged in",
+                ip=ip,
+            )
+            return jsonify({
+                "success": True,
+                "message": "Authentication successful",
+                "csrf_token": token,
+                "user": user,
+            })
+
+    login_rate_limiter.record_failure(ip)
+    account_rate_limiter.record_failure(account_key)
+    storage.record_audit(
+        actor=ident or "admin",
+        action="LOGIN_FAILED",
+        target_id=ident or "admin",
+        details="Failed login: invalid credentials",
+        ip=ip,
+    )
+    return jsonify({"success": False, "error": "Invalid username or password"}), 401
+
+def _handle_logout():
+    user = _validate_and_load_session_user()
+    if user is not None:
+        csrf_token = request.headers.get("X-CSRF-Token") or request.form.get("csrf_token")
+        if not validate_csrf_token(session.get("csrf_token"), csrf_token):
+            return jsonify({"error": "Forbidden: CSRF token validation failed."}), 403
+        actor = user.get("email") or "admin"
+        storage.record_audit(actor=actor, action="LOGOUT", target_id=str(user.get("id") or "admin"), details="User logged out", ip=get_client_ip())
+    session.clear()
+    return jsonify({"success": True})
 
 # ==============================================================================
 # Public Notice Routes (/n/<id>, /n/<id>/file, redirects, and OG cards)
@@ -797,6 +984,792 @@ def render_inactive_public_page():
         og_description="This notice is no longer active on the campus notice board.",
         og_image=f"{get_public_base_url()}/static/brand/og-image.png"
     ), 404
+
+def _require_admin_role():
+    user = get_current_user()
+    if not user or user.get("role") != "admin":
+        return None, (jsonify({"error": "Permission denied: admin role required."}), 403)
+    return user, None
+
+def _get_invite_base_url():
+    base = get_public_base_url()
+    if base:
+        return base.rstrip("/")
+    return request.host_url.rstrip("/")
+
+def register_admin_account_and_invite_routes(app):
+    """Phase 2A: Shared account, invite, reset, and self-service routes for admin & unified apps."""
+
+    @app.route("/api/me", methods=["GET"])
+    def get_me():
+        user = get_current_user()
+        if not user:
+            return jsonify({"authenticated": False}), 200
+        return jsonify({
+            "authenticated": True,
+            "id": user.get("id"),
+            "name": user.get("name") or user.get("username") or "Admin",
+            "email": user.get("email") or user.get("username") or "admin",
+            "username": user.get("email") or user.get("username") or "admin",
+            "role": user["role"],
+            "departments": user["departments"],
+            "can_post_college_wide": bool(user.get("can_post_college_wide", False)),
+            "can_target_all": bool(user.get("can_post_college_wide", False)),
+            "can_post_urgent": bool(user.get("can_post_urgent", False)),
+        })
+
+    @app.route("/api/me/password", methods=["POST"])
+    @mutation_admin_required
+    def change_my_password():
+        user = get_current_user()
+        if not user or not user.get("id"):
+            return jsonify({"error": "Bootstrap admin cannot change password via self-service."}), 400
+        data = request.get_json(silent=True) or request.form.to_dict() or {}
+        current_pw = str(data.get("current_password", "")).strip()
+        new_pw = str(data.get("new_password", "")).strip()
+        if not current_pw or not new_pw:
+            return jsonify({"error": "Current password and new password are required."}), 400
+        verified = storage.verify_user_credentials(user["email"], current_pw)
+        if not verified:
+            return jsonify({"error": "Current password is incorrect."}), 401
+        ok, err = validate_password_strength(new_pw)
+        if not ok:
+            return jsonify({"error": err}), 400
+        new_sv = storage.change_user_password(user["id"], new_pw)
+        session["session_version"] = new_sv
+        storage.record_audit(user["email"], "PASSWORD_CHANGED", str(user["id"]), "User changed password", ip=get_client_ip())
+        return jsonify({"success": True})
+
+    @app.route("/api/me/sessions/revoke-all", methods=["POST"])
+    @mutation_admin_required
+    def revoke_my_sessions():
+        user = get_current_user()
+        if not user or not user.get("id"):
+            return jsonify({"error": "Session revocation is only available for database accounts."}), 400
+        new_sv = storage.revoke_user_sessions(user["id"])
+        session["session_version"] = new_sv
+        storage.record_audit(user["email"], "SESSIONS_REVOKED", str(user["id"]), "Revoked all other sessions", ip=get_client_ip())
+        return jsonify({"success": True})
+
+    @app.route("/api/users", methods=["GET"])
+    @read_admin_required
+    def get_users_list():
+        _, err_res = _require_admin_role()
+        if err_res:
+            return err_res
+        return jsonify({"success": True, "users": storage.list_users()})
+
+    @app.route("/api/users", methods=["POST"])
+    @mutation_admin_required
+    def create_dept_user():
+        actor_user, err_res = _require_admin_role()
+        if err_res:
+            return err_res
+        data = request.get_json(silent=True) or request.form.to_dict() or {}
+        email = str(data.get("email") or data.get("username") or "").strip()
+        name = str(data.get("name") or email.split("@")[0] or "").strip()
+        password = str(data.get("password", "")).strip()
+        role = str(data.get("role", "faculty")).strip()
+        departments = data.get("departments", [])
+        can_cw = bool(data.get("can_post_college_wide", data.get("can_target_all", False)))
+        can_urgent = bool(data.get("can_post_urgent", False))
+        phone = data.get("phone")
+        if not email or not password:
+            return jsonify({"error": "Email and password are required"}), 400
+        ok, pw_err = validate_password_strength(password)
+        if not ok:
+            return jsonify({"error": pw_err}), 400
+        try:
+            created = storage.create_user(
+                email=email,
+                name=name,
+                password=password,
+                role=role,
+                departments=departments,
+                can_post_college_wide=can_cw,
+                can_post_urgent=can_urgent,
+                phone=phone,
+                created_by=actor_user.get("id"),
+            )
+            created.pop("password_hash", None)
+            return jsonify({"success": True, "user": created}), 201
+        except Exception as e:
+            return jsonify({"error": str(e)}), 400
+
+    @app.route("/api/users/<int:user_id>", methods=["PATCH", "PUT"])
+    @mutation_admin_required
+    def update_user_route(user_id):
+        actor_user, err_res = _require_admin_role()
+        if err_res:
+            return err_res
+        data = request.get_json(silent=True) or request.form.to_dict() or {}
+        if actor_user.get("id") == user_id:
+            if data.get("status") == "disabled" or ("role" in data and str(data.get("role")).strip().lower() not in ("admin", "super_admin")):
+                return jsonify({"error": "You cannot disable or demote your own account."}), 400
+        actor = actor_user.get("email") or "admin"
+        try:
+            updated = storage.update_user(user_id, data, actor=actor, ip=get_client_ip())
+            if not updated:
+                return jsonify({"error": "User not found"}), 404
+            return jsonify({"success": True, "user": updated}), 200
+        except ValueError as ve:
+            return jsonify({"error": str(ve)}), 400
+
+    @app.route("/api/users/<int:user_id>/sessions/revoke", methods=["POST"])
+    @mutation_admin_required
+    def revoke_user_sessions_route(user_id):
+        actor_user, err_res = _require_admin_role()
+        if err_res:
+            return err_res
+        target = storage.get_user_by_id(user_id)
+        if not target:
+            return jsonify({"error": "User not found"}), 404
+        storage.revoke_user_sessions(user_id)
+        storage.record_audit(
+            actor_user.get("email") or "admin",
+            "SESSIONS_REVOKED",
+            str(user_id),
+            f"Admin revoked all sessions for {target['email']}",
+            ip=get_client_ip(),
+        )
+        return jsonify({"success": True}), 200
+
+    @app.route("/api/users/<int:user_id>/disable", methods=["POST"])
+    @mutation_admin_required
+    def disable_user_route(user_id):
+        actor_user, err_res = _require_admin_role()
+        if err_res:
+            return err_res
+        if actor_user.get("id") == user_id:
+            return jsonify({"error": "Cannot disable your own active admin account."}), 400
+        updated = storage.update_user(user_id, {"status": "disabled"}, actor=actor_user.get("email") or "admin", ip=get_client_ip())
+        if not updated:
+            return jsonify({"error": "User not found"}), 404
+        return jsonify({"success": True, "user": updated}), 200
+
+    @app.route("/api/users/<int:user_id>/enable", methods=["POST"])
+    @mutation_admin_required
+    def enable_user_route(user_id):
+        actor_user, err_res = _require_admin_role()
+        if err_res:
+            return err_res
+        updated = storage.update_user(user_id, {"status": "active"}, actor=actor_user.get("email") or "admin", ip=get_client_ip())
+        if not updated:
+            return jsonify({"error": "User not found"}), 404
+        return jsonify({"success": True, "user": updated}), 200
+
+    @app.route("/api/users/<identifier>", methods=["DELETE"])
+    @mutation_admin_required
+    def delete_dept_user(identifier):
+        _, err_res = _require_admin_role()
+        if err_res:
+            return err_res
+        if str(identifier).lower() == "admin":
+            return jsonify({"error": "Cannot delete primary admin"}), 400
+        deleted = storage.delete_user(identifier)
+        if deleted:
+            return jsonify({"success": True, "user": identifier})
+        return jsonify({"error": "User not found"}), 404
+
+    @app.route("/api/users/invite", methods=["POST"])
+    @mutation_admin_required
+    def invite_user_route():
+        actor_user, err_res = _require_admin_role()
+        if err_res:
+            return err_res
+        data = request.get_json(silent=True) or request.form.to_dict() or {}
+        name = str(data.get("name", "")).strip()
+        email = str(data.get("email", "")).strip().lower()
+        if not name or not email or "@" not in email:
+            return jsonify({"error": "Valid name and email are required."}), 400
+        if storage.get_user(email):
+            return jsonify({"error": "A user with this email already exists."}), 409
+        role = str(data.get("role", "faculty")).strip().lower()
+        departments = data.get("departments", [])
+        can_cw = bool(data.get("can_post_college_wide", False))
+        can_urgent = bool(data.get("can_post_urgent", False))
+        phone = data.get("phone")
+        try:
+            created = storage.create_user(
+                email=email,
+                name=name,
+                role=role,
+                departments=departments,
+                can_post_college_wide=can_cw,
+                can_post_urgent=can_urgent,
+                phone=phone,
+                status="invited",
+                created_by=actor_user.get("id"),
+            )
+            created.pop("password_hash", None)
+            token, inv = storage.create_invite(
+                user_id=created["id"],
+                purpose="invite",
+                expires_hours=getattr(config, "INVITE_EXPIRY_HOURS", 72),
+                created_by=actor_user.get("id"),
+            )
+            storage.record_audit(
+                actor_user.get("email") or "admin",
+                "USER_INVITED",
+                str(created["id"]),
+                f"Invited {email} as {created['role']}",
+                ip=get_client_ip(),
+            )
+            return jsonify({
+                "success": True,
+                "user": created,
+                "invite_id": inv["id"],
+                "expires_at": inv["expires_at"],
+                "invite_url": f"{_get_invite_base_url()}/invite/{token}",
+            }), 201
+        except ValueError as ve:
+            return jsonify({"error": str(ve)}), 400
+
+    @app.route("/api/users/<int:user_id>/invite", methods=["POST"])
+    @mutation_admin_required
+    def reissue_invite_route(user_id):
+        actor_user, err_res = _require_admin_role()
+        if err_res:
+            return err_res
+        target = storage.get_user_by_id(user_id)
+        if not target:
+            return jsonify({"error": "User not found"}), 404
+        token, inv = storage.create_invite(
+            user_id=user_id,
+            purpose="invite",
+            expires_hours=getattr(config, "INVITE_EXPIRY_HOURS", 72),
+            created_by=actor_user.get("id"),
+            revoke_existing=True,
+        )
+        storage.record_audit(
+            actor_user.get("email") or "admin",
+            "USER_INVITED",
+            str(user_id),
+            f"Re-issued invite for {target['email']}",
+            ip=get_client_ip(),
+        )
+        return jsonify({
+            "success": True,
+            "invite_id": inv["id"],
+            "expires_at": inv["expires_at"],
+            "invite_url": f"{_get_invite_base_url()}/invite/{token}",
+        }), 201
+
+    @app.route("/api/users/<int:user_id>/reset-link", methods=["POST"])
+    @mutation_admin_required
+    def create_reset_link_route(user_id):
+        actor_user, err_res = _require_admin_role()
+        if err_res:
+            return err_res
+        target = storage.get_user_by_id(user_id)
+        if not target or target.get("status") != "active":
+            return jsonify({"error": "Active user not found"}), 404
+        token, inv = storage.create_invite(
+            user_id=user_id,
+            purpose="reset",
+            expires_hours=getattr(config, "INVITE_EXPIRY_HOURS", 72),
+            created_by=actor_user.get("id"),
+            revoke_existing=True,
+        )
+        storage.record_audit(
+            actor_user.get("email") or "admin",
+            "RESET_LINK_CREATED",
+            str(user_id),
+            f"Created password reset link for {target['email']}",
+            ip=get_client_ip(),
+        )
+        return jsonify({
+            "success": True,
+            "invite_id": inv["id"],
+            "expires_at": inv["expires_at"],
+            "invite_url": f"{_get_invite_base_url()}/invite/{token}",
+        }), 201
+
+    @app.route("/api/invites/<int:invite_id>/revoke", methods=["POST"])
+    @mutation_admin_required
+    def revoke_invite_route(invite_id):
+        actor_user, err_res = _require_admin_role()
+        if err_res:
+            return err_res
+        revoked = storage.revoke_invite(invite_id)
+        if not revoked:
+            return jsonify({"error": "Invite not found or already used/revoked"}), 404
+        storage.record_audit(
+            actor_user.get("email") or "admin",
+            "INVITE_REVOKED",
+            str(invite_id),
+            f"Revoked invite #{invite_id}",
+            ip=get_client_ip(),
+        )
+        return jsonify({"success": True, "invite_id": invite_id}), 200
+
+    _IMPORT_LOCK = threading.Lock()
+    _IMPORT_BATCHES = {}
+    _IMPORT_LINKS_CACHE = {}
+    _HOURLY_INVITE_COUNTS = {}
+    _EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+    _CSV_INJECTION_PREFIXES = ("=", "+", "-", "@", "\t", "\r")
+    _MAX_IMPORT_BYTES = 1024 * 1024
+    _MAX_IMPORT_ROWS = 500
+
+    def _has_csv_injection(val: str) -> bool:
+        s = str(val or "").lstrip()
+        return bool(s) and s.startswith(_CSV_INJECTION_PREFIXES)
+
+    def _neutralize_csv_cell(val: str) -> str:
+        s = str(val or "")
+        if s.lstrip().startswith(_CSV_INJECTION_PREFIXES):
+            return "'" + s
+        return s
+
+    def _prune_import_caches_locked(now_ts: float):
+        for k in [k for k, v in _IMPORT_BATCHES.items() if now_ts > v.get("expires_at", 0)]:
+            _IMPORT_BATCHES.pop(k, None)
+        for k in [k for k, v in _IMPORT_LINKS_CACHE.items() if now_ts > v.get("expires_at", 0)]:
+            _IMPORT_LINKS_CACHE.pop(k, None)
+
+    @app.route("/api/users/import/template", methods=["GET"])
+    @read_admin_required
+    def download_import_template():
+        _, err_res = _require_admin_role()
+        if err_res:
+            return err_res
+        buf = io.StringIO()
+        writer = csv.writer(buf, lineterminator="\r\n")
+        writer.writerow(["name", "email", "phone", "departments", "role"])
+        resp = Response(buf.getvalue(), mimetype="text/csv; charset=utf-8")
+        resp.headers["Content-Disposition"] = 'attachment; filename="vnotice_faculty_template.csv"'
+        resp.headers["Cache-Control"] = "no-store"
+        return resp
+
+    @app.route("/api/users/import/preview", methods=["POST"])
+    @mutation_admin_required
+    def preview_bulk_import():
+        actor_user, err_res = _require_admin_role()
+        if err_res:
+            return err_res
+
+        ip = get_client_ip()
+        locked, retry_after = import_rate_limiter.is_locked(ip)
+        if locked:
+            res = jsonify({"error": "Too many import requests. Try again later.", "retry_after": retry_after})
+            res.status_code = 429
+            res.headers["Retry-After"] = str(retry_after)
+            return res
+        import_rate_limiter.record_failure(ip)
+
+        upload = request.files.get("file")
+        if not upload or not upload.filename:
+            return jsonify({"error": "Please select a .csv file."}), 400
+        if not upload.filename.lower().endswith(".csv"):
+            return jsonify({"error": "Only .csv files are allowed."}), 400
+
+        raw_bytes = upload.read(_MAX_IMPORT_BYTES + 1)
+        if len(raw_bytes) > _MAX_IMPORT_BYTES:
+            return jsonify({"error": "CSV file must be 1 MB or smaller."}), 400
+        try:
+            text = raw_bytes.decode("utf-8-sig")
+        except UnicodeDecodeError:
+            return jsonify({"error": "CSV file must be UTF-8 encoded."}), 400
+
+        reader = csv.DictReader(io.StringIO(text, newline=""))
+        if not reader.fieldnames:
+            return jsonify({"error": "CSV file is missing a header row."}), 400
+
+        norm_fields = [str(h or "").strip().lower() for h in reader.fieldnames]
+        if "name" not in norm_fields or "email" not in norm_fields:
+            return jsonify({"error": "CSV must include 'name' and 'email' columns."}), 400
+
+        raw_rows = list(reader)
+        if not raw_rows:
+            return jsonify({"error": "CSV file contains no data rows."}), 400
+        if len(raw_rows) > _MAX_IMPORT_ROWS:
+            return jsonify({"error": f"CSV file exceeds the maximum of {_MAX_IMPORT_ROWS} rows."}), 400
+
+        valid_dept_codes = {
+            str(s.get("code", "")).strip().upper()
+            for s in (storage.get_screens() or [])
+            if s.get("code")
+        }
+
+        seen_emails = set()
+        preview_rows = []
+        ready_rows = []
+        skipped_rows = []
+        counts = {
+            "total": len(raw_rows),
+            "ready": 0,
+            "skipped": 0,
+            "duplicate_email": 0,
+            "invalid_email": 0,
+            "unknown_department": 0,
+            "invalid_role": 0,
+            "csv_injection": 0,
+        }
+
+        for idx, raw in enumerate(raw_rows, start=1):
+            norm_map = {str(k or "").strip().lower(): str(v or "").strip() for k, v in raw.items() if k is not None}
+            name = norm_map.get("name", "")
+            email = norm_map.get("email", "").lower()
+            phone = norm_map.get("phone", "")
+            depts_raw = norm_map.get("departments", "")
+            role = (norm_map.get("role", "") or "faculty").lower()
+
+            depts = [d.strip().upper() for d in depts_raw.split(";") if d.strip()]
+
+            status = "Ready"
+            reason = ""
+
+            if any(_has_csv_injection(v) for v in (name, email, phone, depts_raw, role)):
+                status = "CSV injection"
+                reason = "Cell starts with a disallowed formula prefix (=, +, -, or @)."
+                counts["csv_injection"] += 1
+            elif not name:
+                status = "Invalid email"
+                reason = "Name is required."
+                counts["invalid_email"] += 1
+            elif not email or not _EMAIL_RE.match(email):
+                status = "Invalid email"
+                reason = "Invalid email format."
+                counts["invalid_email"] += 1
+            elif email in seen_emails or storage.get_user(email):
+                status = "Duplicate email"
+                reason = "Email already exists." if storage.get_user(email) else "Duplicate email in CSV."
+                counts["duplicate_email"] += 1
+            elif role not in ("faculty", "admin"):
+                status = "Invalid role"
+                reason = "Role must be faculty or admin."
+                counts["invalid_role"] += 1
+            else:
+                unknown = [d for d in depts if d not in valid_dept_codes]
+                if unknown:
+                    status = "Unknown department"
+                    reason = f"Unknown department(s): {', '.join(unknown)}"
+                    counts["unknown_department"] += 1
+
+            seen_emails.add(email)
+            row_obj = {
+                "row": idx,
+                "name": name,
+                "email": email,
+                "phone": phone,
+                "departments": depts,
+                "role": role,
+                "status": status,
+                "reason": reason,
+            }
+            preview_rows.append(row_obj)
+            if status == "Ready":
+                counts["ready"] += 1
+                ready_rows.append(row_obj)
+            else:
+                counts["skipped"] += 1
+                skipped_rows.append(row_obj)
+
+        batch_id = secrets.token_urlsafe(24)
+        now_ts = time.time()
+        expires_at_ts = now_ts + 1800
+        with _IMPORT_LOCK:
+            _prune_import_caches_locked(now_ts)
+            _IMPORT_BATCHES[batch_id] = {
+                "batch_id": batch_id,
+                "actor_id": actor_user.get("id"),
+                "created_at": now_ts,
+                "expires_at": expires_at_ts,
+                "ready_rows": ready_rows,
+                "skipped_rows": skipped_rows,
+                "counts": counts,
+                "committed": False,
+                "commit_summary": None,
+            }
+
+        return jsonify({
+            "batch_id": batch_id,
+            "expires_at": int(expires_at_ts * 1000),
+            "counts": counts,
+            "rows": preview_rows,
+        }), 200
+
+    @app.route("/api/users/import/commit", methods=["POST"])
+    @mutation_admin_required
+    def commit_bulk_import():
+        actor_user, err_res = _require_admin_role()
+        if err_res:
+            return err_res
+
+        ip = get_client_ip()
+        locked, retry_after = import_rate_limiter.is_locked(ip)
+        if locked:
+            res = jsonify({"error": "Too many import requests. Try again later.", "retry_after": retry_after})
+            res.status_code = 429
+            res.headers["Retry-After"] = str(retry_after)
+            return res
+        import_rate_limiter.record_failure(ip)
+
+        data = request.get_json(silent=True) or {}
+        batch_id = str(data.get("batch_id", "")).strip()
+        if not batch_id:
+            return jsonify({"error": "batch_id is required."}), 400
+
+        now_ts = time.time()
+        actor_key = str(actor_user.get("id") or "bootstrap")
+        hourly_cap = int(getattr(config, "MAX_INVITES_PER_HOUR_PER_ADMIN", 500))
+
+        with _IMPORT_LOCK:
+            _prune_import_caches_locked(now_ts)
+            batch = _IMPORT_BATCHES.get(batch_id)
+            if not batch:
+                return jsonify({"error": "Import batch not found or expired."}), 404
+            if batch.get("actor_id") != actor_user.get("id"):
+                return jsonify({"error": "Forbidden"}), 403
+            if batch.get("committed"):
+                summary = dict(batch["commit_summary"])
+                summary["already_committed"] = True
+                summary["links_available"] = batch_id in _IMPORT_LINKS_CACHE
+                return jsonify(summary), 200
+
+            ready_rows = batch["ready_rows"]
+            if not ready_rows:
+                return jsonify({"error": "No valid rows to import."}), 400
+
+            recent = [t for t in _HOURLY_INVITE_COUNTS.get(actor_key, []) if now_ts - t < 3600]
+            if len(recent) + len(ready_rows) > hourly_cap:
+                return jsonify({"error": f"Hourly invite limit ({hourly_cap}) reached for your account."}), 429
+
+        try:
+            created_items = storage.bulk_create_invited_users_with_invites(
+                ready_rows,
+                created_by=actor_user.get("id"),
+                expires_hours=getattr(config, "INVITE_EXPIRY_HOURS", 72),
+            )
+        except Exception:
+            return jsonify({"error": "Import rolled back: one or more accounts could not be created (possible duplicate email)."}), 409
+
+        actor_email = actor_user.get("email") or "admin"
+        for item in created_items:
+            storage.record_audit(
+                actor_email,
+                "USER_INVITED",
+                str(item["user_id"]),
+                f"Invited {item['email']} as {item['role']} (bulk import)",
+                ip=ip,
+            )
+        storage.record_audit(
+            actor_email,
+            "USERS_IMPORTED",
+            batch_id,
+            f"Imported {len(created_items)} users, skipped {len(batch['skipped_rows'])}",
+            ip=ip,
+        )
+
+        base_url = _get_invite_base_url()
+        csv_buf = io.StringIO()
+        writer = csv.writer(csv_buf, lineterminator="\r\n")
+        writer.writerow(["name", "email", "link", "expiry"])
+        whatsapp_messages = []
+        for item in created_items:
+            link = f"{base_url}/invite/{item['token']}"
+            exp_iso = datetime.datetime.fromtimestamp(item["expires_at"] / 1000, tz=KOLKATA_TZ).strftime("%Y-%m-%d %H:%M %Z")
+            writer.writerow([
+                _neutralize_csv_cell(item["name"]),
+                _neutralize_csv_cell(item["email"]),
+                _neutralize_csv_cell(link),
+                _neutralize_csv_cell(exp_iso),
+            ])
+            whatsapp_messages.append(
+                f"Hi {item['name']}, your V Notice account is ready. Set your password here: {link} (expires {exp_iso})."
+            )
+
+        links_expires_ts = time.time() + 600
+        summary = {
+            "success": True,
+            "batch_id": batch_id,
+            "created_count": len(created_items),
+            "skipped_count": len(batch["skipped_rows"]),
+            "skipped": [
+                {"row": r["row"], "email": r["email"], "status": r["status"], "reason": r["reason"]}
+                for r in batch["skipped_rows"]
+            ],
+            "links_expires_at": int(links_expires_ts * 1000),
+            "links_available": True,
+            "whatsapp_messages": whatsapp_messages,
+        }
+
+        with _IMPORT_LOCK:
+            recent = [t for t in _HOURLY_INVITE_COUNTS.get(actor_key, []) if now_ts - t < 3600]
+            recent.extend([now_ts] * len(created_items))
+            _HOURLY_INVITE_COUNTS[actor_key] = recent
+            _IMPORT_LINKS_CACHE[batch_id] = {
+                "actor_id": actor_user.get("id"),
+                "csv_text": csv_buf.getvalue(),
+                "expires_at": links_expires_ts,
+            }
+            batch["committed"] = True
+            batch["commit_summary"] = {
+                "success": True,
+                "batch_id": batch_id,
+                "created_count": len(created_items),
+                "skipped_count": len(batch["skipped_rows"]),
+                "skipped": summary["skipped"],
+                "links_expires_at": int(links_expires_ts * 1000),
+            }
+
+        return jsonify(summary), 200
+
+    @app.route("/api/users/import/<batch_id>/links.csv", methods=["GET"])
+    @read_admin_required
+    def download_import_links_once(batch_id):
+        actor_user, err_res = _require_admin_role()
+        if err_res:
+            return err_res
+        now_ts = time.time()
+        with _IMPORT_LOCK:
+            entry = _IMPORT_LINKS_CACHE.get(batch_id)
+            if not entry or now_ts > entry.get("expires_at", 0):
+                _IMPORT_LINKS_CACHE.pop(batch_id, None)
+                return jsonify({"error": "This one-time links file has expired or was already downloaded."}), 410
+            if entry.get("actor_id") != actor_user.get("id"):
+                return jsonify({"error": "Forbidden"}), 403
+            _IMPORT_LINKS_CACHE.pop(batch_id, None)
+
+        resp = Response(entry["csv_text"], mimetype="text/csv; charset=utf-8")
+        resp.headers["Content-Disposition"] = 'attachment; filename="vnotice_invite_links.csv"'
+        return _apply_no_leak_headers(resp)
+
+    _GENERIC_INVITE_ERR = "This link is not valid. Ask your admin for a new one."
+
+    def _apply_no_leak_headers(resp):
+        resp.headers["Referrer-Policy"] = "no-referrer"
+        resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+        resp.headers["Pragma"] = "no-cache"
+        resp.headers["Expires"] = "0"
+        resp.headers["X-Robots-Tag"] = "noindex, nofollow"
+        return resp
+
+    @app.route("/invite/<token>", methods=["GET"])
+    def view_invite_page(token):
+        ip = get_client_ip()
+        locked, retry_after = invite_rate_limiter.is_locked(ip)
+        if locked:
+            res = Response("Too many requests. Please try again later.", status=429)
+            res.headers["Retry-After"] = str(retry_after)
+            return _apply_no_leak_headers(res)
+
+        inv = storage.get_invite_by_token(token)
+        now_ms = int(time.time() * 1000)
+        is_valid = bool(
+            inv
+            and inv.get("used_at") is None
+            and inv.get("revoked_at") is None
+            and inv.get("expires_at", 0) > now_ms
+            and inv.get("user")
+            and inv["user"].get("status") != "disabled"
+        )
+        if not is_valid:
+            invite_rate_limiter.record_failure(ip)
+            resp = make_response(render_template("invite_accept.html", valid=False, error_message=_GENERIC_INVITE_ERR), 400)
+            return _apply_no_leak_headers(resp)
+
+        csrf = session.get("csrf_token") or generate_csrf_token()
+        session["csrf_token"] = csrf
+        resp = make_response(render_template(
+            "invite_accept.html",
+            valid=True,
+            token=token,
+            user=inv["user"],
+            purpose=inv.get("purpose", "invite"),
+            csrf_token=csrf,
+            error_message=None,
+        ))
+        return _apply_no_leak_headers(resp)
+
+    @app.route("/invite/<token>/accept", methods=["POST"])
+    def accept_invite_page(token):
+        ip = get_client_ip()
+        locked, retry_after = invite_rate_limiter.is_locked(ip)
+        if locked:
+            res = jsonify({"error": "Too many requests. Please try again later.", "retry_after": retry_after})
+            res.status_code = 429
+            res.headers["Retry-After"] = str(retry_after)
+            return _apply_no_leak_headers(res)
+
+        is_json = request.is_json
+        data = request.get_json(silent=True) or request.form.to_dict() or {}
+        csrf_token = request.headers.get("X-CSRF-Token") or data.get("csrf_token")
+        if not is_json and not validate_csrf_token(session.get("csrf_token"), csrf_token):
+            resp = make_response(render_template("invite_accept.html", valid=False, error_message=_GENERIC_INVITE_ERR), 403)
+            return _apply_no_leak_headers(resp)
+
+        pw = str(data.get("password", ""))
+        pw2 = str(data.get("confirm_password", pw if is_json and "confirm_password" not in data else ""))
+        inv_preview = storage.get_invite_by_token(token)
+        now_ms = int(time.time() * 1000)
+        pre_valid = bool(
+            inv_preview
+            and inv_preview.get("used_at") is None
+            and inv_preview.get("revoked_at") is None
+            and inv_preview.get("expires_at", 0) > now_ms
+            and inv_preview.get("user")
+            and inv_preview["user"].get("status") != "disabled"
+        )
+        if not pre_valid:
+            invite_rate_limiter.record_failure(ip)
+            if is_json:
+                return _apply_no_leak_headers(make_response(jsonify({"error": _GENERIC_INVITE_ERR}), 400))
+            resp = make_response(render_template("invite_accept.html", valid=False, error_message=_GENERIC_INVITE_ERR), 400)
+            return _apply_no_leak_headers(resp)
+
+        if pw != pw2:
+            err_msg = "Passwords do not match."
+            if is_json:
+                return _apply_no_leak_headers(make_response(jsonify({"error": err_msg}), 400))
+            resp = make_response(render_template(
+                "invite_accept.html",
+                valid=True,
+                token=token,
+                user=inv_preview["user"],
+                purpose=inv_preview.get("purpose", "invite"),
+                csrf_token=session.get("csrf_token"),
+                error_message=err_msg,
+            ), 400)
+            return _apply_no_leak_headers(resp)
+
+        ok, pw_err = validate_password_strength(pw)
+        if not ok:
+            if is_json:
+                return _apply_no_leak_headers(make_response(jsonify({"error": pw_err}), 400))
+            resp = make_response(render_template(
+                "invite_accept.html",
+                valid=True,
+                token=token,
+                user=inv_preview["user"],
+                purpose=inv_preview.get("purpose", "invite"),
+                csrf_token=session.get("csrf_token"),
+                error_message=pw_err,
+            ), 400)
+            return _apply_no_leak_headers(resp)
+
+        accepted = storage.accept_invite_atomic(token, pw)
+        if not accepted or not accepted.get("user"):
+            invite_rate_limiter.record_failure(ip)
+            if is_json:
+                return _apply_no_leak_headers(make_response(jsonify({"error": _GENERIC_INVITE_ERR}), 400))
+            resp = make_response(render_template("invite_accept.html", valid=False, error_message=_GENERIC_INVITE_ERR), 400)
+            return _apply_no_leak_headers(resp)
+
+        invite_rate_limiter.record_success(ip)
+        user = accepted["user"]
+        csrf_new = _issue_user_session(user, is_bootstrap=False)
+        storage.record_audit(
+            user["email"],
+            "INVITE_ACCEPTED",
+            str(user["id"]),
+            f"Accepted {accepted['purpose']} for {user['email']}",
+            ip=ip,
+        )
+        if is_json:
+            return _apply_no_leak_headers(make_response(jsonify({"success": True, "user": user, "csrf_token": csrf_new}), 200))
+        return _apply_no_leak_headers(redirect("/admin"))
 
 def register_public_notice_routes(app):
     @app.route("/n/<notice_id>", methods=["GET"])
@@ -1559,89 +2532,11 @@ def create_admin_app():
 
     @app.route("/api/login", methods=["POST"])
     def login():
-        ip = get_client_ip()
-        locked, retry_after = login_rate_limiter.is_locked(ip)
-        if locked:
-            res = jsonify({
-                "success": False,
-                "error": "Too many failed login attempts. Please try again later.",
-                "retry_after": retry_after
-            })
-            res.status_code = 429
-            res.headers["Retry-After"] = str(retry_after)
-            return res
-
-        data = request.get_json(silent=True) or request.form
-        username = str(data.get("username", "")).strip()
-        password = str(data.get("password", "")).strip()
-
-        # Shared password / super_admin login
-        if not username or username.lower() == "admin":
-            if verify_admin_password(password):
-                login_rate_limiter.record_success(ip)
-                storage.record_audit(actor="admin", action="LOGIN_SUCCESS", target_id="admin", details="Admin login successful", ip=ip)
-                session["is_admin"] = True
-                session["username"] = "admin"
-                session["role"] = "super_admin"
-                session["departments"] = ["ALL"]
-                session["can_target_all"] = True
-                token = generate_csrf_token()
-                session["csrf_token"] = token
-                return jsonify({
-                    "success": True,
-                    "message": "Authentication successful",
-                    "csrf_token": token,
-                    "user": {
-                        "username": "admin",
-                        "role": "super_admin",
-                        "departments": ["ALL"],
-                        "can_target_all": True
-                    }
-                })
-            else:
-                login_rate_limiter.record_failure(ip)
-                storage.record_audit(actor=username or "admin", action="LOGIN_FAILURE", target_id=username or "admin", details="Failed login: incorrect password", ip=ip)
-                return jsonify({"success": False, "error": "Invalid password"}), 401
-        else:
-            # Per-user dept_admin login with hashed passwords
-            user = storage.verify_user_credentials(username, password)
-            if user:
-                login_rate_limiter.record_success(ip)
-                storage.record_audit(actor=user["username"], action="LOGIN_SUCCESS", target_id=user["username"], details=f"User {user['username']} logged in", ip=ip)
-                session["is_admin"] = True
-                session["username"] = user["username"]
-                session["role"] = user["role"]
-                session["departments"] = user["departments"]
-                session["can_target_all"] = user["can_target_all"]
-                token = generate_csrf_token()
-                session["csrf_token"] = token
-                return jsonify({
-                    "success": True,
-                    "message": "Authentication successful",
-                    "csrf_token": token,
-                    "user": {
-                        "username": user["username"],
-                        "role": user["role"],
-                        "departments": user["departments"],
-                        "can_target_all": user["can_target_all"]
-                    }
-                })
-            else:
-                login_rate_limiter.record_failure(ip)
-                storage.record_audit(actor=username, action="LOGIN_FAILURE", target_id=username, details="Failed login: bad credentials", ip=ip)
-                return jsonify({"success": False, "error": "Invalid username or password"}), 401
+        return _handle_login()
 
     @app.route("/api/logout", methods=["POST"])
     def logout():
-        actor = session.get("username", "admin")
-        storage.record_audit(actor=actor, action="LOGOUT", target_id=actor, details="User logged out", ip=get_client_ip())
-        session.pop("is_admin", None)
-        session.pop("csrf_token", None)
-        session.pop("username", None)
-        session.pop("role", None)
-        session.pop("departments", None)
-        session.pop("can_target_all", None)
-        return jsonify({"success": True})
+        return _handle_logout()
 
     # Test-only rate limit reset: strictly disabled in production & Render environments
     if os.environ.get("VNOTICE_TEST_MODE") == "1" and not os.environ.get("RENDER"):
@@ -1651,6 +2546,7 @@ def create_admin_app():
             login_rate_limiter.record_success(ip)
             login_rate_limiter.record_success("127.0.0.1")
             login_rate_limiter.record_success("::1")
+            account_rate_limiter.record_success("admin")
             return jsonify({"success": True})
 
     @app.route("/api/screens", methods=["GET"])
@@ -1668,9 +2564,9 @@ def create_admin_app():
     @app.route("/api/screens", methods=["POST"])
     @mutation_admin_required
     def create_screen():
-        user = get_current_user()
-        if not user or user.get("role") != "super_admin":
-            return jsonify({"error": "Permission denied: Only super_admin can create screens"}), 403
+        _, err_res = _require_admin_role()
+        if err_res:
+            return err_res
         data = request.get_json(silent=True) or request.form.to_dict() or {}
         code = data.get("code")
         name = data.get("name")
@@ -1700,6 +2596,9 @@ def create_admin_app():
     @app.route("/api/screens/<code>", methods=["PUT", "POST"])
     @mutation_admin_required
     def update_screen(code):
+        _, err_res = _require_admin_role()
+        if err_res:
+            return err_res
         data = request.get_json(silent=True) or request.form.to_dict() or {}
         code = str(code).strip().upper()
         dept = storage.get_department(code)
@@ -1715,6 +2614,9 @@ def create_admin_app():
     @app.route("/api/screens/<code>", methods=["DELETE"])
     @mutation_admin_required
     def delete_screen(code):
+        _, err_res = _require_admin_role()
+        if err_res:
+            return err_res
         code = str(code).strip().upper()
         if code == "ALL":
             return jsonify({"error": "The college-wide 'ALL' screen cannot be deleted"}), 400
@@ -1735,12 +2637,15 @@ def create_admin_app():
     @read_admin_required
     def get_all_notices():
         screen = request.args.get("screen") or request.args.get("screen_id")
-        notices = storage.get_all(screen_id=screen)
+        notices = _filter_notices_for_user(get_current_user(), storage.get_all(screen_id=screen))
         return make_etag_response(notices)
 
     @app.route("/api/audit-logs", methods=["GET"])
     @read_admin_required
     def get_audit():
+        _, err_res = _require_admin_role()
+        if err_res:
+            return err_res
         limit = min(int(request.args.get("limit", 50)), 200)
         offset = max(int(request.args.get("offset", 0)), 0)
         action = request.args.get("action")
@@ -1798,13 +2703,14 @@ def create_admin_app():
 
         user = get_current_user()
         target_candidates = screens or [form_data.get("screen_id") or "ALL"]
-        ok, err = check_notice_permissions(user, target_candidates)
+        ok, err = check_notice_permissions(user, target_candidates, priority=form_data.get("priority", "normal"), is_mutation=True)
         if not ok:
             return jsonify({"error": err}), 403
 
         try:
-            creator = (user.get("username") if user else None) or form_data.get("created_by") or "admin"
-            notice = storage.add(form_data, file_obj=file_obj, created_by=creator)
+            creator_id = user.get("id") if user else None
+            creator_name = (user.get("name") or user.get("email") or "Admin") if user else (form_data.get("created_by") or "Admin")
+            notice = storage.add(form_data, file_obj=file_obj, created_by=creator_id, created_by_name=creator_name)
             notify_notice_change(affected_screens=notice.get("screens"))
             return jsonify(notice), 201
         except ValueError as ve:
@@ -1835,15 +2741,15 @@ def create_admin_app():
             return jsonify({"error": "Notice not found"}), 404
 
         existing_screens = existing.get("screens") or [existing.get("screen_id", "ALL")]
-        ok, err = check_notice_permissions(user, existing_screens)
+        ok, err = check_notice_permissions(user, existing_screens, priority=existing.get("priority", "normal"), existing_notice=existing, is_mutation=True)
         if not ok:
             return jsonify({"error": err}), 403
 
-        if screens or form_data.get("screen_id"):
-            new_targets = screens or [form_data.get("screen_id") or "ALL"]
-            ok_new, err_new = check_notice_permissions(user, new_targets)
-            if not ok_new:
-                return jsonify({"error": err_new}), 403
+        new_targets = screens or existing_screens
+        new_priority = form_data.get("priority", existing.get("priority", "normal"))
+        ok_new, err_new = check_notice_permissions(user, new_targets, priority=new_priority, existing_notice=existing, is_mutation=True)
+        if not ok_new:
+            return jsonify({"error": err_new}), 403
 
         try:
             updater = (user.get("username") if user else None) or form_data.get("created_by") or "admin"
@@ -1866,12 +2772,12 @@ def create_admin_app():
             return jsonify({"error": "Notice not found"}), 404
 
         target_screens = target.get("screens") or [target.get("screen_id", "ALL")]
-        ok, err = check_notice_permissions(user, target_screens)
+        ok, err = check_notice_permissions(user, target_screens, priority=target.get("priority", "normal"), existing_notice=target, is_mutation=True)
         if not ok:
             return jsonify({"error": err}), 403
 
         affected = target.get("screens") if target else None
-        actor = (user.get("username") if user else None) or "admin"
+        actor = (user.get("email") or user.get("username") if user else None) or "admin"
         success = storage.delete(notice_id, actor=actor, ip=get_client_ip())
         notify_notice_change(affected_screens=affected)
         if success:
@@ -1882,7 +2788,14 @@ def create_admin_app():
     @mutation_admin_required
     def restore_notice(notice_id):
         user = get_current_user()
-        actor = (user.get("username") if user else None) or "admin"
+        target = storage.get_by_id(notice_id)
+        if not target:
+            return jsonify({"error": "Notice not found or cannot be restored"}), 404
+        target_screens = target.get("screens") or [target.get("screen_id", "ALL")]
+        ok, err = check_notice_permissions(user, target_screens, priority=target.get("priority", "normal"), existing_notice=target, is_mutation=True)
+        if not ok:
+            return jsonify({"error": err}), 403
+        actor = (user.get("email") or user.get("username") if user else None) or "admin"
         restored = storage.restore(notice_id, actor=actor, ip=get_client_ip())
         if not restored:
             return jsonify({"error": "Notice not found or cannot be restored"}), 404
@@ -1892,8 +2805,10 @@ def create_admin_app():
     @app.route("/api/settings", methods=["POST", "PUT"])
     @mutation_admin_required
     def update_settings():
-        user = get_current_user()
-        actor = (user.get("username") if user else None) or "admin"
+        user, err_res = _require_admin_role()
+        if err_res:
+            return err_res
+        actor = (user.get("email") or user.get("username") if user else None) or "admin"
         data = request.get_json(silent=True) or request.form.to_dict() or {}
         theme = data.get("theme", "auto")
         storage.record_audit(actor, "SETTINGS_UPDATE", "theme", f"Theme updated to '{theme}'", ip=get_client_ip())
@@ -1902,8 +2817,10 @@ def create_admin_app():
     @app.route("/api/media/clean-orphans", methods=["POST"])
     @mutation_admin_required
     def clean_orphaned_media_route():
-        user = get_current_user()
-        actor = (user.get("username") if user else None) or "admin"
+        user, err_res = _require_admin_role()
+        if err_res:
+            return err_res
+        actor = (user.get("email") or user.get("username") if user else None) or "admin"
         cleaned_count = storage.safe_garbage_collect_media(grace_period_seconds=60)
         storage.record_audit(actor, "CLEAN_MEDIA", "media", f"Cleaned {cleaned_count or 0} orphaned media files", ip=get_client_ip())
         return jsonify({"success": True, "cleaned_count": cleaned_count or 0})
@@ -1911,6 +2828,9 @@ def create_admin_app():
     @app.route("/api/admin/events/flag", methods=["GET"])
     @read_admin_required
     def get_flag_settings():
+        _, err_res = _require_admin_role()
+        if err_res:
+            return err_res
         events = storage.get_daily_events()
         for e in events:
             e["next_run"] = storage.compute_next_run_text(e)
@@ -1929,8 +2849,10 @@ def create_admin_app():
     @app.route("/api/admin/events/flag", methods=["POST"])
     @mutation_admin_required
     def create_flag_event():
-        user = get_current_user()
-        actor = (user.get("username") if user else None) or "admin"
+        user, err_res = _require_admin_role()
+        if err_res:
+            return err_res
+        actor = (user.get("email") or user.get("username") if user else None) or "admin"
         data = request.get_json(silent=True) or request.form.to_dict() or {}
         ev_id = data.get("id")
         try:
@@ -1950,8 +2872,10 @@ def create_admin_app():
     @app.route("/api/admin/events/flag/<event_id>", methods=["PUT", "POST"])
     @mutation_admin_required
     def update_specific_flag_event(event_id):
-        user = get_current_user()
-        actor = (user.get("username") if user else None) or "admin"
+        user, err_res = _require_admin_role()
+        if err_res:
+            return err_res
+        actor = (user.get("email") or user.get("username") if user else None) or "admin"
         data = request.get_json(silent=True) or request.form.to_dict() or {}
         try:
             updated = storage.update_daily_event(event_id, data, actor=actor, ip=get_client_ip())
@@ -1969,8 +2893,10 @@ def create_admin_app():
     @app.route("/api/admin/events/flag", methods=["PUT"])
     @mutation_admin_required
     def update_flag_settings():
-        user = get_current_user()
-        actor = (user.get("username") if user else None) or "admin"
+        user, err_res = _require_admin_role()
+        if err_res:
+            return err_res
+        actor = (user.get("email") or user.get("username") if user else None) or "admin"
         data = request.get_json(silent=True) or request.form.to_dict() or {}
         event_id = data.get("id") or "flag"
         try:
@@ -1987,8 +2913,10 @@ def create_admin_app():
     @app.route("/api/admin/events/flag/<event_id>", methods=["DELETE"])
     @mutation_admin_required
     def delete_flag_event(event_id):
-        user = get_current_user()
-        actor = (user.get("username") if user else None) or "admin"
+        user, err_res = _require_admin_role()
+        if err_res:
+            return err_res
+        actor = (user.get("email") or user.get("username") if user else None) or "admin"
         events = storage.get_daily_events()
         if len(events) <= 1:
             return jsonify({"error": "Cannot delete the only remaining daily event"}), 400
@@ -2005,8 +2933,10 @@ def create_admin_app():
     @app.route("/api/admin/events/flag/<event_id>/skip-today", methods=["POST"])
     @mutation_admin_required
     def skip_specific_flag_today(event_id):
-        user = get_current_user()
-        actor = (user.get("username") if user else None) or "admin"
+        user, err_res = _require_admin_role()
+        if err_res:
+            return err_res
+        actor = (user.get("email") or user.get("username") if user else None) or "admin"
         updated = storage.skip_daily_event_today(event_id, actor=actor, ip=get_client_ip())
         if not updated:
             return jsonify({"error": f"Event '{event_id}' not found"}), 404
@@ -2020,8 +2950,10 @@ def create_admin_app():
     @app.route("/api/admin/events/flag/skip-today", methods=["POST"])
     @mutation_admin_required
     def skip_flag_today():
-        user = get_current_user()
-        actor = (user.get("username") if user else None) or "admin"
+        user, err_res = _require_admin_role()
+        if err_res:
+            return err_res
+        actor = (user.get("email") or user.get("username") if user else None) or "admin"
         data = request.get_json(silent=True) or request.form.to_dict() or {}
         event_id = data.get("id") or "flag"
         updated = storage.skip_daily_event_today(event_id, actor=actor, ip=get_client_ip())
@@ -2035,8 +2967,10 @@ def create_admin_app():
     @app.route("/api/admin/events/flag/<event_id>/test-run", methods=["POST"])
     @mutation_admin_required
     def test_run_specific_flag(event_id):
-        user = get_current_user()
-        actor = (user.get("username") if user else None) or "admin"
+        user, err_res = _require_admin_role()
+        if err_res:
+            return err_res
+        actor = (user.get("email") or user.get("username") if user else None) or "admin"
         evt = storage.get_daily_event(event_id)
         if not evt:
             return jsonify({"error": f"Event '{event_id}' not found"}), 404
@@ -2060,8 +2994,10 @@ def create_admin_app():
     @app.route("/api/admin/events/flag/test-run", methods=["POST"])
     @mutation_admin_required
     def test_run_flag():
-        user = get_current_user()
-        actor = (user.get("username") if user else None) or "admin"
+        user, err_res = _require_admin_role()
+        if err_res:
+            return err_res
+        actor = (user.get("email") or user.get("username") if user else None) or "admin"
         data = request.get_json(silent=True) or request.form.to_dict() or {}
         event_id = data.get("id") or data.get("event_id") or "flag"
         evt = storage.get_daily_event(event_id)
@@ -2084,6 +3020,9 @@ def create_admin_app():
     @app.route("/api/admin/events/flag/stop", methods=["POST"])
     @mutation_admin_required
     def stop_flag_run():
+        _, err_res = _require_admin_role()
+        if err_res:
+            return err_res
         storage.clear_flag_manual_override(ended_early=True)
         notify_flag_change("ALL")
         return jsonify({"success": True, "message": "Flag display ended"})
@@ -2151,65 +3090,7 @@ def create_admin_app():
         return jsonify(data), code
 
     
-    @app.route("/api/me", methods=["GET"])
-    def get_me():
-        user = get_current_user()
-        if not user:
-            return jsonify({"authenticated": False}), 200
-        return jsonify({
-            "authenticated": True,
-            "username": user["username"],
-            "role": user["role"],
-            "departments": user["departments"],
-            "can_target_all": user["can_target_all"]
-        })
-
-    @app.route("/api/users", methods=["GET"])
-    @read_admin_required
-    def get_users_list():
-        user = get_current_user()
-        if not user or user.get("role") != "super_admin":
-            return jsonify({"error": "Permission denied: Only super_admin can list users"}), 403
-        return jsonify({"success": True, "users": storage.list_users()})
-
-    @app.route("/api/users", methods=["POST"])
-    @mutation_admin_required
-    def create_dept_user():
-        user = get_current_user()
-        if not user or user.get("role") != "super_admin":
-            return jsonify({"error": "Permission denied: Only super_admin can create users"}), 403
-        data = request.get_json(silent=True) or request.form.to_dict() or {}
-        username = data.get("username", "").strip()
-        password = data.get("password", "").strip()
-        role = data.get("role", "dept_admin").strip()
-        departments = data.get("departments", [])
-        can_target_all = bool(data.get("can_target_all", False))
-        if not username or not password:
-            return jsonify({"error": "Username and password are required"}), 400
-        try:
-            created = storage.create_user(
-                username=username,
-                password=password,
-                role=role,
-                departments=departments,
-                can_target_all=can_target_all
-            )
-            return jsonify({"success": True, "user": created}), 201
-        except Exception as e:
-            return jsonify({"error": str(e)}), 400
-
-    @app.route("/api/users/<username>", methods=["DELETE"])
-    @mutation_admin_required
-    def delete_dept_user(username):
-        user = get_current_user()
-        if not user or user.get("role") != "super_admin":
-            return jsonify({"error": "Permission denied: Only super_admin can delete users"}), 403
-        if username.lower() == "admin":
-            return jsonify({"error": "Cannot delete primary admin"}), 400
-        deleted = storage.delete_user(username)
-        if deleted:
-            return jsonify({"success": True, "username": username})
-        return jsonify({"error": "User not found"}), 404
+    register_admin_account_and_invite_routes(app)
     return app
 
 # ==============================================================================
@@ -2301,7 +3182,7 @@ def create_unified_app():
     def dept_shortcut(code):
         if not code:
             return redirect("/display", code=301)
-        if code.lower() in ("static", "api", "sw.js", "favicon.ico", "media", "display", "notice", "admin"):
+        if code.lower() in ("static", "api", "sw.js", "favicon.ico", "media", "display", "notice", "admin", "invite"):
             return "Not Found", 404
         canonical = code.strip().upper()
         dept = storage.get_department(canonical)
@@ -2332,89 +3213,11 @@ def create_unified_app():
     # Auth routes with rate limiting
     @app.route("/api/login", methods=["POST"])
     def login():
-        ip = get_client_ip()
-        locked, retry_after = login_rate_limiter.is_locked(ip)
-        if locked:
-            res = jsonify({
-                "success": False,
-                "error": "Too many failed login attempts. Please try again later.",
-                "retry_after": retry_after
-            })
-            res.status_code = 429
-            res.headers["Retry-After"] = str(retry_after)
-            return res
-
-        data = request.get_json(silent=True) or request.form
-        username = str(data.get("username", "")).strip()
-        password = str(data.get("password", "")).strip()
-
-        # Shared password / super_admin login
-        if not username or username.lower() == "admin":
-            if verify_admin_password(password):
-                login_rate_limiter.record_success(ip)
-                storage.record_audit(actor="admin", action="LOGIN_SUCCESS", target_id="admin", details="Admin login successful", ip=ip)
-                session["is_admin"] = True
-                session["username"] = "admin"
-                session["role"] = "super_admin"
-                session["departments"] = ["ALL"]
-                session["can_target_all"] = True
-                token = generate_csrf_token()
-                session["csrf_token"] = token
-                return jsonify({
-                    "success": True,
-                    "message": "Authentication successful",
-                    "csrf_token": token,
-                    "user": {
-                        "username": "admin",
-                        "role": "super_admin",
-                        "departments": ["ALL"],
-                        "can_target_all": True
-                    }
-                })
-            else:
-                login_rate_limiter.record_failure(ip)
-                storage.record_audit(actor=username or "admin", action="LOGIN_FAILURE", target_id=username or "admin", details="Failed login: incorrect password", ip=ip)
-                return jsonify({"success": False, "error": "Invalid password"}), 401
-        else:
-            # Per-user dept_admin login with hashed passwords
-            user = storage.verify_user_credentials(username, password)
-            if user:
-                login_rate_limiter.record_success(ip)
-                storage.record_audit(actor=user["username"], action="LOGIN_SUCCESS", target_id=user["username"], details=f"User {user['username']} logged in", ip=ip)
-                session["is_admin"] = True
-                session["username"] = user["username"]
-                session["role"] = user["role"]
-                session["departments"] = user["departments"]
-                session["can_target_all"] = user["can_target_all"]
-                token = generate_csrf_token()
-                session["csrf_token"] = token
-                return jsonify({
-                    "success": True,
-                    "message": "Authentication successful",
-                    "csrf_token": token,
-                    "user": {
-                        "username": user["username"],
-                        "role": user["role"],
-                        "departments": user["departments"],
-                        "can_target_all": user["can_target_all"]
-                    }
-                })
-            else:
-                login_rate_limiter.record_failure(ip)
-                storage.record_audit(actor=username, action="LOGIN_FAILURE", target_id=username, details="Failed login: bad credentials", ip=ip)
-                return jsonify({"success": False, "error": "Invalid username or password"}), 401
+        return _handle_login()
 
     @app.route("/api/logout", methods=["POST"])
     def logout():
-        actor = session.get("username", "admin")
-        storage.record_audit(actor=actor, action="LOGOUT", target_id=actor, details="User logged out", ip=get_client_ip())
-        session.pop("is_admin", None)
-        session.pop("csrf_token", None)
-        session.pop("username", None)
-        session.pop("role", None)
-        session.pop("departments", None)
-        session.pop("can_target_all", None)
-        return jsonify({"success": True})
+        return _handle_logout()
 
     @app.route("/api/screens", methods=["GET"])
     def get_screens():
@@ -2442,9 +3245,9 @@ def create_unified_app():
     @app.route("/api/screens", methods=["POST"])
     @mutation_admin_required
     def create_screen():
-        user = get_current_user()
-        if not user or user.get("role") != "super_admin":
-            return jsonify({"error": "Permission denied: Only super_admin can create screens"}), 403
+        _, err_res = _require_admin_role()
+        if err_res:
+            return err_res
         data = request.get_json(silent=True) or request.form.to_dict() or {}
         code = data.get("code")
         name = data.get("name")
@@ -2474,6 +3277,9 @@ def create_unified_app():
     @app.route("/api/screens/<code>", methods=["PUT", "POST"])
     @mutation_admin_required
     def update_screen(code):
+        _, err_res = _require_admin_role()
+        if err_res:
+            return err_res
         data = request.get_json(silent=True) or request.form.to_dict() or {}
         code = str(code).strip().upper()
         dept = storage.get_department(code)
@@ -2489,6 +3295,9 @@ def create_unified_app():
     @app.route("/api/screens/<code>", methods=["DELETE"])
     @mutation_admin_required
     def delete_screen(code):
+        _, err_res = _require_admin_role()
+        if err_res:
+            return err_res
         code = str(code).strip().upper()
         if code == "ALL":
             return jsonify({"error": "The college-wide 'ALL' screen cannot be deleted"}), 400
@@ -2510,8 +3319,13 @@ def create_unified_app():
     def get_notices():
         screen = request.args.get("screen") or request.args.get("screen_id")
         is_admin_view = request.args.get("view") == "admin" or request.args.get("admin") == "1"
-        is_api_key_auth = bool(request.headers.get("X-Password") and verify_admin_password(request.headers.get("X-Password")))
-        if is_api_key_auth or (is_admin_view and check_admin_auth()):
+        api_status, _ = _check_api_key_header()
+        if is_admin_view:
+            if check_admin_auth():
+                notices = _filter_notices_for_user(get_current_user(), storage.get_all(screen_id=screen))
+                return make_etag_response(notices)
+            return jsonify({"error": "Unauthorized. Authentication required."}), 401
+        if api_status == "valid":
             return make_etag_response(storage.get_all(screen_id=screen))
         # Public kiosk view: active notices only with admin fields stripped
         active = storage.get_active(screen_id=screen)
@@ -2536,6 +3350,9 @@ def create_unified_app():
     @app.route("/api/audit-logs", methods=["GET"])
     @read_admin_required
     def get_audit():
+        _, err_res = _require_admin_role()
+        if err_res:
+            return err_res
         limit = min(int(request.args.get("limit", 50)), 200)
         offset = max(int(request.args.get("offset", 0)), 0)
         action = request.args.get("action")
@@ -2593,13 +3410,14 @@ def create_unified_app():
 
         user = get_current_user()
         target_candidates = screens or [form_data.get("screen_id") or "ALL"]
-        ok, err = check_notice_permissions(user, target_candidates)
+        ok, err = check_notice_permissions(user, target_candidates, priority=form_data.get("priority", "normal"), is_mutation=True)
         if not ok:
             return jsonify({"error": err}), 403
 
         try:
-            creator = (user.get("username") if user else None) or form_data.get("created_by") or "admin"
-            notice = storage.add(form_data, file_obj=file_obj, created_by=creator)
+            creator_id = user.get("id") if user else None
+            creator_name = (user.get("name") or user.get("email") or "Admin") if user else (form_data.get("created_by") or "Admin")
+            notice = storage.add(form_data, file_obj=file_obj, created_by=creator_id, created_by_name=creator_name)
             notify_notice_change(affected_screens=notice.get("screens"))
             return jsonify(notice), 201
         except ValueError as ve:
@@ -2630,15 +3448,15 @@ def create_unified_app():
             return jsonify({"error": "Notice not found"}), 404
 
         existing_screens = existing.get("screens") or [existing.get("screen_id", "ALL")]
-        ok, err = check_notice_permissions(user, existing_screens)
+        ok, err = check_notice_permissions(user, existing_screens, priority=existing.get("priority", "normal"), existing_notice=existing, is_mutation=True)
         if not ok:
             return jsonify({"error": err}), 403
 
-        if screens or form_data.get("screen_id"):
-            new_targets = screens or [form_data.get("screen_id") or "ALL"]
-            ok_new, err_new = check_notice_permissions(user, new_targets)
-            if not ok_new:
-                return jsonify({"error": err_new}), 403
+        new_targets = screens or existing_screens
+        new_priority = form_data.get("priority", existing.get("priority", "normal"))
+        ok_new, err_new = check_notice_permissions(user, new_targets, priority=new_priority, existing_notice=existing, is_mutation=True)
+        if not ok_new:
+            return jsonify({"error": err_new}), 403
 
         try:
             updater = (user.get("username") if user else None) or form_data.get("created_by") or "admin"
@@ -2661,12 +3479,12 @@ def create_unified_app():
             return jsonify({"error": "Notice not found"}), 404
 
         target_screens = target.get("screens") or [target.get("screen_id", "ALL")]
-        ok, err = check_notice_permissions(user, target_screens)
+        ok, err = check_notice_permissions(user, target_screens, priority=target.get("priority", "normal"), existing_notice=target, is_mutation=True)
         if not ok:
             return jsonify({"error": err}), 403
 
         affected = target.get("screens") if target else None
-        actor = (user.get("username") if user else None) or "admin"
+        actor = (user.get("email") or user.get("username") if user else None) or "admin"
         success = storage.delete(notice_id, actor=actor, ip=get_client_ip())
         notify_notice_change(affected_screens=affected)
         if success:
@@ -2677,7 +3495,14 @@ def create_unified_app():
     @mutation_admin_required
     def restore_notice(notice_id):
         user = get_current_user()
-        actor = (user.get("username") if user else None) or "admin"
+        target = storage.get_by_id(notice_id)
+        if not target:
+            return jsonify({"error": "Notice not found or cannot be restored"}), 404
+        target_screens = target.get("screens") or [target.get("screen_id", "ALL")]
+        ok, err = check_notice_permissions(user, target_screens, priority=target.get("priority", "normal"), existing_notice=target, is_mutation=True)
+        if not ok:
+            return jsonify({"error": err}), 403
+        actor = (user.get("email") or user.get("username") if user else None) or "admin"
         restored = storage.restore(notice_id, actor=actor, ip=get_client_ip())
         if not restored:
             return jsonify({"error": "Notice not found or cannot be restored"}), 404
@@ -2687,8 +3512,10 @@ def create_unified_app():
     @app.route("/api/settings", methods=["POST", "PUT"])
     @mutation_admin_required
     def update_settings():
-        user = get_current_user()
-        actor = (user.get("username") if user else None) or "admin"
+        user, err_res = _require_admin_role()
+        if err_res:
+            return err_res
+        actor = (user.get("email") or user.get("username") if user else None) or "admin"
         data = request.get_json(silent=True) or request.form.to_dict() or {}
         theme = data.get("theme", "auto")
         storage.record_audit(actor, "SETTINGS_UPDATE", "theme", f"Theme updated to '{theme}'", ip=get_client_ip())
@@ -2697,8 +3524,10 @@ def create_unified_app():
     @app.route("/api/media/clean-orphans", methods=["POST"])
     @mutation_admin_required
     def clean_orphaned_media_route_unified():
-        user = get_current_user()
-        actor = (user.get("username") if user else None) or "admin"
+        user, err_res = _require_admin_role()
+        if err_res:
+            return err_res
+        actor = (user.get("email") or user.get("username") if user else None) or "admin"
         cleaned_count = storage.safe_garbage_collect_media(grace_period_seconds=60)
         storage.record_audit(actor, "CLEAN_MEDIA", "media", f"Cleaned {cleaned_count or 0} orphaned media files", ip=get_client_ip())
         return jsonify({"success": True, "cleaned_count": cleaned_count or 0})
@@ -2706,6 +3535,9 @@ def create_unified_app():
     @app.route("/api/admin/events/flag", methods=["GET"])
     @read_admin_required
     def unified_flag_settings():
+        _, err_res = _require_admin_role()
+        if err_res:
+            return err_res
         events = storage.get_daily_events()
         for e in events:
             e["next_run"] = storage.compute_next_run_text(e)
@@ -2724,8 +3556,10 @@ def create_unified_app():
     @app.route("/api/admin/events/flag", methods=["POST"])
     @mutation_admin_required
     def unified_create_flag_event():
-        user = get_current_user()
-        actor = (user.get("username") if user else None) or "admin"
+        user, err_res = _require_admin_role()
+        if err_res:
+            return err_res
+        actor = (user.get("email") or user.get("username") if user else None) or "admin"
         data = request.get_json(silent=True) or request.form.to_dict() or {}
         ev_id = data.get("id")
         try:
@@ -2745,8 +3579,10 @@ def create_unified_app():
     @app.route("/api/admin/events/flag/<event_id>", methods=["PUT", "POST"])
     @mutation_admin_required
     def unified_update_specific_flag_event(event_id):
-        user = get_current_user()
-        actor = (user.get("username") if user else None) or "admin"
+        user, err_res = _require_admin_role()
+        if err_res:
+            return err_res
+        actor = (user.get("email") or user.get("username") if user else None) or "admin"
         data = request.get_json(silent=True) or request.form.to_dict() or {}
         try:
             updated = storage.update_daily_event(event_id, data, actor=actor, ip=get_client_ip())
@@ -2764,8 +3600,10 @@ def create_unified_app():
     @app.route("/api/admin/events/flag", methods=["PUT"])
     @mutation_admin_required
     def unified_update_flag_settings():
-        user = get_current_user()
-        actor = (user.get("username") if user else None) or "admin"
+        user, err_res = _require_admin_role()
+        if err_res:
+            return err_res
+        actor = (user.get("email") or user.get("username") if user else None) or "admin"
         data = request.get_json(silent=True) or request.form.to_dict() or {}
         event_id = data.get("id") or "flag"
         try:
@@ -2782,8 +3620,10 @@ def create_unified_app():
     @app.route("/api/admin/events/flag/<event_id>", methods=["DELETE"])
     @mutation_admin_required
     def unified_delete_flag_event(event_id):
-        user = get_current_user()
-        actor = (user.get("username") if user else None) or "admin"
+        user, err_res = _require_admin_role()
+        if err_res:
+            return err_res
+        actor = (user.get("email") or user.get("username") if user else None) or "admin"
         events = storage.get_daily_events()
         if len(events) <= 1:
             return jsonify({"error": "Cannot delete the only remaining daily event"}), 400
@@ -2800,8 +3640,10 @@ def create_unified_app():
     @app.route("/api/admin/events/flag/<event_id>/skip-today", methods=["POST"])
     @mutation_admin_required
     def unified_skip_specific_flag_today(event_id):
-        user = get_current_user()
-        actor = (user.get("username") if user else None) or "admin"
+        user, err_res = _require_admin_role()
+        if err_res:
+            return err_res
+        actor = (user.get("email") or user.get("username") if user else None) or "admin"
         updated = storage.skip_daily_event_today(event_id, actor=actor, ip=get_client_ip())
         if not updated:
             return jsonify({"error": f"Event '{event_id}' not found"}), 404
@@ -2815,8 +3657,10 @@ def create_unified_app():
     @app.route("/api/admin/events/flag/skip-today", methods=["POST"])
     @mutation_admin_required
     def unified_skip_flag_today():
-        user = get_current_user()
-        actor = (user.get("username") if user else None) or "admin"
+        user, err_res = _require_admin_role()
+        if err_res:
+            return err_res
+        actor = (user.get("email") or user.get("username") if user else None) or "admin"
         data = request.get_json(silent=True) or request.form.to_dict() or {}
         event_id = data.get("id") or "flag"
         updated = storage.skip_daily_event_today(event_id, actor=actor, ip=get_client_ip())
@@ -2830,8 +3674,10 @@ def create_unified_app():
     @app.route("/api/admin/events/flag/<event_id>/test-run", methods=["POST"])
     @mutation_admin_required
     def unified_test_run_specific_flag(event_id):
-        user = get_current_user()
-        actor = (user.get("username") if user else None) or "admin"
+        user, err_res = _require_admin_role()
+        if err_res:
+            return err_res
+        actor = (user.get("email") or user.get("username") if user else None) or "admin"
         evt = storage.get_daily_event(event_id)
         if not evt:
             return jsonify({"error": f"Event '{event_id}' not found"}), 404
@@ -2855,8 +3701,10 @@ def create_unified_app():
     @app.route("/api/admin/events/flag/test-run", methods=["POST"])
     @mutation_admin_required
     def unified_test_run_flag():
-        user = get_current_user()
-        actor = (user.get("username") if user else None) or "admin"
+        user, err_res = _require_admin_role()
+        if err_res:
+            return err_res
+        actor = (user.get("email") or user.get("username") if user else None) or "admin"
         data = request.get_json(silent=True) or request.form.to_dict() or {}
         event_id = data.get("id") or data.get("event_id") or "flag"
         evt = storage.get_daily_event(event_id)
@@ -2879,6 +3727,9 @@ def create_unified_app():
     @app.route("/api/admin/events/flag/stop", methods=["POST"])
     @mutation_admin_required
     def unified_stop_flag_run():
+        _, err_res = _require_admin_role()
+        if err_res:
+            return err_res
         storage.clear_flag_manual_override(ended_early=True)
         notify_flag_change("ALL")
         return jsonify({"success": True, "message": "Flag display ended"})
@@ -2948,65 +3799,7 @@ def create_unified_app():
         return jsonify(data), code
 
     
-    @app.route("/api/me", methods=["GET"])
-    def get_me():
-        user = get_current_user()
-        if not user:
-            return jsonify({"authenticated": False}), 200
-        return jsonify({
-            "authenticated": True,
-            "username": user["username"],
-            "role": user["role"],
-            "departments": user["departments"],
-            "can_target_all": user["can_target_all"]
-        })
-
-    @app.route("/api/users", methods=["GET"])
-    @read_admin_required
-    def get_users_list():
-        user = get_current_user()
-        if not user or user.get("role") != "super_admin":
-            return jsonify({"error": "Permission denied: Only super_admin can list users"}), 403
-        return jsonify({"success": True, "users": storage.list_users()})
-
-    @app.route("/api/users", methods=["POST"])
-    @mutation_admin_required
-    def create_dept_user():
-        user = get_current_user()
-        if not user or user.get("role") != "super_admin":
-            return jsonify({"error": "Permission denied: Only super_admin can create users"}), 403
-        data = request.get_json(silent=True) or request.form.to_dict() or {}
-        username = data.get("username", "").strip()
-        password = data.get("password", "").strip()
-        role = data.get("role", "dept_admin").strip()
-        departments = data.get("departments", [])
-        can_target_all = bool(data.get("can_target_all", False))
-        if not username or not password:
-            return jsonify({"error": "Username and password are required"}), 400
-        try:
-            created = storage.create_user(
-                username=username,
-                password=password,
-                role=role,
-                departments=departments,
-                can_target_all=can_target_all
-            )
-            return jsonify({"success": True, "user": created}), 201
-        except Exception as e:
-            return jsonify({"error": str(e)}), 400
-
-    @app.route("/api/users/<username>", methods=["DELETE"])
-    @mutation_admin_required
-    def delete_dept_user(username):
-        user = get_current_user()
-        if not user or user.get("role") != "super_admin":
-            return jsonify({"error": "Permission denied: Only super_admin can delete users"}), 403
-        if username.lower() == "admin":
-            return jsonify({"error": "Cannot delete primary admin"}), 400
-        deleted = storage.delete_user(username)
-        if deleted:
-            return jsonify({"success": True, "username": username})
-        return jsonify({"error": "User not found"}), 404
+    register_admin_account_and_invite_routes(app)
     return app
 
 display_app = create_display_app()

@@ -9,15 +9,15 @@
  *  - Media/Range requests (206 Partial Content): NEVER cached, pass through
  */
 
-const ADMIN_SHELL_CACHE = 'vnotice-admin-shell-v3';
+const ADMIN_SHELL_CACHE = 'vnotice-admin-shell-v9';
 
 const ADMIN_SHELL_ASSETS = [
   '/admin',
   '/manifest.webmanifest',
   '/static/manifest.json',
   '/static/css/tokens.css',
-  '/static/css/admin.css?v=12',
-  '/static/js/admin.js?v=10',
+  '/static/css/admin.css?v=19',
+  '/static/js/admin.js?v=13',
   '/static/icons/icon-192.png',
   '/static/icons/icon-maskable-192.png',
   '/static/icons/icon-512.png',
